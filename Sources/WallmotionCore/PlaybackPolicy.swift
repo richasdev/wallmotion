@@ -1,5 +1,6 @@
 public struct PlaybackPolicy: Sendable, Equatable {
     public var thermal = ThermalPausePolicy()
+    public var memory = MemoryPressurePolicy()
     public var sleeping = false
     public var sessionInactive = false
     public var screenAsleep = false
@@ -8,6 +9,7 @@ public struct PlaybackPolicy: Sendable, Equatable {
 
     public func isPaused(settings: PlaybackSettings, lowPower: Bool) -> Bool {
         settings.isManuallyPaused
+            || (settings.pauseOnMemoryPressure && memory.isPaused)
             || (settings.pauseOnThermalPressure && thermal.isPaused)
             || sleeping
             || sessionInactive

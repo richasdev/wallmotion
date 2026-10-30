@@ -233,13 +233,16 @@ final class WallpaperRendererTests: XCTestCase {
             let state = LibraryState(wallpapers: [item], displayMode: .mirrored, mirroredWallpaperID: item.id)
             engine.rebuild(state: state, store: store, paused: false) { _, error in XCTFail(error) }
             let original = try XCTUnwrap(visibility.windows.first)
+            let originalSurface = try XCTUnwrap(original.contentView as? ImageSurface)
             XCTAssertEqual(engine.gifBudget.totalBytes, bytes)
             connected.values = []
             var errors: [String] = []
             engine.rebuild(state: state, store: store, paused: false) { _, error in errors.append(error) }
             XCTAssertEqual(errors.count, 2)
             XCTAssertFalse(original.isVisible)
-            XCTAssertFalse(try XCTUnwrap(original.contentView as? ImageSurface).imageView.animates)
+            XCTAssertFalse(originalSurface.imageView.animates)
+            XCTAssertNil(originalSurface.imageView.image)
+            XCTAssertNil(original.contentView)
             XCTAssertEqual(engine.gifBudget.totalBytes, 0)
         }
     }

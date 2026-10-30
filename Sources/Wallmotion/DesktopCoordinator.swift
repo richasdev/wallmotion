@@ -351,6 +351,8 @@ final class WallpaperRenderer {
             surface.playerLayer.player = nil
             surface.playerLayer.removeFromSuperlayer()
         }
+        imageView?.image = nil
+        window.contentView = nil
         window.orderOut(nil)
         window.close()
     }
@@ -454,7 +456,7 @@ final class DesktopCoordinator {
 
     /// Production entry point: AppKit remains responsive while bounded ImageIO
     /// output is prepared serially. Existing windows stay until replacement succeeds.
-    func scheduleRebuild(state: LibraryState, store: LibraryStore, paused: Bool, force: Bool = false,
+    func scheduleRebuild(state: LibraryState, store: LibraryStore, paused: Bool, force: Bool = false, deferNewRenderers: Bool = false,
                          onState: @escaping @MainActor (String, RemotePlaybackState) -> Void = { _, _ in },
                          onError: @escaping @MainActor (String, String) -> Void) {
         latestPaused = paused
@@ -474,6 +476,10 @@ final class DesktopCoordinator {
             entry.renderer.setHLSResolution(state.settings.hlsResolution)
             entry.renderer.setPaused(paused)
             entry.renderer.setAudioPolicy(enabled: state.settings.audioDisplayID == id && assignments[id] == entry.wallpaperID, volume: state.settings.audioVolume)
+        }
+        if deferNewRenderers {
+            photos.cancel()
+            return // Existing surfaces keep policy/audio updates; new media waits.
         }
         do { try validateAssignments(state: state, store: store) }
         catch {

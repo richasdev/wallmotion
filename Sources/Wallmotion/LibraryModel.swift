@@ -13,6 +13,10 @@ final class LibraryModel {
     private(set) var remotePlaybackStates: [String: RemotePlaybackState] = [:]
     var errorMessage: String?
     @ObservationIgnored private let thermalState: @MainActor () -> ThermalPausePolicy.Pressure
+    @ObservationIgnored private let memoryMonitor: any MemoryPressureMonitoring
+    @ObservationIgnored private let purgeThumbnails: @MainActor () -> Void
+    private var lastMemoryPressure: MemoryPressurePolicy.Pressure?
+    private(set) var resourcesReleasedForMemory = false
     private let store: LibraryStore
     private let engine: DesktopCoordinator
     private let connectedDisplays: @MainActor () -> [Display]
@@ -38,6 +42,8 @@ final class LibraryModel {
             @unknown default: .serious
             }
         },
+        memoryMonitor: any MemoryPressureMonitoring = SystemMemoryPressureMonitor(),
+        purgeThumbnails: @escaping @MainActor () -> Void = { ThumbnailCache.purge() },
         store: LibraryStore = LibraryStore(),
         engine: DesktopCoordinator = DesktopCoordinator(),
         connectedDisplays: @escaping @MainActor () -> [Display] = {
@@ -47,6 +53,8 @@ final class LibraryModel {
         },
         beforeRollbackCleanup: (@MainActor () async -> Void)? = nil
     ) {
+        self.memoryMonitor = memoryMonitor
+        self.purgeThumbnails = purgeThumbnails
         self.thermalState = thermalState
         self.store = store
         self.engine = engine
@@ -56,6 +64,9 @@ final class LibraryModel {
     }
 
     var queuedImportCount: Int { pendingImportURLs.count }
+
+    private var shouldReleaseForMemory: Bool { state.settings.pauseOnMemoryPressure && policy.memory.isPaused }
+    private var shouldDeferNewRenderers: Bool { state.settings.pauseOnMemoryPressure && lastMemoryPressure == .warning }
 
     var isPaused: Bool { screenLocked || policy.isPaused(settings: state.settings, lowPower: lowPower) }
     private var isAutomaticallyPaused: Bool {
@@ -74,8 +85,10 @@ final class LibraryModel {
     var playbackDescription: String {
         if state.settings.isManuallyPaused { return "Pausado por você" }
         if screenLocked || policy.sleeping || policy.screenAsleep || policy.sessionInactive { return "Pausado pelo sistema" }
+        if shouldReleaseForMemory { return "Pausado · pressão de memória" }
         if state.settings.pauseOnThermalPressure && policy.thermal.isPaused { return "Pausado · pressão térmica" }
         if lowPower && state.settings.pauseOnLowPower { return "Pausado · baixo consumo" }
+        if shouldDeferNewRenderers { return "Ativo · novas mídias aguardam memória" }
         return "Reprodução ativa"
     }
 
@@ -87,6 +100,10 @@ final class LibraryModel {
     func start() {
         guard !started else { return }
         started = true
+        // This source observes transitions; it has no synchronous initial snapshot.
+        lastMemoryPressure = nil
+        policy.memory = MemoryPressurePolicy()
+        memoryMonitor.start { [weak self] pressure in self?.receiveMemoryPressure(pressure) }
         let workspace = NSWorkspace.shared.notificationCenter
         observe(NSApplication.didChangeScreenParametersNotification, in: .default) { $0.refreshPlayback(force: false) }
         observe(NSWorkspace.willSleepNotification, in: workspace) { $0.policy.sleeping = true; $0.applyPolicy() }
@@ -126,9 +143,35 @@ final class LibraryModel {
         observers.append((center, token))
     }
 
-    private func applyPolicy() { engine.setPaused(isPaused) }
+    func receiveMemoryPressure(_ pressure: MemoryPressurePolicy.Pressure) {
+        guard started, lastMemoryPressure != pressure else { return }
+        lastMemoryPressure = pressure
+        policy.memory.update(pressure, enabled: state.settings.pauseOnMemoryPressure)
+        guard state.settings.pauseOnMemoryPressure else { return }
+        if pressure == .warning { purgeThumbnails() }
+        if shouldReleaseForMemory { releaseMemoryResources() }
+        else { refreshPlayback(force: false) }
+    }
+
+    private func releaseMemoryResources() {
+        guard !resourcesReleasedForMemory else { return }
+        resourcesReleasedForMemory = true
+        purgeThumbnails()
+        engine.stop() // Cancels pending photo publication and releases owned surfaces.
+        playbackErrors = [:]
+        remotePlaybackStates = [:]
+    }
+
+    private func applyPolicy() {
+        if shouldReleaseForMemory { releaseMemoryResources() }
+        else { engine.setPaused(isPaused) }
+    }
 
     func stop() {
+        memoryMonitor.stop()
+        lastMemoryPressure = nil
+        policy.memory = MemoryPressurePolicy()
+        resourcesReleasedForMemory = false
         observers.forEach { $0.0.removeObserver($0.1) }
         observers.removeAll()
         engine.stop()
@@ -145,6 +188,7 @@ final class LibraryModel {
             canEdit = false
             errorMessage = "A biblioteca não pôde ser aberta e foi preservada em \(store.stateURL.path). \(error.localizedDescription)"
         }
+        policy.memory.update(lastMemoryPressure ?? .normal, enabled: state.settings.pauseOnMemoryPressure)
         refreshThermalState()
         if started { refreshPlayback() }
     }
@@ -366,6 +410,16 @@ final class LibraryModel {
         if update(next) { engine.setPaused(isPaused) }
     }
 
+    func setPauseOnMemoryPressure(_ value: Bool) {
+        guard value != state.settings.pauseOnMemoryPressure else { return }
+        var next = state
+        next.settings.pauseOnMemoryPressure = value
+        if update(next) {
+            policy.memory.update(lastMemoryPressure ?? .normal, enabled: value)
+            refreshPlayback(force: false)
+        }
+    }
+
     func setPauseOnThermalPressure(_ value: Bool) {
         guard value != state.settings.pauseOnThermalPressure else { return }
         var next = state
@@ -383,6 +437,8 @@ final class LibraryModel {
 
     func refreshPlayback(force: Bool = true) {
         displays = connectedDisplays()
+        if shouldReleaseForMemory { releaseMemoryResources(); return }
+        resourcesReleasedForMemory = false
         if force {
             playbackErrors = [:]
             remotePlaybackStates = [:]
@@ -397,7 +453,7 @@ final class LibraryModel {
             }
             playbackErrors = playbackErrors.filter { effective[$0.key] != nil }
         }
-        engine.scheduleRebuild(state: state, store: store, paused: isPaused, force: force, onState: { [weak self] id, state in
+        engine.scheduleRebuild(state: state, store: store, paused: isPaused, force: force, deferNewRenderers: shouldDeferNewRenderers, onState: { [weak self] id, state in
             self?.remotePlaybackStates[id] = state
             if case .error(let message) = state { self?.playbackErrors[id] = message }
             else { self?.playbackErrors[id] = nil }

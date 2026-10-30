@@ -26,7 +26,7 @@ final class ApplicationSessionTests: XCTestCase {
             try lease.publishIdentity(.init(processID: 123, bundleIdentifier: "dev.test.fixture", launchTime: 42))
         }, makeModel: {
             order.append("model")
-            return LibraryModel(thermalState: { .nominal }, store: store, connectedDisplays: { [] })
+            return LibraryModel(thermalState: { .nominal }, memoryMonitor: TestMemoryPressureMonitor(), store: store, connectedDisplays: { [] })
         })
         defer { session.stop() }
         session.prepare()
@@ -55,7 +55,7 @@ final class ApplicationSessionTests: XCTestCase {
         let store = LibraryStore(rootURL: root)
         let session = ApplicationSession(store: store, acquire: { throw NSError(domain: "PRIVATE_TOKEN", code: 1) }, publish: { _ in calls += 1 }, makeModel: {
             calls += 1
-            return LibraryModel(thermalState: { .nominal }, store: store, connectedDisplays: { [] })
+            return LibraryModel(thermalState: { .nominal }, memoryMonitor: TestMemoryPressureMonitor(), store: store, connectedDisplays: { [] })
         })
         session.prepare()
         XCTAssertEqual(session.phase, .failed)
@@ -71,7 +71,7 @@ final class ApplicationSessionTests: XCTestCase {
         var modelCount = 0
         let session = ApplicationSession(store: store, publish: { _ in throw NSError(domain: "PRIVATE_TOKEN", code: 2) }, makeModel: {
             modelCount += 1
-            return LibraryModel(thermalState: { .nominal }, store: store, connectedDisplays: { [] })
+            return LibraryModel(thermalState: { .nominal }, memoryMonitor: TestMemoryPressureMonitor(), store: store, connectedDisplays: { [] })
         })
         session.prepare()
         XCTAssertEqual(session.phase, .failed)
@@ -89,7 +89,7 @@ final class ApplicationSessionTests: XCTestCase {
         try store.save(LibraryState(wallpapers: [try Wallpaper.remote("https://example.com/Admission.mp4")]))
         let session = ApplicationSession(store: store, publish: { lease in
             try lease.publishIdentity(.init(processID: 123, bundleIdentifier: "dev.test.fixture", launchTime: 42))
-        }, makeModel: { LibraryModel(thermalState: { .nominal }, store: store, connectedDisplays: { [] }) })
+        }, makeModel: { LibraryModel(thermalState: { .nominal }, memoryMonitor: TestMemoryPressureMonitor(), store: store, connectedDisplays: { [] }) })
         defer { session.stop() }
         let events = LaunchEventRouter(isPrimary: { session.model != nil }, isBusy: { session.phase == .busy }, importURLs: { _ in }, activateOwner: {}, forward: { _ in }, terminate: {})
         let hosting = NSHostingView(rootView: LibraryWindowContent(session: session, events: events, onRetry: {}).frame(minWidth: 820, minHeight: 560))
