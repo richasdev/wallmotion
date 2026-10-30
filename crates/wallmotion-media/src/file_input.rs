@@ -145,7 +145,13 @@ mod tests {
         let mut header = [0; 6];
         input.read(&mut header).unwrap();
         assert_eq!(&header, b"GIF89a");
+        let mut short = FileInput::new(&fixture.file).unwrap();
         fixture.file.set_len(6).unwrap();
+        // A partial pread is progress, not EOF: keep the complete header, then
+        // report EOF only when the following byte is actually unavailable.
+        short.read(&mut header).unwrap();
+        assert_eq!(&header, b"GIF89a");
+        assert_eq!(short.read(&mut [0]), Err(GifError::Truncated));
         // Skip beyond the already-read buffer, forcing a new pread at EOF.
         input.skip(9000).unwrap();
         assert_eq!(input.read(&mut [0]), Err(GifError::Truncated));
