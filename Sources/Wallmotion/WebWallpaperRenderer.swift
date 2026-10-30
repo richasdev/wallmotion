@@ -207,6 +207,8 @@ final class WebWallpaperRenderer: NSObject, WKNavigationDelegate {
         window.setAudioPolicy=function(enabled,volume){
           var version=++audioVersion;
           var level=typeof volume==="number" && Number.isFinite(volume)?Math.max(0,Math.min(1,volume)):0;
+          // Muting must not wait behind an unresolved gain change.
+          if(enabled!==true || level===0)player.setMuted(true).catch(vimeoError);
           audioChain=audioChain.catch(function(){}).then(function(){
             if(version!==audioVersion)return;
             return player.setMuted(true).then(function(){

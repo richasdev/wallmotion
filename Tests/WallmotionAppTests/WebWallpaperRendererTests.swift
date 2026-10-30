@@ -280,6 +280,14 @@ final class WebWallpaperRendererTests: XCTestCase {
         context.evaluateScript("pendingVolumes.shift()()")
         try await waitUntil("muted===false && volume===0.3")
         XCTAssertEqual(context.objectForKeyedSubscript("plays")?.toInt32(), 1, "Changing gain must not restart transport")
+        context.evaluateScript("window.setAudioPolicy(true,0.7)")
+        try await waitUntil("pendingVolumes.length===1")
+        context.evaluateScript("window.setAudioPolicy(false,0.2)")
+        XCTAssertTrue(context.objectForKeyedSubscript("muted")?.toBool() == true, "Urgent mute cannot wait for a stalled gain promise")
+        context.evaluateScript("pendingVolumes.shift()()")
+        try await waitUntil("pendingVolumes.length===1")
+        context.evaluateScript("pendingVolumes.shift()()")
+        try await waitUntil("muted===true && volume===0.2")
         context.evaluateScript("window.setAudioPolicy(true,NaN)")
         try await waitUntil("pendingVolumes.length===1")
         context.evaluateScript("pendingVolumes.shift()()")
@@ -419,6 +427,18 @@ final class WebWallpaperRendererTests: XCTestCase {
         if embed.provider == .youtube { muted = try await renderer.webView?.evaluateJavaScript(script) }
         else { muted = try await renderer.webView?.callAsyncJavaScript("return await player.getMuted()", in: nil, contentWorld: .page) }
         XCTAssertEqual(muted as? Bool, true)
+        renderer.setAudioPolicy(enabled: false, volume: 0.25)
+        let volumeDeadline = ContinuousClock.now + .seconds(5)
+        var observedVolume: Double?
+        while ContinuousClock.now < volumeDeadline {
+            let result: Any?
+            if embed.provider == .youtube { result = try await renderer.webView?.evaluateJavaScript("player.getVolume()") }
+            else { result = try await renderer.webView?.callAsyncJavaScript("return await player.getVolume()", in: nil, contentWorld: .page) }
+            observedVolume = (result as? NSNumber)?.doubleValue
+            if let observedVolume, abs(observedVolume - (embed.provider == .youtube ? 25 : 0.25)) < 0.001 { break }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertEqual(try XCTUnwrap(observedVolume), embed.provider == .youtube ? 25 : 0.25, accuracy: 0.001)
         if let path = ProcessInfo.processInfo.environment["WALLMOTION_WEB_SNAPSHOT_PATH"] {
             let snapshot = try await renderer.webView?.takeSnapshot(configuration: nil)
             let image = try XCTUnwrap(snapshot)
