@@ -1,0 +1,9 @@
+# Bounded URL editing
+
+AddURLSheet now stores a URLInputDraft that admits at most 4096 UTF-8 bytes using a bounded byte prefix. Oversized edits/pastes do not replace or truncate the previous text. They set a fixed inline input error; Add and Return both refuse submission until a later admitted edit clears it. Same-value binding writes are ignored, preserving the notice during text-field reconciliation. Changing direct/provider mode clears storage feedback but does not acknowledge a rejected paste, so the old URL cannot be saved accidentally. An oversized initial value starts blank with an explanatory error.
+
+Queries, signatures and YouTube start syntax in admitted input are preserved exactly. Input errors never interpolate that URL/token. Draft admission is independent of syntax/host/provider validation; WebEmbed and MediaURL contracts are unchanged. Feedback and link-drop classification share the same UI byte-admission helper. This bounds the retained editable draft, not transient TextKit/paste allocation or the OS's incoming array.
+
+Three new tests cover rejected-paste retention/recovery with a signed URL, exact ASCII/multibyte byte boundaries, combining scalars and oversized initial values. The existing opt-in sheet capture includes an oversized-input case, plus valid YouTube and wrong-mode examples. These inspect composition and syntax-state handling, not actual pasteboard/keyboard/VoiceOver behavior. No clipboard access, truncation or network activity is introduced.
+
+The optional oversized-initial capture initially showed a blank field without its rejection notice. A same-value update of the blank draft cleared that error. Both URLInputDraft and RenameDraft now ignore same-value replacements; unit coverage verifies such reconciliation does not acknowledge rejected input. This also preserves the original guard that blocks submission of an older valid value after a rejected edit.
