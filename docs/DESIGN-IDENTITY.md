@@ -1,11 +1,11 @@
 # Wallmotion — Design & Visual Identity Architecture
-**macOS Native Desktop Dynamic Wallpaper Engine (macOS 14+ Sonoma / macOS 15+ Sequoia)**
+**macOS Native Dynamic Desktop Wallpaper Platform (macOS 14+ Sonoma / macOS 15+ Sequoia)**
 
 ---
 
 ## 1. Executive Summary & Brand Philosophy
 
-Wallmotion is engineered as a state-of-the-art, high-performance native macOS desktop wallpaper engine. Its design identity reflects three core brand pillars:
+Wallmotion is engineered as a state-of-the-art, high-performance native macOS dynamic desktop wallpaper platform. Its design identity reflects three core brand pillars:
 
 1. **Fluid Kinetic Motion:** Desktop backgrounds are living, breathing art pieces—smooth 60/120 FPS playback powered by Metal and native AVFoundation without stutter.
 2. **Native macOS Craftsmanship:** Wallmotion feels like it was designed in Cupertino. It adheres strictly to Apple's Human Interface Guidelines (HIG), utilizing native glassmorphism, continuous curvature squircles, system vibrant materials, and natural diffuse lighting.
