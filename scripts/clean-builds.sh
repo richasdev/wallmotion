@@ -17,3 +17,8 @@ case "${1:-}" in
         exit 2
         ;;
 esac
+
+# Also remove a duplicate target produced by running Cargo directly in the crate.
+if [ -d crates/wallmotion-media/target ]; then
+    cargo clean --manifest-path crates/wallmotion-media/Cargo.toml --target-dir crates/wallmotion-media/target
+fi
