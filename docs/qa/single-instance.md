@@ -1,0 +1,35 @@
+# Cooperative single-instance startup
+
+The application prepares an `ApplicationSession` during `applicationWillFinishLaunching`. It acquires the core library lease and publishes a private owner identity **before constructing/reading LibraryModel**. A busy or failed acquisition leaves the model nil: no local import, settings mutation or desktop renderer starts. Only the admitted primary starts the model after launch. Commands/settings require that model. Admission-dependent reads live in ordinary SwiftUI View bodies so Observation updates the library, settings, menu and import command after preparation. Reopening also raises a closed startup-status window. Retry can acquire ownership after the previous owner exits. The session retains its lease through normal termination so pending import work does not outlive ownership.
+
+## Identifying the primary
+
+While holding the lease, the process atomically publishes `wallmotion-owner.json` with PID, bundle identifier and optional launch time. The file uses the existing 0600 writer; discovery reads are capped at 1024 bytes. Publication fails if the lease has been released or its directory entry no longer names the held lock inode. The persistent record alone is not proof of a running owner.
+
+Secondary routing resolves exactly that PID with NSRunningApplication and checks liveness, matching bundle identifier, launch time (within 1 ms), and a local bundle URL. It never selects the first app with the same bundle ID, which could be another secondary. Missing launch-time metadata fails discovery safely rather than routing on PID alone. This tuple rejects ordinary stale PID reuse; it is not authentication against the same UID.
+
+NSWorkspace activation/open calls disable new-instance creation and running-app substitution, avoid adding entries to Recent Items, and use the resolved owner's bundle URL. Only the returned PID crosses the concurrent completion handler. On the main actor, the current owner identity is checked again before accepting delivery. A launch-services acknowledgment confirms dispatch to the current owner, not successful import or exactly-once processing.
+
+## Startup event ordering and failures
+
+`LaunchEventRouter` retains open-URL batches before launch finishes. The primary imports queued events locally; a secondary activates the primary and drains batches sequentially before terminating itself. New arrivals during an in-flight batch remain queued. A failed/unconfirmed operation retains its batch and uses a fixed diagnostic without OS error strings, file paths or tokens. Explicit retry can forward again or import locally if this instance acquired the now-free lease.
+
+For a default launch with no files, activation acknowledgment permits secondary termination. For a nondefault launch or missing default-launch flag with no initial files yet, it conservatively waits for an open event. Apple's documented single-file callback ordering is not assumed for the general URL-batch callback. There is no run-loop-yield or arbitrary timer used as evidence that initial events are drained. Nondefault launches also include restoration/services; in those no-file cases, a secondary can remain on the status screen until the user chooses to display the primary and close this instance or closes it directly. That favors preserving late files over unconditional immediate exit.
+
+An ambiguous system error can mean the receiver already got a batch; retry may duplicate an import. The UI asks the user to check the open library before retrying. Pending batches are in memory only. Explicit user termination can discard unconfirmed events. An unavailable primary/identity leaves a retry/close status screen and does not start an unprotected model.
+
+## Scope and verification
+
+This protocol only coordinates versions that acquire the same local lease. Older versions, external writers, raw fork/dup-held references, unsupported network locking and same-UID filesystem tampering retain the limitations documented for the primitive. No network listener, distributed notification channel, private API or persistent polling timer is added.
+
+Three core identity tests cover private atomic publication, released-lease refusal, PID/bundle/launch matching, bounded reads and symlink refusal. Three session tests verify no model/publication work while busy or on acquisition failure, publication-before-model order, retry, retained lifetime and release after publication failure. An opt-in admitted-root snapshot hosts the actual library root at the scene’s 820×560 minimum, starts with no model, then prepares/adopts the primary session to inspect the reactive transition. Six injected router tests cover early/late events, arrivals during acknowledgment, safe error retention/redaction, explicit retry and transition to primary. They do not launch a second GUI app or use the user's library. Actual LaunchServices routing and app activation require runtime verification; injected acknowledgment tests alone do not certify OS delivery.
+
+References: [Apple single-file callback ordering](https://developer.apple.com/documentation/appkit/nsapplicationdelegate/application(_:openfile:)), [default-launch flag](https://developer.apple.com/documentation/appkit/nsapplication/launchisdefaultuserinfokey), [NSWorkspace open URLs](https://developer.apple.com/documentation/appkit/nsworkspace/open(_:withapplicationat:configuration:completionhandler:)), [new-instance configuration](https://developer.apple.com/documentation/appkit/nsworkspace/openconfiguration/createsnewapplicationinstance).
+
+## Runtime sample on the development Mac
+
+The packaged development build admitted one primary and published a 0600 owner record whose PID and launch time matched NSRunningApplication. An independent nonblocking flock attempt confirmed the lease remained held. After one instrumented default secondary launch and five consecutive additional `open -n` launches without file URLs, each secondary logged busy admission with no model, received the expected primary PID from activation acknowledgment, and exited. The primary PID/owner record remained stable. The existing library JSON's SHA-256, size and modification timestamp remained unchanged; no test media was imported.
+
+An earlier uninstrumented secondary remained present, so its cause is unresolved rather than claimed fixed. Nondefault waiting is an intentional possible explanation, not proven for that run. Scalar OSLog diagnostics now distinguish admission, default-launch flag, queued count, expected/returned PID, waiting and unconfirmed dispatch without logging URLs, filenames, paths or OS error text.
+
+This sample does not test actual file-URL forwarding or every restoration/service launch. Real-window pixel/accessibility inspection was unavailable: the Orca helper lacked Accessibility permission, the alternate native provider failed to start, and public screenshot captures failed. No OS permissions were changed. Visual evidence remains the temporary hosted-root snapshot; no claim of completed native VoiceOver or live-window pixel QA is made.
