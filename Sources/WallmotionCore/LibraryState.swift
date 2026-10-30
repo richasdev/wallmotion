@@ -3,10 +3,23 @@ import Foundation
 public struct PlaybackSettings: Codable, Equatable, Sendable {
     public var pauseOnLowPower: Bool
     public var isManuallyPaused: Bool
+    public var audioDisplayID: String?
 
-    public init(pauseOnLowPower: Bool = true, isManuallyPaused: Bool = false) {
+    public init(pauseOnLowPower: Bool = true, isManuallyPaused: Bool = false, audioDisplayID: String? = nil) {
         self.pauseOnLowPower = pauseOnLowPower
         self.isManuallyPaused = isManuallyPaused
+        self.audioDisplayID = audioDisplayID
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case pauseOnLowPower, isManuallyPaused, audioDisplayID
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        pauseOnLowPower = try values.decodeIfPresent(Bool.self, forKey: .pauseOnLowPower) ?? true
+        isManuallyPaused = try values.decodeIfPresent(Bool.self, forKey: .isManuallyPaused) ?? false
+        audioDisplayID = try values.decodeIfPresent(String.self, forKey: .audioDisplayID)
     }
 }
 
@@ -14,20 +27,26 @@ public struct LibraryState: Codable, Equatable, Sendable {
     public var version: Int
     public var wallpapers: [Wallpaper]
     public var assignments: [String: UUID]
+    public var displayMode: DisplayMode
+    public var mirroredWallpaperID: UUID?
+    public var mirroredMediaFit: MediaFit
     public var settings: PlaybackSettings
     // Display UUID → wallpaper UUID → proportional presentation mode.
     public var mediaFits: [String: [String: MediaFit]]
 
-    public init(version: Int = 2, wallpapers: [Wallpaper] = [], assignments: [String: UUID] = [:], settings: PlaybackSettings = .init(), mediaFits: [String: [String: MediaFit]] = [:]) {
+    public init(version: Int = 3, wallpapers: [Wallpaper] = [], assignments: [String: UUID] = [:], settings: PlaybackSettings = .init(), mediaFits: [String: [String: MediaFit]] = [:], displayMode: DisplayMode = .independent, mirroredWallpaperID: UUID? = nil, mirroredMediaFit: MediaFit = .fit) {
         self.version = version
         self.wallpapers = wallpapers
         self.assignments = assignments
         self.settings = settings
         self.mediaFits = mediaFits
+        self.displayMode = displayMode
+        self.mirroredWallpaperID = mirroredWallpaperID
+        self.mirroredMediaFit = mirroredMediaFit
     }
 
     private enum CodingKeys: String, CodingKey {
-        case version, wallpapers, assignments, settings, mediaFits
+        case version, wallpapers, assignments, settings, mediaFits, displayMode, mirroredWallpaperID, mirroredMediaFit
     }
 
     public init(from decoder: any Decoder) throws {
@@ -35,20 +54,36 @@ public struct LibraryState: Codable, Equatable, Sendable {
         version = try values.decode(Int.self, forKey: .version)
         wallpapers = try values.decode([Wallpaper].self, forKey: .wallpapers)
         assignments = try values.decode([String: UUID].self, forKey: .assignments)
-        settings = try values.decode(PlaybackSettings.self, forKey: .settings)
+        settings = try values.decodeIfPresent(PlaybackSettings.self, forKey: .settings) ?? .init()
+        displayMode = try values.decodeIfPresent(DisplayMode.self, forKey: .displayMode) ?? .independent
+        mirroredWallpaperID = try values.decodeIfPresent(UUID.self, forKey: .mirroredWallpaperID)
+        mirroredMediaFit = try values.decodeIfPresent(MediaFit.self, forKey: .mirroredMediaFit) ?? .fit
         mediaFits = try values.decodeIfPresent([String: [String: MediaFit]].self, forKey: .mediaFits) ?? [:]
     }
 
+    public func effectiveAssignments(for displayIDs: [String]) -> [String: UUID] {
+        switch displayMode {
+        case .independent:
+            let connected = Set(displayIDs)
+            return assignments.filter { connected.contains($0.key) }
+        case .mirrored:
+            guard let mirroredWallpaperID else { return [:] }
+            return Dictionary(displayIDs.map { ($0, mirroredWallpaperID) }, uniquingKeysWith: { first, _ in first })
+        }
+    }
+
     public func mediaFit(for wallpaperID: UUID, on displayID: String) -> MediaFit {
-        mediaFits[displayID]?[wallpaperID.uuidString] ?? .fit
+        displayMode == .mirrored ? mirroredMediaFit : mediaFits[displayID]?[wallpaperID.uuidString] ?? .fit
     }
 
     public mutating func setMediaFit(_ fit: MediaFit, for wallpaperID: UUID, on displayID: String) {
-        mediaFits[displayID, default: [:]][wallpaperID.uuidString] = fit
+        if displayMode == .mirrored { mirroredMediaFit = fit }
+        else { mediaFits[displayID, default: [:]][wallpaperID.uuidString] = fit }
     }
 
     public mutating func remove(id: UUID) {
         wallpapers.removeAll { $0.id == id }
+        if mirroredWallpaperID == id { mirroredWallpaperID = nil }
         assignments = assignments.filter { $0.value != id }
         for display in Array(mediaFits.keys) {
             mediaFits[display]?.removeValue(forKey: id.uuidString)
@@ -57,9 +92,11 @@ public struct LibraryState: Codable, Equatable, Sendable {
     }
 
     public func validated() throws -> LibraryState {
-        guard version == 1 || version == 2 else { throw LibraryError.unsupportedVersion }
+        guard (1...3).contains(version) else { throw LibraryError.unsupportedVersion }
         let ids = Set(wallpapers.map(\.id))
         guard ids.count == wallpapers.count,
+              mirroredWallpaperID.map(ids.contains) != false,
+              settings.audioDisplayID?.isEmpty != true,
               assignments.allSatisfy({ !$0.key.isEmpty && ids.contains($0.value) }) else { throw LibraryError.invalidState }
         let fitIDs = Set(wallpapers.map { $0.id.uuidString })
         guard mediaFits.allSatisfy({ display, fits in
@@ -68,7 +105,7 @@ public struct LibraryState: Codable, Equatable, Sendable {
         for item in wallpapers {
             switch item.source {
             case .web(let embed):
-                guard version == 2, item.kind == .video else { throw LibraryError.invalidState }
+                guard version >= 2, item.kind == .video else { throw LibraryError.invalidState }
                 try embed.validate()
             case .local(let filename): try LibraryStore.validateFilename(filename)
             case .remote(let url):
@@ -77,7 +114,7 @@ public struct LibraryState: Codable, Equatable, Sendable {
             }
         }
         var migrated = self
-        migrated.version = 2
+        migrated.version = 3
         return migrated
     }
 }

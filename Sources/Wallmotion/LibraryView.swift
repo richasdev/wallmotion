@@ -22,11 +22,11 @@ struct LibraryView: View {
     }
 
     private var hasAppliedWallpaper: Bool {
-        model.displays.contains { model.state.assignments[$0.id] != nil }
+        model.displays.contains { model.activeWallpaperID(on: $0.id) != nil }
     }
 
     private func appliedWallpaper(on displayID: String) -> Wallpaper? {
-        guard let id = model.state.assignments[displayID] else { return nil }
+        guard let id = model.activeWallpaperID(on: displayID) else { return nil }
         return model.state.wallpapers.first(where: { $0.id == id })
     }
 
@@ -69,30 +69,15 @@ struct LibraryView: View {
     }
 
     private var detail: some View {
-        VStack(alignment: .leading, spacing: 24) {
+        ScrollView {
+        VStack(alignment: .leading, spacing: 20) {
             header
-            if let wallpaperID = model.state.assignments[selectedDisplay], supportsMediaFit {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Exibição neste monitor").font(.callout.weight(.semibold))
-                    Picker("Exibição neste monitor", selection: Binding(
-                        get: { model.state.mediaFit(for: wallpaperID, on: selectedDisplay) },
-                        set: { model.setMediaFit($0, on: selectedDisplay) }
-                    )) {
-                        Text("Ajustar").tag(MediaFit.fit)
-                        Text("Preencher").tag(MediaFit.fill)
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .frame(maxWidth: 320)
-                    .disabled(!model.canEdit)
-                    Text("Ajustar mostra toda a mídia. Preencher recorta as bordas, sem distorcer. Fotos muito grandes usam resolução reduzida para limitar memória.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-            }
+            BackgroundControls(model: model, selectedDisplay: selectedDisplay, supportsMediaFit: supportsMediaFit)
             libraryContent
             if model.isImporting { ProgressView("Copiando mídia para a biblioteca…").controlSize(.small) }
         }
-        .padding(28)
+        .padding(24)
+        }
         .background(Color(nsColor: .windowBackgroundColor))
         .overlay {
             RoundedRectangle(cornerRadius: 12)
@@ -139,17 +124,15 @@ struct LibraryView: View {
         } else if filteredItems.isEmpty {
             ContentUnavailableView.search(text: search)
         } else {
-            ScrollView {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 230), spacing: 16)], spacing: 16) {
-                    ForEach(filteredItems) { item in card(for: item) }
-                }.padding(.bottom)
-            }
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 230), spacing: 16)], spacing: 16) {
+                ForEach(filteredItems) { item in card(for: item) }
+            }.padding(.bottom)
         }
     }
 
     private func card(for item: Wallpaper) -> some View {
-        let applied = model.state.assignments[selectedDisplay] == item.id
-        return WallpaperCard(item: item, localURL: model.localMediaURL(for: item), isApplied: applied, onApply: {
+        let applied = model.activeWallpaperID(on: selectedDisplay) == item.id
+        return WallpaperCard(item: item, localURL: model.localMediaURL(for: item), isApplied: applied, appliesToAll: model.state.displayMode == .mirrored, onApply: {
             model.apply(item, to: selectedDisplay)
         }, onRemove: {
             pendingRemoval = item
@@ -160,7 +143,7 @@ struct LibraryView: View {
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 20) {
             HStack(spacing: 10) {
-                BrandLogoView(size: 28)
+                BrandLogoView(size: 36)
                 Text("Wallmotion").font(.title2.weight(.semibold))
             }.padding(.top, 18).padding(.bottom, 8)
             Text("MONITORES").font(.caption.weight(.semibold)).tracking(1).foregroundStyle(.secondary)
@@ -208,7 +191,9 @@ struct LibraryView: View {
             .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
             Toggle("Pausar em baixo consumo", isOn: Binding(get: { model.state.settings.pauseOnLowPower }, set: { model.setPauseOnLowPower($0) }))
                 .font(.caption).disabled(!model.canEdit)
-            Text("Áudio desativado · arquivos originais preservados")
+            Label(model.state.settings.audioDisplayID == nil ? "Som desativado" : "Som em um monitor", systemImage: model.state.settings.audioDisplayID == nil ? "speaker.slash" : "speaker.wave.2")
+                .font(.caption).foregroundStyle(.secondary)
+            Text("Arquivos originais preservados")
                 .font(.caption2).foregroundStyle(.secondary)
         }.padding(18)
     }
@@ -216,7 +201,11 @@ struct LibraryView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Sua biblioteca").font(.largeTitle.weight(.bold))
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Sua biblioteca").font(.largeTitle.weight(.bold))
+                    Spacer()
+                    Text("WALLMOTION").font(.caption2.weight(.semibold)).tracking(2).foregroundStyle(.secondary)
+                }
                 Text("\(model.state.wallpapers.count) \(model.state.wallpapers.count == 1 ? "mídia" : "mídias") · fotos, GIFs e vídeos")
                     .font(.callout).foregroundStyle(.secondary)
             }
@@ -250,7 +239,8 @@ struct LibraryView: View {
         HStack(spacing: 12) {
             Image(systemName: "display").font(.title2).foregroundStyle(Color.accentColor)
             VStack(alignment: .leading, spacing: 4) {
-                Text(targetDisplayName).font(.callout.weight(.semibold)).lineLimit(1)
+                Text(model.state.displayMode == .mirrored ? "Todos os monitores · mesmo fundo" : targetDisplayName)
+                    .font(.callout.weight(.semibold)).lineLimit(2)
                 Text(appliedWallpaper(on: selectedDisplay).map { "Fundo: \($0.title)" } ?? "Escolha uma mídia para este monitor")
                     .font(.caption).foregroundStyle(.secondary).lineLimit(2)
             }
@@ -261,8 +251,8 @@ struct LibraryView: View {
         Button { model.clear(displayID: selectedDisplay) } label: {
             Label("Fundo do sistema", systemImage: "arrow.uturn.backward")
         }
-        .disabled(!model.canEdit || model.state.assignments[selectedDisplay] == nil)
-        .help("Remover o Wallmotion deste monitor e revelar o fundo do macOS")
+        .disabled(!model.canEdit || model.activeWallpaperID(on: selectedDisplay) == nil)
+        .help(model.state.displayMode == .mirrored ? "Revelar o fundo do macOS em todos os monitores" : "Revelar o fundo do macOS neste monitor")
     }
 
     private var urlSheet: some View {
@@ -309,6 +299,7 @@ struct WallpaperCard: View {
     let item: Wallpaper
     let localURL: URL?
     let isApplied: Bool
+    var appliesToAll: Bool = false
     let onApply: () -> Void
     let onRemove: () -> Void
 
@@ -331,7 +322,7 @@ struct WallpaperCard: View {
                     .accessibilityLabel("Remover \(item.title) da biblioteca")
             }
             Button(action: onApply) {
-                Label(isApplied ? "Aplicado · reaplicar" : "Aplicar neste monitor", systemImage: isApplied ? "checkmark.circle.fill" : "display")
+                Label(isApplied ? "Aplicado · reaplicar" : (appliesToAll ? "Aplicar em todos" : "Aplicar neste monitor"), systemImage: isApplied ? "checkmark.circle.fill" : "display")
                     .frame(maxWidth: .infinity)
             }.buttonStyle(.bordered)
         }

@@ -206,6 +206,70 @@ final class WebWallpaperRendererTests: XCTestCase {
         XCTAssertNil(renderer.webView, "Falhas exigem recarga explícita, sem retry em eventos de monitores/energia")
     }
 
+    func testProviderAudioCommandsUseBooleanPolicyWithoutRestartOffline() throws {
+        for provider in [WebEmbed.Provider.youtube, .vimeo] {
+            let embed = try WebEmbed(provider: provider, videoID: provider == .youtube ? "M7lc1UVf-VE" : "76979871")
+            let html = WebWallpaperRenderer.document(embed: embed, origin: "https://dev.richas.wallmotion")
+            let context = try XCTUnwrap(JSContext())
+            context.evaluateScript("""
+            var window=this, muted=true, plays=0;
+            var document={getElementById:function(){return {}}};
+            window.webkit={messageHandlers:{playback:{postMessage:function(){}}}};
+            var transport={mute:function(){muted=true},unMute:function(){muted=false},playVideo:function(){plays++}};
+            var YT={Player:function(id,options){options.events.onReady({target:transport});return transport}};
+            var promise={then:function(fn){fn();return promise},catch:function(){return promise}};
+            var Vimeo={Player:function(){return {on:function(){},ready:function(){return promise},setMuted:function(value){muted=value;return promise},play:function(){plays++;return promise}}}};
+            """)
+            let regex = try NSRegularExpression(pattern: "<script>([\\s\\S]*?)</script>")
+            for match in regex.matches(in: html, range: NSRange(html.startIndex..., in: html)) {
+                let range = try XCTUnwrap(Range(match.range(at: 1), in: html))
+                context.evaluateScript(String(html[range]))
+                XCTAssertNil(context.exception, context.exception?.toString() ?? "")
+            }
+            if provider == .youtube { context.evaluateScript("onYouTubeIframeAPIReady()") }
+            XCTAssertNil(context.exception, context.exception?.toString() ?? "")
+            XCTAssertEqual(context.objectForKeyedSubscript("muted")?.toBool(), true)
+            let plays = context.objectForKeyedSubscript("plays")?.toInt32()
+            context.evaluateScript("window.setAudioEnabled(true)")
+            XCTAssertEqual(context.objectForKeyedSubscript("muted")?.toBool(), false)
+            context.evaluateScript("window.setAudioEnabled(false)")
+            XCTAssertEqual(context.objectForKeyedSubscript("muted")?.toBool(), true)
+            context.evaluateScript("window.setAudioEnabled('true')")
+            XCTAssertEqual(context.objectForKeyedSubscript("muted")?.toBool(), true)
+            XCTAssertEqual(context.objectForKeyedSubscript("plays")?.toInt32(), plays)
+            XCTAssertNil(context.exception, context.exception?.toString() ?? "")
+        }
+    }
+
+    func testReadyAudioPolicySurvivesViewReplacementWithoutNetwork() async throws {
+        let document = """
+        <script>window.audio=false;window.setAudioEnabled=function(value){window.audio=value===true};
+        window.webkit.messageHandlers.playback.postMessage('ready');</script>
+        """
+        let renderer = try WebWallpaperRenderer(embed: WebEmbed(provider: .youtube, videoID: "M7lc1UVf-VE"), onError: { XCTFail($0) }, document: document)
+        defer { renderer.stop() }
+        renderer.setAudioEnabled(true)
+        renderer.setPaused(false)
+        let first = try XCTUnwrap(renderer.webView)
+        func waitForAudio(_ expected: Bool) async throws {
+            let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+            while ContinuousClock.now < deadline {
+                if let actual = try? await renderer.webView?.evaluateJavaScript("window.audio"), actual as? Bool == expected { return }
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            XCTFail("Audio policy did not reach ready document")
+        }
+        try await waitForAudio(true)
+        renderer.setAudioEnabled(false)
+        try await waitForAudio(false)
+        XCTAssertTrue(renderer.webView === first)
+        renderer.setAudioEnabled(true)
+        renderer.setPaused(true)
+        renderer.setPaused(false)
+        XCTAssertFalse(renderer.webView === first)
+        try await waitForAudio(true)
+    }
+
     func testProviderDocumentsUseOfficialAPIsAndIdentity() throws {
         let youtube = WebWallpaperRenderer.document(embed: try WebEmbed.parse("https://youtu.be/M7lc1UVf-VE"), origin: "https://dev.richas.wallmotion")
         XCTAssertTrue(youtube.contains("origin=https://dev.richas.wallmotion"))

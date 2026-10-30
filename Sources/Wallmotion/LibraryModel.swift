@@ -14,6 +14,7 @@ final class LibraryModel {
     var errorMessage: String?
     private let store: LibraryStore
     private let engine: DesktopCoordinator
+    private let connectedDisplays: @MainActor () -> [Display]
     private var started = false
     private var policy = PlaybackPolicy()
     private var screenLocked = false
@@ -26,10 +27,16 @@ final class LibraryModel {
     init(
         store: LibraryStore = LibraryStore(),
         engine: DesktopCoordinator = DesktopCoordinator(),
+        connectedDisplays: @escaping @MainActor () -> [Display] = {
+            NSScreen.screens.compactMap { screen in
+                Display.identify(screen).map { Display(id: $0, name: screen.localizedName) }
+            }
+        },
         beforeRollbackCleanup: (@MainActor () async -> Void)? = nil
     ) {
         self.store = store
         self.engine = engine
+        self.connectedDisplays = connectedDisplays
         self.beforeRollbackCleanup = beforeRollbackCleanup
         load()
     }
@@ -187,27 +194,57 @@ final class LibraryModel {
         } catch { errorMessage = error.localizedDescription; return false }
     }
 
-    func apply(_ item: Wallpaper, to displayID: String) {
-        guard state.wallpapers.contains(where: { $0.id == item.id }), displays.contains(where: { $0.id == displayID }) else { return }
-        do {
-            try engine.validateAssignment(item, to: displayID, store: store)
-        } catch {
-            errorMessage = error.localizedDescription
-            return
-        }
+    func activeWallpaperID(on displayID: String) -> UUID? {
+        state.effectiveAssignments(for: displays.map(\.id))[displayID]
+    }
+
+    func mediaFit(on displayID: String) -> MediaFit {
+        guard let id = activeWallpaperID(on: displayID) else { return .fit }
+        return state.mediaFit(for: id, on: displayID)
+    }
+
+    func setDisplayMode(_ mode: DisplayMode, sourceDisplayID: String) {
+        guard canEdit, mode != state.displayMode else { return }
         var next = state
-        next.assignments[displayID] = item.id
+        if mode == .mirrored {
+            next.mirroredWallpaperID = activeWallpaperID(on: sourceDisplayID)
+            next.mirroredMediaFit = mediaFit(on: sourceDisplayID)
+        }
+        next.displayMode = mode
+        do { try engine.validateAssignments(state: next, store: store) }
+        catch { errorMessage = error.localizedDescription; return }
+        if update(next) { refreshPlayback(force: false) }
+    }
+
+    func setAudioDisplayID(_ id: String?) {
+        guard id == nil || displays.contains(where: { $0.id == id }) else { return }
+        var next = state
+        next.settings.audioDisplayID = id
+        if update(next) { refreshPlayback(force: false) }
+    }
+
+    func apply(_ item: Wallpaper, to displayID: String) {
+        guard canEdit, state.wallpapers.contains(where: { $0.id == item.id }),
+              displays.contains(where: { $0.id == displayID }) else { return }
+        var next = state
+        if next.displayMode == .mirrored { next.mirroredWallpaperID = item.id }
+        else { next.assignments[displayID] = item.id }
+        do { try engine.validateAssignments(state: next, store: store) }
+        catch { errorMessage = error.localizedDescription; return }
         if update(next) {
-            playbackErrors[displayID] = nil
-            remotePlaybackStates[displayID] = nil
-            engine.invalidate(displayID: displayID)
+            let affected = next.displayMode == .mirrored ? displays.map(\.id) : [displayID]
+            for id in affected {
+                playbackErrors[id] = nil
+                remotePlaybackStates[id] = nil
+                engine.invalidate(displayID: id)
+            }
             refreshPlayback(force: false)
         }
     }
 
     func setMediaFit(_ fit: MediaFit, on displayID: String) {
         guard displays.contains(where: { $0.id == displayID }),
-              let wallpaperID = state.assignments[displayID],
+              let wallpaperID = activeWallpaperID(on: displayID),
               let wallpaper = state.wallpapers.first(where: { $0.id == wallpaperID }) else { return }
         // Official embeds keep the provider's proportional presentation.
         if case .web = wallpaper.source { return }
@@ -218,7 +255,8 @@ final class LibraryModel {
 
     func clear(displayID: String) {
         var next = state
-        next.assignments.removeValue(forKey: displayID)
+        if next.displayMode == .mirrored { next.mirroredWallpaperID = nil }
+        else { next.assignments.removeValue(forKey: displayID) }
         if update(next) { refreshPlayback(force: false) }
     }
 
@@ -244,7 +282,7 @@ final class LibraryModel {
     }
 
     func retryPlayback(displayID: String) {
-        guard state.assignments[displayID] != nil else { return }
+        guard activeWallpaperID(on: displayID) != nil else { return }
         engine.invalidate(displayID: displayID)
         playbackErrors[displayID] = nil
         remotePlaybackStates[displayID] = nil
@@ -252,22 +290,20 @@ final class LibraryModel {
     }
 
     func refreshPlayback(force: Bool = true) {
-        displays = NSScreen.screens.compactMap { screen in
-            Display.identify(screen).map { Display(id: $0, name: screen.localizedName) }
-        }
+        displays = connectedDisplays()
         if force {
             playbackErrors = [:]
             remotePlaybackStates = [:]
         } else {
-            let connected = Set(displays.map(\.id))
+            let effective = state.effectiveAssignments(for: displays.map(\.id))
             let remoteIDs = Set(state.wallpapers.compactMap { item -> UUID? in
                 if case .remote = item.source { return item.id }
                 return nil
             })
             remotePlaybackStates = remotePlaybackStates.filter {
-                connected.contains($0.key) && state.assignments[$0.key].map(remoteIDs.contains) == true
+                effective[$0.key].map(remoteIDs.contains) == true
             }
-            playbackErrors = playbackErrors.filter { connected.contains($0.key) && state.assignments[$0.key] != nil }
+            playbackErrors = playbackErrors.filter { effective[$0.key] != nil }
         }
         engine.rebuild(state: state, store: store, paused: isPaused, force: force, onState: { [weak self] id, state in
             self?.remotePlaybackStates[id] = state
