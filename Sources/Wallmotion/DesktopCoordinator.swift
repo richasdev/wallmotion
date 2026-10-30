@@ -402,11 +402,12 @@ final class DesktopCoordinator {
     private let webDocument: String?
 
     init(gifBudgetLimit: UInt64 = GIFPlaybackBudget.defaultLimit,
+         photoBatchBudgetLimit: Int = PhotoPreparation.maximumRetainedBytes,
          targets: @escaping @MainActor () -> [DesktopTarget] = { DesktopTarget.connected },
          isWindowVisible: @escaping @MainActor (NSWindow) -> Bool = { $0.occlusionState.contains(.visible) },
          webDocument: String? = nil,
          photoDecoder: @escaping PhotoPreparation.Decode = PhotoDecodeWorker.prepare) {
-        photos = PhotoPreparation(decode: photoDecoder)
+        photos = PhotoPreparation(maximumRetainedBytes: photoBatchBudgetLimit, decode: photoDecoder)
         gifBudget = GIFPlaybackBudget(limit: gifBudgetLimit)
         self.targets = targets
         self.isWindowVisible = isWindowVisible
