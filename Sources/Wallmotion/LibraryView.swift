@@ -5,7 +5,7 @@ import WallmotionCore
 struct LibraryView: View {
     @Bindable var model: LibraryModel
     @State private var selectedDisplay = ""
-    @State private var search = ""
+    @State private var searchDraft = LibrarySearchDraft()
     @State private var mediaFilter = LibraryMediaFilter.all
     @State private var sortOrder = LibrarySortOrder.recent
     @State private var catalog = LibraryCatalogProjection()
@@ -18,13 +18,21 @@ struct LibraryView: View {
     init(model: LibraryModel, initialQuery: LibraryQuery = .init(), initialRename: Wallpaper? = nil) {
         self.model = model
         _pendingRename = State(initialValue: initialRename)
-        _search = State(initialValue: initialQuery.text)
+        _searchDraft = State(initialValue: LibrarySearchDraft(text: initialQuery.text))
         _mediaFilter = State(initialValue: initialQuery.filter)
         _sortOrder = State(initialValue: initialQuery.sort)
     }
 
     private var filteredItems: [Wallpaper] {
-        catalog.items(from: model.state.wallpapers, query: LibraryQuery(text: search, filter: mediaFilter, sort: sortOrder))
+        catalog.items(from: model.state.wallpapers, query: LibraryQuery(text: searchDraft.text, filter: mediaFilter, sort: sortOrder))
+    }
+
+    private var searchBinding: Binding<String> {
+        Binding(get: { searchDraft.text }, set: { value in
+            var next = searchDraft
+            guard next.replace(with: value) else { return }
+            searchDraft = next
+        })
     }
 
     private var renameTargetExists: Bool {
@@ -67,7 +75,7 @@ struct LibraryView: View {
                         .help("Importar fotos, GIFs e vídeos · ⌘O")
                 }
             }
-            .searchable(text: $search, prompt: "Buscar na biblioteca")
+            .searchable(text: searchBinding, prompt: "Buscar na biblioteca")
         }
         .onAppear { selectAvailableDisplay() }
         .onChange(of: model.displays) { _, _ in selectAvailableDisplay() }
@@ -122,6 +130,20 @@ struct LibraryView: View {
         VStack(alignment: .leading, spacing: 20) {
             header
             BackgroundControls(model: model, selectedDisplay: selectedDisplay, supportsMediaFit: supportsMediaFit)
+            if let notice = searchDraft.notice {
+                HStack(alignment: .top, spacing: 12) {
+                    Label(notice, systemImage: "text.magnifyingglass")
+                        .foregroundStyle(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    Button("Limpar busca") { searchDraft.clear() }
+                        .buttonStyle(.bordered).controlSize(.small)
+                        .accessibilityLabel("Limpar busca e aviso")
+                }
+                .font(.callout)
+                .padding(12)
+                .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+            }
             if model.canEdit, !model.state.wallpapers.isEmpty { catalogControls }
             libraryContent
             if model.isImporting { ProgressView("Copiando mídia para a biblioteca…").controlSize(.small) }
@@ -198,7 +220,7 @@ struct LibraryView: View {
                     .font(.caption).foregroundStyle(.secondary)
                     .accessibilityLabel("\(filteredItems.count) de \(model.state.wallpapers.count) mídias exibidas")
                 Spacer()
-                if mediaFilter != .all || !search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if mediaFilter != .all || !searchDraft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Button("Limpar filtros", systemImage: "xmark.circle", action: clearQuery)
                         .buttonStyle(.borderless).font(.caption)
                         .accessibilityLabel("Limpar busca e filtro de tipo")
@@ -211,7 +233,7 @@ struct LibraryView: View {
     }
 
     private func clearQuery() {
-        search = ""
+        searchDraft.clear()
         mediaFilter = .all
     }
 
