@@ -2,15 +2,18 @@ import AppKit
 import AVFoundation
 import QuartzCore
 import WallmotionCore
+import ImageIO
 
 struct Display: Identifiable, Equatable {
     let id: String
     let name: String
 
     @MainActor static func identify(_ screen: NSScreen) -> String? {
-        guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber,
-              let uuid = CGDisplayCreateUUIDFromDisplayID(number.uint32Value)?.takeRetainedValue() else { return nil }
-        return CFUUIDCreateString(nil, uuid) as String
+        guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return nil }
+        if let uuid = CGDisplayCreateUUIDFromDisplayID(number.uint32Value)?.takeRetainedValue() {
+            return CFUUIDCreateString(nil, uuid) as String
+        }
+        return "display-\(number.uint32Value)"
     }
 }
 
@@ -68,11 +71,27 @@ final class WallpaperRenderer {
     private var endObserver: NSObjectProtocol?
     private var failureObserver: NSObjectProtocol?
     private var paused = true
+    private var stopped = false
 
     init(wallpaper: Wallpaper, url: URL, screen: NSScreen, onError: @escaping @MainActor (String) -> Void) throws {
         if wallpaper.kind == .image || wallpaper.kind == .gif {
-            guard let image = NSImage(contentsOf: url), image.isValid else {
-                throw RendererError.unreadableImage
+            let image: NSImage
+            if wallpaper.kind == .gif {
+                _ = try GIFPreflight.inspect(url: url)
+                guard let animated = NSImage(contentsOf: url), animated.isValid else { throw RendererError.unreadableImage }
+                image = animated
+            } else {
+                // Decode only enough pixels for this display; never retain the full
+                // resolution bitmap of a large imported photo.
+                let maxPixels = Int(ceil(max(screen.frame.width, screen.frame.height) * screen.backingScaleFactor))
+                guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
+                      let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                        kCGImageSourceCreateThumbnailFromImageAlways: true,
+                        kCGImageSourceCreateThumbnailWithTransform: true,
+                        kCGImageSourceThumbnailMaxPixelSize: maxPixels,
+                        kCGImageSourceShouldCacheImmediately: true
+                      ] as CFDictionary) else { throw RendererError.unreadableImage }
+                image = NSImage(cgImage: thumbnail, size: NSSize(width: thumbnail.width, height: thumbnail.height))
             }
             let view = NSImageView(image: image)
             view.imageScaling = .scaleProportionallyUpOrDown
@@ -110,7 +129,9 @@ final class WallpaperRenderer {
                         guard let self else { return }
                         self.player?.seek(to: .zero) { [weak self] finished in
                             Task { @MainActor [weak self] in
-                                guard finished, let self, !self.paused else { return }
+                                guard let self, !self.stopped else { return }
+                                guard finished else { onError("Não foi possível reiniciar o vídeo remoto. Tente recarregar a reprodução."); return }
+                                guard !self.paused else { return }
                                 self.player?.play()
                             }
                         }
@@ -126,6 +147,7 @@ final class WallpaperRenderer {
     }
 
     private func observeCurrentItem(onError: @escaping @MainActor (String) -> Void) {
+        guard !stopped else { return }
         statusObserver?.invalidate()
         if let failureObserver { NotificationCenter.default.removeObserver(failureObserver) }
         failureObserver = nil
@@ -141,6 +163,7 @@ final class WallpaperRenderer {
     }
 
     func setPaused(_ value: Bool) {
+        guard !stopped else { return }
         paused = value
         imageView?.animates = !value
         if value { player?.pause() } else { player?.play() }
@@ -148,6 +171,7 @@ final class WallpaperRenderer {
     }
 
     func stop() {
+        stopped = true
         paused = true
         statusObserver?.invalidate()
         statusObserver = nil
@@ -164,6 +188,10 @@ final class WallpaperRenderer {
         player?.pause()
         player?.replaceCurrentItem(with: nil)
         (player as? AVQueuePlayer)?.removeAllItems()
+        if let surface = window.contentView as? VideoSurface {
+            surface.playerLayer.player = nil
+            surface.playerLayer.removeFromSuperlayer()
+        }
         imageView?.animates = false
         window.orderOut(nil)
         window.close()
@@ -181,33 +209,46 @@ enum RendererError: LocalizedError {
 }
 
 @MainActor
-final class WallpaperEngine {
-    private var renderers: [String: WallpaperRenderer] = [:]
-    private var generation = UUID()
+final class DesktopCoordinator {
+    private struct Entry {
+        let wallpaperID: UUID
+        let frame: CGRect
+        let token: UUID
+        let renderer: WallpaperRenderer
+    }
+    private var renderers: [String: Entry] = [:]
 
-    func rebuild(state: LibraryState, store: LibraryStore, paused: Bool, onError: @escaping @MainActor (String, String) -> Void) {
-        stop()
-        let currentGeneration = generation
+    func rebuild(state: LibraryState, store: LibraryStore, paused: Bool, force: Bool = false, onError: @escaping @MainActor (String, String) -> Void) {
+        if force { stop() }
+        let connected = Set(NSScreen.screens.compactMap(Display.identify))
+        for id in Array(renderers.keys) where !connected.contains(id) || state.assignments[id] == nil {
+            renderers.removeValue(forKey: id)?.renderer.stop()
+        }
         for screen in NSScreen.screens {
             guard let displayID = Display.identify(screen),
                   let wallpaperID = state.assignments[displayID],
                   let wallpaper = state.wallpapers.first(where: { $0.id == wallpaperID }) else { continue }
+            if let entry = renderers[displayID], entry.wallpaperID == wallpaperID, entry.frame == screen.frame {
+                entry.renderer.setPaused(paused)
+                continue
+            }
+            renderers.removeValue(forKey: displayID)?.renderer.stop()
+            let token = UUID()
             do {
                 let renderer = try WallpaperRenderer(wallpaper: wallpaper, url: store.resolvedURL(for: wallpaper), screen: screen) { [weak self] message in
-                    guard self?.generation == currentGeneration else { return }
+                    guard self?.renderers[displayID]?.token == token else { return }
                     onError(displayID, message)
                 }
-                renderers[displayID] = renderer
+                renderers[displayID] = Entry(wallpaperID: wallpaperID, frame: screen.frame, token: token, renderer: renderer)
                 renderer.setPaused(paused)
             } catch { onError(displayID, error.localizedDescription) }
         }
     }
 
-    func setPaused(_ value: Bool) { renderers.values.forEach { $0.setPaused(value) } }
+    func setPaused(_ value: Bool) { renderers.values.forEach { $0.renderer.setPaused(value) } }
 
     func stop() {
-        generation = UUID()
-        renderers.values.forEach { $0.stop() }
+        renderers.values.forEach { $0.renderer.stop() }
         renderers.removeAll()
     }
 }

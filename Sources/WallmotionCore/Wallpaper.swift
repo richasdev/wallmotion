@@ -35,7 +35,8 @@ public struct Wallpaper: Identifiable, Codable, Equatable, Sendable {
 
     public static func remote(_ text: String) throws -> Wallpaper {
         let url = try MediaURL.validate(text)
-        let title = url.lastPathComponent.isEmpty ? (url.host ?? "Vídeo remoto") : url.lastPathComponent
+        let last = url.lastPathComponent
+        let title = (last.isEmpty || last == "/") ? (url.host ?? "Vídeo remoto") : last
         return Wallpaper(title: title, kind: .video, source: .remote(url: url))
     }
 }
@@ -61,7 +62,7 @@ public enum MediaURL {
 }
 
 public enum LibraryError: LocalizedError, Equatable {
-    case unsupportedFile, invalidURL, webPageURL, invalidLocalPath, notRegularFile, unsupportedVersion, invalidState
+    case unsupportedFile, invalidURL, webPageURL, invalidLocalPath, notRegularFile, unsupportedVersion, invalidState, invalidGIF, gifTooLarge
 
     public var errorDescription: String? {
         switch self {
@@ -72,6 +73,8 @@ public enum LibraryError: LocalizedError, Equatable {
         case .notRegularFile: "Selecione um arquivo de mídia comum."
         case .unsupportedVersion: "Esta biblioteca foi criada por uma versão incompatível do Wallmotion."
         case .invalidState: "A biblioteca contém seleções ou identificadores inválidos."
+        case .invalidGIF: "O arquivo GIF está incompleto ou tem uma estrutura inválida."
+        case .gifTooLarge: "Este GIF ultrapassa o orçamento estimado de 256 MiB de frames. Converta a animação para MP4 ou reduza a resolução."
         }
     }
 }

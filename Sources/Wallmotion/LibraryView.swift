@@ -7,6 +7,7 @@ struct LibraryView: View {
     @State private var search = ""
     @State private var showingURL = false
     @State private var urlText = ""
+    @State private var urlError: String?
     @State private var pendingRemoval: Wallpaper?
 
     private var filteredItems: [Wallpaper] {
@@ -146,7 +147,9 @@ struct LibraryView: View {
                 .foregroundStyle(.secondary)
             TextField("https://exemplo.com/video.mp4", text: $urlText)
                 .textFieldStyle(.roundedBorder)
+                .onChange(of: urlText) { _, _ in urlError = nil }
                 .onSubmit { submitURL() }
+            if let urlError { Label(urlError, systemImage: "exclamationmark.circle").font(.callout).foregroundStyle(.red) }
             Text("A conexão com o provedor será feita ao aplicar o wallpaper. Links temporários podem expirar.")
                 .font(.caption).foregroundStyle(.secondary)
             HStack {
@@ -160,7 +163,14 @@ struct LibraryView: View {
     }
 
     private func submitURL() {
-        if model.addURL(urlText) { urlText = ""; showingURL = false }
+        if model.addURL(urlText) {
+            urlText = ""
+            urlError = nil
+            showingURL = false
+        } else {
+            urlError = model.errorMessage
+            model.errorMessage = nil
+        }
     }
 
     private func selectAvailableDisplay() {

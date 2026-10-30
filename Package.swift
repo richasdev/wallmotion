@@ -1,5 +1,9 @@
 // swift-tools-version: 6.0
 import PackageDescription
+import Foundation
+
+let nativeLibraryPath = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+    .appendingPathComponent(".build/native/release").path
 
 let package = Package(
     name: "Wallmotion",
@@ -9,7 +13,12 @@ let package = Package(
         .executable(name: "Wallmotion", targets: ["Wallmotion"])
     ],
     targets: [
-        .target(name: "WallmotionCore"),
+        .target(name: "CWallmotionMedia", linkerSettings: [
+            .unsafeFlags(["-L", nativeLibraryPath]),
+            .linkedLibrary("wallmotion_media"),
+            .linkedLibrary("iconv")
+        ]),
+        .target(name: "WallmotionCore", dependencies: ["CWallmotionMedia"]),
         .executableTarget(name: "Wallmotion", dependencies: ["WallmotionCore"]),
         .testTarget(name: "WallmotionCoreTests", dependencies: ["WallmotionCore"]),
         .testTarget(name: "WallmotionAppTests", dependencies: ["Wallmotion"])

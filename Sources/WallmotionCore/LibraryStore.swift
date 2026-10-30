@@ -28,6 +28,7 @@ public struct LibraryStore: Sendable {
         let kind = try MediaKind.classify(fileURL: url)
         let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
         guard values.isRegularFile == true, values.isSymbolicLink != true else { throw LibraryError.notRegularFile }
+        if kind == .gif { _ = try GIFPreflight.inspect(url: url) }
         let id = UUID()
         let filename = id.uuidString + "." + url.pathExtension.lowercased()
         try FileManager.default.createDirectory(at: mediaDirectory, withIntermediateDirectories: true)

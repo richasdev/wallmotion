@@ -2,15 +2,17 @@
 
 ## Decisões
 
-- Swift Package, macOS 14+, SwiftUI para a biblioteca e AppKit para ciclo de vida/janelas. Sem dependências externas.
+- Swift Package, macOS 14+, SwiftUI para a biblioteca e AppKit para ciclo de vida/janelas. Rust estável para análise estrutural de GIF via FFI C; sem dependências externas de runtime.
 - `WallmotionCore`: modelos Codable, validação de fontes, importação gerenciada e estado JSON atômico. Sem dependência da UI.
 - `Wallmotion`: biblioteca observável na main actor, coordenador de monitores, renderizadores e política de energia.
+- `crates/wallmotion-media`: scanner Rust sem alocação de frames e sem decodificação LZW. Ligado estaticamente pelo alvo C `CWallmotionMedia`; build explícito antes do Swift. Não há IPC nem processo Rust separado.
 - Janelas borderless no nível desktop + 1 (abaixo dos ícones), sem foco e com `ignoresMouseEvents`; participam dos Spaces normais. Fullscreen/Stage Manager precisam de QA em hardware real.
 - `NSImageView` para fotos/GIFs; `AVQueuePlayer` + `AVPlayerLooper` para vídeos locais. URLs remotas usam AVPlayer, repetição em fim de item para arquivos finitos e reprodução contínua para HLS ao vivo.
 - Arquivos importados são copiados para Application Support/Wallmotion/Media. A biblioteca referencia a cópia, evitando perda de acesso quando a origem muda. O app de desenvolvimento não usa App Sandbox; sandbox futuro exige uma estratégia explícita de bookmarks.
-- Atribuições usam o identificador estável de display fornecido por CoreGraphics. Monitores desconectados preservam a seleção; mudança de tela reconstrói os renderizadores.
+- Atribuições usam o UUID de display fornecido por CoreGraphics. Monitores desconectados preservam a seleção. Quando UUID não está disponível, o ID numérico é usado como fallback de sessão e pode mudar entre conexões. A reconciliação preserva janelas/players cuja mídia e geometria continuam iguais.
 - Preferências, biblioteca e atribuições são um único documento versionado salvo por escrita atômica. Arquivo inválido causa erro visível, sem sobrescrever os dados existentes.
 - Pausa manual e pausa por política são estados separados. Desbloquear/acordar nunca deve desfazer uma pausa manual.
+- Fotos usam thumbnail ImageIO dimensionada à tela; GIFs passam por orçamento conservador de 256 MiB de frames por mídia antes de abrir o decodificador AppKit. Isso limita entradas caras, mas não garante um teto de memória residente total.
 
 ## Contrato de URLs
 

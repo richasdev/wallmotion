@@ -11,15 +11,18 @@ final class LibraryModel {
     private(set) var isImporting = false
     private(set) var playbackErrors: [String: String] = [:]
     var errorMessage: String?
-    private let store = LibraryStore()
-    private let engine = WallpaperEngine()
+    private let store: LibraryStore
+    private let engine = DesktopCoordinator()
     private var started = false
     private var policy = PlaybackPolicy()
     private var screenLocked = false
     private var lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
     private var observers: [(NotificationCenter, NSObjectProtocol)] = []
 
-    init() { load() }
+    init(store: LibraryStore = LibraryStore()) {
+        self.store = store
+        load()
+    }
 
     var isPaused: Bool { screenLocked || policy.isPaused(settings: state.settings, lowPower: lowPower) }
     var playbackDescription: String {
@@ -33,17 +36,17 @@ final class LibraryModel {
         guard !started else { return }
         started = true
         let workspace = NSWorkspace.shared.notificationCenter
-        observe(NSApplication.didChangeScreenParametersNotification, in: .default) { $0.refreshPlayback() }
+        observe(NSApplication.didChangeScreenParametersNotification, in: .default) { $0.refreshPlayback(force: false) }
         observe(NSWorkspace.willSleepNotification, in: workspace) { $0.policy.sleeping = true; $0.applyPolicy() }
-        observe(NSWorkspace.didWakeNotification, in: workspace) { $0.policy.sleeping = false; $0.refreshPlayback() }
+        observe(NSWorkspace.didWakeNotification, in: workspace) { $0.policy.sleeping = false; $0.applyPolicy() }
         observe(NSWorkspace.screensDidSleepNotification, in: workspace) { $0.policy.screenAsleep = true; $0.applyPolicy() }
-        observe(NSWorkspace.screensDidWakeNotification, in: workspace) { $0.policy.screenAsleep = false; $0.refreshPlayback() }
+        observe(NSWorkspace.screensDidWakeNotification, in: workspace) { $0.policy.screenAsleep = false; $0.applyPolicy() }
         observe(NSWorkspace.sessionDidResignActiveNotification, in: workspace) { $0.policy.sessionInactive = true; $0.applyPolicy() }
-        observe(NSWorkspace.sessionDidBecomeActiveNotification, in: workspace) { $0.policy.sessionInactive = false; $0.refreshPlayback() }
+        observe(NSWorkspace.sessionDidBecomeActiveNotification, in: workspace) { $0.policy.sessionInactive = false; $0.applyPolicy() }
         // These distributed notification names are best-effort macOS signals.
         // Public workspace sleep/session events remain the fallback policy.
         observe(Notification.Name("com.apple.screenIsLocked"), in: DistributedNotificationCenter.default()) { $0.screenLocked = true; $0.applyPolicy() }
-        observe(Notification.Name("com.apple.screenIsUnlocked"), in: DistributedNotificationCenter.default()) { $0.screenLocked = false; $0.refreshPlayback() }
+        observe(Notification.Name("com.apple.screenIsUnlocked"), in: DistributedNotificationCenter.default()) { $0.screenLocked = false; $0.applyPolicy() }
         observe(Notification.Name.NSProcessInfoPowerStateDidChange, in: .default) {
             $0.lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
             $0.applyPolicy()
@@ -112,16 +115,23 @@ final class LibraryModel {
         isImporting = true
         defer { isImporting = false }
         var failures: [String] = []
+        var imported: [Wallpaper] = []
         for url in urls {
             let scoped = url.startAccessingSecurityScopedResource()
             do {
                 let store = store
                 let item = try await Task.detached(priority: .userInitiated) { try store.importFile(at: url) }.value
-                var next = state
-                next.wallpapers.append(item)
-                if !update(next) { try? store.deleteMedia(for: item) }
+                imported.append(item)
             } catch { failures.append("\(url.lastPathComponent): \(error.localizedDescription)") }
             if scoped { url.stopAccessingSecurityScopedResource() }
+        }
+        if !imported.isEmpty {
+            var next = state
+            next.wallpapers.append(contentsOf: imported)
+            if !update(next) {
+                let store = store
+                await Task.detached { imported.forEach { try? store.deleteMedia(for: $0) } }.value
+            }
         }
         if !failures.isEmpty { errorMessage = failures.joined(separator: "\n") }
     }
@@ -139,20 +149,20 @@ final class LibraryModel {
         guard state.wallpapers.contains(where: { $0.id == item.id }), displays.contains(where: { $0.id == displayID }) else { return }
         var next = state
         next.assignments[displayID] = item.id
-        if update(next) { refreshPlayback() }
+        if update(next) { refreshPlayback(force: false) }
     }
 
     func clear(displayID: String) {
         var next = state
         next.assignments.removeValue(forKey: displayID)
-        if update(next) { refreshPlayback() }
+        if update(next) { refreshPlayback(force: false) }
     }
 
     func remove(_ item: Wallpaper) {
         var next = state
         next.remove(id: item.id)
         guard update(next) else { return }
-        refreshPlayback()
+        refreshPlayback(force: false)
         do { try store.deleteMedia(for: item) }
         catch { errorMessage = "Item removido da biblioteca, mas a cópia de mídia não pôde ser apagada. \(error.localizedDescription)" }
     }
@@ -169,12 +179,12 @@ final class LibraryModel {
         if update(next) { engine.setPaused(isPaused) }
     }
 
-    func refreshPlayback() {
+    func refreshPlayback(force: Bool = true) {
         displays = NSScreen.screens.compactMap { screen in
             Display.identify(screen).map { Display(id: $0, name: screen.localizedName) }
         }
         playbackErrors = [:]
-        engine.rebuild(state: state, store: store, paused: isPaused) { [weak self] id, message in
+        engine.rebuild(state: state, store: store, paused: isPaused, force: force) { [weak self] id, message in
             self?.playbackErrors[id] = message
         }
     }

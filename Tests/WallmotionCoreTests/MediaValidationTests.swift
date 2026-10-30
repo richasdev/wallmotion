@@ -75,4 +75,9 @@ struct MediaValidationTests {
         #expect(item.title == "live.m3u8")
         #expect(item.source == .remote(url: URL(string: value)!))
     }
+
+    @Test func rootRemoteURLUsesHostnameAsTitle() throws {
+        let item = try Wallpaper.remote("https://cdn.example.com/")
+        #expect(item.title == "cdn.example.com")
+    }
 }
