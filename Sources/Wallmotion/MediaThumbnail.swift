@@ -85,7 +85,8 @@ struct ThumbnailRequest: Hashable, Sendable {
 enum MediaThumbnailDecoding {
     static func generate(_ request: ThumbnailRequest) async throws -> CGImage {
         try Task.checkCancellation()
-        guard let url = request.url, let kind = MediaKind(rawValue: request.kind) else { throw ThumbnailError.unavailable }
+        guard let url = request.url, url.isFileURL, [nil, "", "localhost"].contains(url.host),
+              let kind = MediaKind(rawValue: request.kind) else { throw ThumbnailError.unavailable }
         switch kind {
         case .image, .gif:
             return try autoreleasepool {
@@ -128,7 +129,7 @@ enum MediaThumbnailDecoding {
     }
 }
 
-private enum ThumbnailError: Error { case unavailable }
+enum ThumbnailError: Error, Equatable { case unavailable }
 
 private final class VideoThumbnailGenerator: @unchecked Sendable {
     private let generator: AVAssetImageGenerator
@@ -156,6 +157,7 @@ private final class VideoThumbnailGenerator: @unchecked Sendable {
                 target: CGSize(width: targetWidth, height: targetHeight))
             generator.maximumSize = CGSize(width: fallback, height: fallback)
         }
+        try Task.checkCancellation()
         let image = try await generator.image(at: .zero).image
         guard ThumbnailBudget.cost(of: image) != nil else { throw ThumbnailError.unavailable }
         return image
