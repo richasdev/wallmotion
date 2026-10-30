@@ -4,7 +4,10 @@ import Darwin
 /// Directory-relative mutations pin Media while an operation is running. URLs
 /// returned to AppKit/AVFoundation are still paths, not pinned descriptors.
 enum ManagedMediaFiles {
-    static func copy(from source: URL, filename: String, kind: MediaKind, root: URL) throws {
+    static func copy(from source: URL, filename: String, kind: MediaKind, root: URL,
+                     copyData: (Int32, Int32) throws -> Void = { input, output in
+                         guard fcopyfile(input, output, nil, copyfile_flags_t(COPYFILE_DATA | COPYFILE_XATTR)) == 0 else { throw posixError() }
+                     }) throws {
         guard source.isFileURL, [nil, "", "localhost"].contains(source.host) else { throw LibraryError.notRegularFile }
         let input = open(source.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
         guard input >= 0 else {
@@ -15,6 +18,7 @@ enum ManagedMediaFiles {
         var info = stat()
         guard fstat(input, &info) == 0 else { throw posixError() }
         guard info.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG) else { throw LibraryError.notRegularFile }
+        guard info.st_size > 0 else { throw LibraryError.emptyMedia }
         if kind == .gif { _ = try GIFPreflight.inspect(descriptor: input) }
         guard let directory = try directory(root: root, create: true) else { throw LibraryError.invalidLocalPath }
         defer { close(directory) }
@@ -25,9 +29,17 @@ enum ManagedMediaFiles {
         defer { if !complete { _ = unlinkat(directory, filename, 0) } }
         // Copy bytes and xattrs (including quarantine), without source mode/ACLs.
         // Unlike a path copy, replacement of the source name cannot redirect I/O.
-        guard fcopyfile(input, output, nil, copyfile_flags_t(COPYFILE_DATA | COPYFILE_XATTR)) == 0 else { throw posixError() }
+        try copyData(input, output)
         guard fchmod(output, mode_t(0o600)) == 0 else { throw posixError() }
         if kind == .gif { _ = try GIFPreflight.inspect(descriptor: output) }
+        var finalInput = stat(), finalOutput = stat()
+        guard fstat(input, &finalInput) == 0, fstat(output, &finalOutput) == 0 else { throw posixError() }
+        guard finalOutput.st_size == info.st_size,
+              finalInput.st_size == info.st_size,
+              finalInput.st_mtimespec.tv_sec == info.st_mtimespec.tv_sec,
+              finalInput.st_mtimespec.tv_nsec == info.st_mtimespec.tv_nsec,
+              finalInput.st_ctimespec.tv_sec == info.st_ctimespec.tv_sec,
+              finalInput.st_ctimespec.tv_nsec == info.st_ctimespec.tv_nsec else { throw LibraryError.mediaChanged }
         // Do not publish an unreachable copy if Media was replaced while copying.
         try verifyCurrentDirectory(directory, root: root)
         complete = true

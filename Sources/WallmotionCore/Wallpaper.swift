@@ -75,11 +75,14 @@ public enum MediaURL {
 
 public enum LibraryError: LocalizedError, Equatable {
     case gifTooComplex
+    case emptyMedia, mediaChanged
     case notRegularLibrary, libraryTooLarge
     case unsupportedFile, invalidURL, webPageURL, invalidLocalPath, notRegularFile, unsupportedVersion, invalidState, invalidGIF, gifTooLarge, unsupportedEmbed
 
     public var errorDescription: String? {
         switch self {
+        case .emptyMedia: "Este arquivo está vazio. Selecione uma mídia com conteúdo."
+        case .mediaChanged: "O arquivo mudou durante a importação. Tente novamente com uma cópia estável."
         case .notRegularLibrary: "A biblioteca precisa ser um arquivo JSON comum, sem link simbólico. O arquivo foi preservado."
         case .libraryTooLarge: "O JSON da biblioteca excede o limite de 16 MiB. O arquivo foi preservado."
         case .unsupportedFile: "Formato não suportado. Use uma foto, GIF ou vídeo MP4, MOV ou M4V."
