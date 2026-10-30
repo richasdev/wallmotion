@@ -64,8 +64,12 @@ struct BackgroundControls: View {
                             Text(fitDescription(model.mediaFit(on: selectedDisplay)))
                                 .font(.caption).foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
-                            Text("Fotos muito grandes usam resolução reduzida para limitar memória.")
-                                .font(.caption2).foregroundStyle(.secondary)
+                            if let quality = model.photoQuality(on: selectedDisplay) {
+                                PhotoQualityDetails(quality: quality)
+                            } else {
+                                Text("Fotos muito grandes usam resolução reduzida para limitar memória.")
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
                         }
                     } else if let id = model.activeWallpaperID(on: selectedDisplay),
                               model.state.wallpapers.contains(where: { $0.id == id && $0.source.isWebEmbed }) {

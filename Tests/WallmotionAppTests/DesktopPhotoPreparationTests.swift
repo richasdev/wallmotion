@@ -40,6 +40,99 @@ final class DesktopPhotoPreparationTests: XCTestCase {
         return (root, store, try store.importFile(at: firstURL), try store.importFile(at: nextURL))
     }
 
+    func testPhotoQualityReportsInstalledBitmapAndClearsAcrossAssignmentAndMemoryLifecycle() async throws {
+        guard let screen = NSScreen.screens.first else { throw XCTSkip("Sem sessão gráfica") }
+        let (root, store, first, next) = try temporaryStore()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try store.save(LibraryState(wallpapers: [first, next], assignments: ["left": first.id]))
+        let targets = Targets([DesktopTarget(id: "left", screen: screen)])
+        let engine = DesktopCoordinator(targets: { targets.values }, isWindowVisible: { _ in true })
+        let model = LibraryModel(thermalState: { .nominal }, memoryMonitor: TestMemoryPressureMonitor(),
+            purgeThumbnails: {}, store: store, engine: engine,
+            connectedDisplays: { targets.values.map { Display(id: $0.id, name: "Fixture") } })
+        defer { model.stop() }
+        model.start()
+        let deadline = ContinuousClock.now + .seconds(3)
+        while model.photoQuality(on: "left") == nil, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let quality = try XCTUnwrap(model.photoQuality(on: "left"))
+        XCTAssertEqual(quality.wallpaperID, first.id)
+        XCTAssertEqual(quality.sourceWidth, 20)
+        XCTAssertEqual(quality.sourceHeight, 10)
+        XCTAssertEqual(quality.bitmapWidth, 20)
+        XCTAssertEqual(quality.bitmapHeight, 10)
+        XCTAssertFalse(quality.isReduced)
+        XCTAssertFalse(quality.isPanorama)
+
+        model.apply(next, to: "left")
+        XCTAssertNil(model.photoQuality(on: "left"), "Do not label the pending photo with the old bitmap dimensions")
+        let replacement = ContinuousClock.now + .seconds(3)
+        while model.photoQuality(on: "left") == nil, ContinuousClock.now < replacement {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(model.photoQuality(on: "left")?.wallpaperID, next.id)
+        model.clear(displayID: "left")
+        XCTAssertNil(model.photoQuality(on: "left"))
+        XCTAssertTrue(model.photoQualityByDisplay.isEmpty)
+        model.apply(first, to: "left")
+        let reapplied = ContinuousClock.now + .seconds(3)
+        while model.photoQuality(on: "left") == nil, ContinuousClock.now < reapplied {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertNotNil(model.photoQuality(on: "left"))
+        model.receiveMemoryPressure(.critical)
+        XCTAssertNil(model.photoQuality(on: "left"))
+        XCTAssertTrue(model.photoQualityByDisplay.isEmpty)
+        model.receiveMemoryPressure(.normal)
+        let recovery = ContinuousClock.now + .seconds(3)
+        while model.photoQuality(on: "left") == nil, ContinuousClock.now < recovery {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertNotNil(model.photoQuality(on: "left"))
+        targets.values = []
+        model.refreshPlayback(force: false)
+        XCTAssertNil(model.photoQuality(on: "left"))
+        XCTAssertTrue(model.photoQualityByDisplay.isEmpty)
+        model.stop()
+        XCTAssertTrue(model.photoQualityByDisplay.isEmpty)
+    }
+
+    func testPhotoQualityPublishesOnlyCurrentPreparedGenerationAndLabelsPanoramaBitmap() async throws {
+        guard let screen = NSScreen.screens.first else { throw XCTSkip("Sem sessão gráfica") }
+        let (root, store, first, next) = try temporaryStore()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let gate = PhotoTestGate()
+        let entered = expectation(description: "first bitmap prepared")
+        let returned = expectation(description: "obsolete bitmap returned")
+        let firstURL = try store.resolvedURL(for: first)
+        let engine = DesktopCoordinator(targets: { [DesktopTarget(id: "left", screen: screen)] },
+            isWindowVisible: { _ in true }, photoDecoder: { request in
+                let decoded = try await PhotoDecodeWorker.shared.decode(request)
+                if request.url == firstURL { entered.fulfill(); await gate.wait(); returned.fulfill() }
+                return decoded
+            })
+        defer { engine.stop() }
+        var received: [PhotoQualityInfo] = []
+        let published = expectation(description: "current bitmap installed")
+        let callback: @MainActor (String, PhotoQualityInfo?) -> Void = { id, info in
+            XCTAssertEqual(id, "left")
+            if let info { received.append(info); published.fulfill() }
+        }
+        var state = LibraryState(wallpapers: [first, next], displayMode: .spanned, mirroredWallpaperID: first.id)
+        engine.scheduleRebuild(state: state, store: store, paused: true, onPhotoQuality: callback) { _, error in XCTFail(error) }
+        await fulfillment(of: [entered], timeout: 2)
+        state.mirroredWallpaperID = next.id
+        engine.scheduleRebuild(state: state, store: store, paused: true, onPhotoQuality: callback) { _, error in XCTFail(error) }
+        await gate.release()
+        await fulfillment(of: [returned, published], timeout: 3)
+        XCTAssertEqual(received.count, 1)
+        XCTAssertEqual(received.first?.wallpaperID, next.id)
+        XCTAssertEqual(received.first?.sourceWidth, 20)
+        XCTAssertEqual(received.first?.bitmapWidth, 20)
+        XCTAssertEqual(received.first?.isPanorama, true)
+    }
+
     func testWarningDefersNewRenderersAndCancelsLatePhotoPublicationUntilRecovery() async throws {
         guard let screen = NSScreen.screens.first else { throw XCTSkip("Sem sessão gráfica") }
         let (root, store, first, next) = try temporaryStore()
