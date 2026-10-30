@@ -4,6 +4,17 @@ Um aplicativo de fundos animados nativo para macOS 14 ou superior. Fotos, GIFs a
 
 **Em desenvolvimento:** veja o [plano de entregas](docs/PLAN.md), a [arquitetura](docs/ARCHITECTURE.md) e as [issues](https://github.com/richasdev/wallmotion/issues).
 
+## Uso e controles
+
+1. Importe fotos, GIFs e vídeos ou use **Adicionar URL** para vídeo/HLS HTTPS, YouTube ou Vimeo. Soltar um link compatível abre a folha para revisar e salvar; não aplica o fundo automaticamente.
+2. Selecione um monitor e aplique uma mídia. Escolha **Separado por monitor**, **Mesmo fundo em todos** ou **Panorâmico (foto)** na organização dos monitores.
+3. Em **Opções do fundo**, escolha Ajustar, Preencher, Centralizar ou Esticar para mídia nativa. Fotos preparadas mostram suas dimensões de origem e do bitmap; no panorama, os números representam o bitmap inteiro antes dos recortes.
+4. O som começa desativado. Escolha um único monitor para reproduzir áudio e ajuste o volume global. Vídeos web mantêm o enquadramento do provedor; a preferência de resolução HLS vale apenas para o player nativo.
+
+O panorama aceita apenas fotos locais. Entrar nesse modo com vídeo/GIF/web deixa o panorama vazio para escolher uma foto e preserva as escolhas do modo separado. A biblioteca oferece busca, filtro por tipo, ordenação e renomeação pelo lápis do cartão. Remover uma entrada preserva o arquivo original; uma cópia importada compartilhada por outras entradas só é apagada após a última referência lógica.
+
+Veja [organização e enquadramento](docs/qa/display-controls.md), [áudio](docs/qa/audio-volume.md), [fotos](docs/qa/photo-quality.md) e [preferência HLS](docs/qa/hls-quality.md).
+
 ## Desenvolvimento
 
 Requer macOS 14+, Xcode Command Line Tools, Swift 6 e Rust estável (edição 2024). Execute na raiz:
@@ -30,9 +41,9 @@ YouTube e Vimeo podem ser adicionados explicitamente como fontes web de vídeo i
 
 ## Performance
 
-Vídeos usam AVFoundation; fotos são preparadas serialmente fora da interface com ImageIO e um orçamento de saída conservador. No panorama, uma imagem preparada é compartilhada entre as telas; o recorte segue a disposição dos monitores, incluindo posições negativas e espaços. Ajustar, Preencher, Centralizar e Esticar também se aplicam ao conjunto. Vídeos e GIFs ainda não atravessam telas. Veja [panorama e limites de qualidade](docs/qa/photo-panorama.md). O scanner Rust inspeciona a estrutura dos GIFs sem decodificar pixels e calcula um orçamento conservador de frames antes da importação e exibição. GIFs acima de 256 MiB estimados por arquivo são rejeitados. A reprodução soma até 512 MiB estimados entre monitores conectados, contando cada view separadamente (inclusive pausada); uma seleção que exceda o teto é rejeitada com mensagem e mantém os wallpapers atuais; prefira MP4 para animações longas. Importação/cópia roda fora da thread da interface, e mudar um monitor preserva os players dos demais.
+Vídeos usam AVFoundation; fotos são preparadas serialmente fora da interface com ImageIO, com saída de até 128 MiB por bitmap e retenção de até 256 MiB de bitmaps únicos por lote preparado. O segundo limite não inclui superfícies anteriores, o resultado em decodificação ou cópias do sistema; não é um teto de RSS. Veja [preparação assíncrona](docs/qa/async-photos.md) e [orçamento por lote](docs/qa/photo-batch-budget.md). No panorama, uma imagem preparada é compartilhada entre as telas; o recorte segue a disposição dos monitores, incluindo posições negativas e espaços. Ajustar, Preencher, Centralizar e Esticar também se aplicam ao conjunto. Vídeos e GIFs ainda não atravessam telas. Veja [panorama e limites de qualidade](docs/qa/photo-panorama.md). O scanner Rust inspeciona a estrutura dos GIFs sem decodificar pixels e calcula um orçamento conservador de frames antes da importação e exibição. GIFs acima de 256 MiB estimados por arquivo são rejeitados. A reprodução soma até 512 MiB estimados entre monitores conectados, contando cada view separadamente (inclusive pausada); uma seleção que exceda o teto é rejeitada com mensagem e mantém os wallpapers atuais; prefira MP4 para animações longas. Importação/cópia roda fora da thread da interface, e mudar um monitor preserva os players dos demais.
 
-O app pausa em repouso de tela/sistema, troca de sessão e, opcionalmente, modo de baixo consumo, preservando a pausa manual. Sinais de bloqueio de tela complementam essa política em melhor esforço. Veja [medições e limites](docs/PERFORMANCE.md) e o [roteiro de QA](docs/QA.md).
+O app pausa em repouso de tela/sistema e troca de sessão, preservando a pausa manual. As opções de baixo consumo e pressão térmica também podem pausar a reprodução. A opção de memória crítica libera as superfícies de fundo controladas pelo app e reconstrói a seleção após um sinal normal; isso não garante liberação imediata de todos os recursos nativos ou prevenção de falta de memória. Sinais de bloqueio de tela complementam essa política em melhor esforço. Veja [medições e limites](docs/PERFORMANCE.md) e o [roteiro de QA](docs/QA.md).
 
 ## Equipe de agentes
 
