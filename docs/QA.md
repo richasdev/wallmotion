@@ -18,6 +18,8 @@ Esse teste passou localmente: estado pronto, tempo de reprodução avançando, �
 
 - [ ] Abrir `dist/Wallmotion.app`; biblioteca vazia mostra ações claras.
 - [ ] Importar JPEG/HEIC e verificar orientação e nitidez em Retina.
+- [ ] Alternar Ajustar/Preencher para fotos, GIFs e vídeos de proporções diferentes; verificar faixas/recorte central sem distorção em Retina.
+- [ ] Trocar de mídia/monitor e voltar; verificar modo persistido por par mídia/monitor após reabrir.
 - [ ] Importar GIF animado; pausar/retomar e verificar os frames.
 - [ ] Importar MP4/MOV com áudio; verificar loop contínuo e silêncio.
 - [ ] Adicionar URL HTTPS de MP4 e HLS; reproduzir, interromper rede e tentar novamente.
@@ -34,8 +36,8 @@ Esse teste passou localmente: estado pronto, tempo de reprodução avançando, �
 
 ## Limites de compatibilidade
 
-O modo de exibição inicial é proporcional, com possíveis faixas em mídias de outra proporção. As janelas participam dos Spaces normais; fullscreen e Stage Manager precisam de validação física. As notificações distribuídas de bloqueio são sinais de melhor esforço do macOS; eventos públicos de tela/repouso/sessão complementam a pausa. GIF tem orçamento conservador de 256 MiB de frames por mídia; isso não representa um teto garantido de RAM total do app.
+O modo inicial Ajustar preserva proporção e mostra toda a mídia, com possíveis faixas. Preencher mantém a proporção e recorta as bordas no centro; a escolha é persistida por mídia/monitor. Dados versão 1 sem `mediaFits` mantêm Ajustar. As janelas participam dos Spaces normais; fullscreen e Stage Manager precisam de validação física. As notificações distribuídas de bloqueio são sinais de melhor esforço do macOS; eventos públicos de tela/repouso/sessão complementam a pausa. GIF tem orçamento conservador de 256 MiB de frames por mídia; isso não representa um teto garantido de RAM total do app.
 
-Fotos são decodificadas com ImageIO para o tamanho do monitor. O app não publica metadados no Now Playing e configura `preventsDisplaySleepDuringVideoPlayback = false`. Isso deve ser verificado com `pmset -g assertions`, pois outros frameworks/apps podem manter o sistema acordado.
+Fotos são decodificadas com ImageIO para o tamanho proporcional exigido pelo modo e pela escala Retina, limitado à resolução original. Preencher pode exigir mais pixels que Ajustar para preservar nitidez após o recorte. O app não publica metadados no Now Playing e configura `preventsDisplaySleepDuringVideoPlayback = false`. Isso deve ser verificado com `pmset -g assertions`, pois outros frameworks/apps podem manter o sistema acordado.
 
 Build local usa assinatura ad-hoc de desenvolvimento e arquitetura do host. Distribuição pública requer Developer ID, notarização e teste de arquiteturas compatíveis. Não remova a quarentena global do macOS para testar.
