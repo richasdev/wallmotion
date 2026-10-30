@@ -40,6 +40,49 @@ final class DesktopPhotoPreparationTests: XCTestCase {
         return (root, store, try store.importFile(at: firstURL), try store.importFile(at: nextURL))
     }
 
+    func testWarningDefersNewRenderersAndCancelsLatePhotoPublicationUntilRecovery() async throws {
+        guard let screen = NSScreen.screens.first else { throw XCTSkip("Sem sessão gráfica") }
+        let (root, store, first, next) = try temporaryStore()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let gate = PhotoTestGate()
+        let entered = expectation(description: "next photo prepared")
+        let released = expectation(description: "cancelled codec returned")
+        let calls = PanoramaDecodeCalls()
+        let windows = Windows()
+        let engine = DesktopCoordinator(targets: { [DesktopTarget(id: "left", screen: screen)] }, isWindowVisible: { windows.visible($0) }, photoDecoder: { request in
+            let result = try await PhotoDecodeWorker.shared.decode(request)
+            await calls.record(request)
+            if await calls.values.count == 1 {
+                entered.fulfill()
+                await gate.wait()
+                released.fulfill()
+            }
+            return result
+        })
+        defer { engine.stop() }
+        var state = LibraryState(wallpapers: [first, next], assignments: ["left": first.id])
+        engine.rebuild(state: state, store: store, paused: false) { _, error in XCTFail(error) }
+        let original = try XCTUnwrap(windows.values.first)
+        state.assignments["left"] = next.id
+        engine.scheduleRebuild(state: state, store: store, paused: false) { _, error in XCTFail(error) }
+        await fulfillment(of: [entered], timeout: 2)
+        engine.scheduleRebuild(state: state, store: store, paused: false, deferNewRenderers: true) { _, error in XCTFail(error) }
+        XCTAssertTrue(original.isVisible)
+        await gate.release()
+        await fulfillment(of: [released], timeout: 2)
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(windows.values.count, 1, "An old completion cannot publish while new surfaces are deferred.")
+        let deferredCalls = await calls.values.count
+        XCTAssertEqual(deferredCalls, 1)
+        engine.scheduleRebuild(state: state, store: store, paused: true) { _, error in XCTFail(error) }
+        let deadline = ContinuousClock.now + .seconds(3)
+        while windows.values.count < 2, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(windows.values.count, 2)
+        XCTAssertFalse(original.isVisible)
+        let surface = try XCTUnwrap(windows.values.last?.contentView as? ImageSurface)
+        XCTAssertFalse(surface.imageView.animates)
+    }
+
     func testPendingPhotoPreservesWindowAndUsesLatestPauseWithoutMainThreadDecode() async throws {
         guard let screen = NSScreen.screens.first else { throw XCTSkip("Sem sessão gráfica") }
         let (root, store, first, next) = try temporaryStore()

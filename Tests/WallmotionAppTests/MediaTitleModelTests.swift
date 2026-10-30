@@ -15,7 +15,7 @@ final class MediaTitleModelTests: XCTestCase {
         let second = Wallpaper(title: "B", kind: .image, source: .local(filename: "other.jpg"))
         let before = LibraryState(wallpapers: [item, second], assignments: ["display": item.id], settings: .init(isManuallyPaused: true), mediaFits: ["display": [item.id.uuidString: .fill]], displayMode: .mirrored, mirroredWallpaperID: item.id, mirroredMediaFit: .center)
         try store.save(before)
-        let model = LibraryModel(thermalState: { .nominal }, store: store, connectedDisplays: { [] })
+        let model = LibraryModel(thermalState: { .nominal }, memoryMonitor: TestMemoryPressureMonitor(), store: store, connectedDisplays: { [] })
         defer { model.stop() }
         let catalog = LibraryCatalogProjection()
         _ = catalog.items(from: model.state.wallpapers, query: .init(text: "Aurora"))
@@ -37,7 +37,7 @@ final class MediaTitleModelTests: XCTestCase {
         let before = LibraryState(wallpapers: [item])
         try store.save(before)
         let original = try Data(contentsOf: store.stateURL)
-        let model = LibraryModel(thermalState: { .nominal }, store: store, connectedDisplays: { [] })
+        let model = LibraryModel(thermalState: { .nominal }, memoryMonitor: TestMemoryPressureMonitor(), store: store, connectedDisplays: { [] })
         defer { model.stop() }
         XCTAssertFalse(model.rename(id: item.id, title: "\n\t"))
         XCTAssertFalse(model.rename(id: UUID(), title: "New name"))

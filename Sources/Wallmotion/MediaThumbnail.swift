@@ -4,13 +4,15 @@ import SwiftUI
 import WallmotionCore
 
 @MainActor
-private enum ThumbnailCache {
+enum ThumbnailCache {
     static let images: NSCache<NSString, NSImage> = {
         let cache = NSCache<NSString, NSImage>()
         cache.totalCostLimit = 32 * 1024 * 1024
         cache.countLimit = 256
         return cache
     }()
+
+    static func purge() { images.removeAllObjects() }
 
     static func key(_ url: URL, kind: String, width: Int, height: Int) -> NSString { "\(url.path)#\(kind)#\(width)x\(height)" as NSString }
 }
