@@ -16,4 +16,8 @@ int32_t wm_gif_probe(const uint8_t *bytes, size_t len, WMGifInfo *out);
 // Same ownership contract. 2 = decoded budget exceeded, possibly before the
 // remaining container has been validated. Output remains unchanged on failure.
 int32_t wm_gif_probe_bounded(const uint8_t *bytes, size_t len, uint64_t max_decoded_bytes, WMGifInfo *out);
+// descriptor must remain open during the call. The scanner duplicates it and
+// leaves its seek position unchanged. 0=success, 1=invalid/read error, 2=budget.
+int32_t wm_gif_probe_fd_bounded(int32_t descriptor, uint64_t max_decoded_bytes, WMGifInfo *out);
+
 #endif
