@@ -1,6 +1,8 @@
 //! Allocation-free GIF structure inspection. Compressed image data is skipped,
 //! never decoded. The estimate accounts for a full RGBA canvas for every frame.
 
+pub mod compositor;
+
 #[cfg(unix)]
 mod file_input;
 
