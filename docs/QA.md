@@ -4,6 +4,8 @@
 
 `sh scripts/check.sh` compila o núcleo Rust em release, executa seus testes e Clippy e roda as suítes Swift. Os testes AppKit criam imagens, GIFs e um vídeo H.264 sintéticos, verificam janelas desktop, ciclo de vida e pausa. São testes de integração locais, não uma certificação de compatibilidade visual com todas as versões do macOS.
 
+A suíte do orçamento testa limites exatos, excesso de um byte, overflow, substituição por monitor e descarte de propostas. A integração AppKit testa rejeição antes de salvar, falha de persistência/decoder, refresh forçado, desconexão simulada, reconexão, remoção e stop com fixtures pequenas.
+
 O runner sem display pode pular testes que precisam de `NSScreen`. O teste que troca conteúdo em outro monitor precisa de dois displays. Consulte o log para diferenciar aprovado de ignorado.
 
 O teste de reprodução remota é opt-in, para que a suíte padrão não dependa de rede. Para executá-lo com o [exemplo HLS oficial da Apple](https://developer.apple.com/streaming/examples/advanced-stream-hevc.html):
@@ -27,6 +29,8 @@ Veja [contrato, segurança e testes opt-in](WEB-SOURCES.md). A suíte padrão n�
 - [ ] Adicionar URL HTTPS de MP4 e HLS; reproduzir, interromper rede e tentar novamente.
 - [ ] Adicionar YouTube/Vimeo explicitamente como fonte web; verificar mudo, proporção Retina, pausa/descarte e recarga manual após erro.
 - [ ] Rejeitar HTTP, páginas arbitrárias, arquivos não suportados e GIF acima do orçamento.
+- [ ] Aplicar GIFs até 512 MiB estimados entre monitores (máximo de 256 MiB por arquivo); rejeitar a seleção seguinte com erro visível e manter seleção persistida e wallpapers anteriores. Contar o mesmo GIF em cada monitor, inclusive pausado.
+- [ ] Trocar/remover GIF, desconectar/reconectar monitor e reiniciar; confirmar liberação/revalidação da cota e preservação dos demais monitores.
 - [ ] Aplicar uma mídia em cada monitor; mover/redimensionar/desconectar/reconectar telas.
 - [ ] Clicar, selecionar retângulo e arrastar arquivos no Finder sobre o fundo.
 - [ ] Alternar Spaces, Mission Control, Stage Manager e apps fullscreen.
@@ -39,8 +43,15 @@ Veja [contrato, segurança e testes opt-in](WEB-SOURCES.md). A suíte padrão n�
 
 ## Limites de compatibilidade
 
-O modo de exibição inicial é proporcional, com possíveis faixas em mídias de outra proporção. As janelas participam dos Spaces normais; fullscreen e Stage Manager precisam de validação física. As notificações distribuídas de bloqueio são sinais de melhor esforço do macOS; eventos públicos de tela/repouso/sessão complementam a pausa. GIF tem orçamento conservador de 256 MiB de frames por mídia; isso não representa um teto garantido de RAM total do app.
+O modo de exibição inicial é proporcional, com possíveis faixas em mídias de outra proporção. As janelas participam dos Spaces normais; fullscreen e Stage Manager precisam de validação física. As notificações distribuídas de bloqueio são sinais de melhor esforço do macOS; eventos públicos de tela/repouso/sessão complementam a pausa. GIF tem orçamento conservador de 256 MiB de frames por mídia e 512 MiB somando as views dos monitores conectados, inclusive pausadas; isso não representa um teto garantido de RAM total do app.
 
 Fotos são decodificadas com ImageIO para o tamanho do monitor. O app não publica metadados no Now Playing e configura `preventsDisplaySleepDuringVideoPlayback = false`. Isso deve ser verificado com `pmset -g assertions`, pois outros frameworks/apps podem manter o sistema acordado.
 
 Build local usa assinatura ad-hoc de desenvolvimento e arquitetura do host. Distribuição pública requer Developer ID, notarização e teste de arquiteturas compatíveis. Não remova a quarentena global do macOS para testar.
+
+## Validação local da issue #14 (2026-10-30)
+
+- `CARGO_INCREMENTAL=0 sh scripts/check.sh`: build Rust release antes do Swift, 6 testes Rust e Clippy com `-D warnings` aprovados; Rust em `.build/native`.
+- Execução final `swift test -j 2`: 40 testes do núcleo aprovados; 15 testes AppKit, sendo 12 aprovados e 3 ignorados (snapshot opt-in, stream remoto opt-in e segundo monitor indisponível). Sem falhas ou avisos de compilação na execução final.
+- `git diff --check`: aprovado. CI remoto bloqueado por billing (#11); estes resultados são locais.
+- Desconexão/reconexão foi simulada no coordenador; QA físico com dois monitores e medição de RSS/energia continuam pendentes. O teto estima frames, não a memória residente total nem o pico temporário da troca.

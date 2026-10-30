@@ -7,6 +7,28 @@ import WallmotionCore
 
 @MainActor
 final class WebWallpaperRendererTests: XCTestCase {
+    func testDesktopOcclusionDiscardsWebViewWithoutNetwork() throws {
+        guard let screen = NSScreen.screens.first else { throw XCTSkip("Sem display") }
+        let wallpaper = try Wallpaper.web("https://youtu.be/M7lc1UVf-VE")
+        let renderer = try WallpaperRenderer(
+            wallpaper: wallpaper, url: LibraryStore().resolvedURL(for: wallpaper), screen: screen,
+            webDocument: "<html><body>Offline occlusion fixture</body></html>"
+        ) { XCTFail($0) }
+        defer { renderer.stop() }
+        let surface = try XCTUnwrap(renderer.window.contentView)
+        renderer.setPaused(false)
+        renderer.window.orderOut(nil)
+        XCTAssertFalse(renderer.window.occlusionState.contains(.visible))
+        NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: renderer.window)
+        XCTAssertTrue(surface.subviews.isEmpty, "Oclusão deve descartar a WKWebView")
+        renderer.setPaused(true)
+        NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: renderer.window)
+        XCTAssertTrue(surface.subviews.isEmpty, "Notificações não devem desfazer pausa manual")
+        renderer.stop()
+        NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: renderer.window)
+        XCTAssertTrue(surface.subviews.isEmpty)
+    }
+
     func testPauseDiscardsViewResumeRecreatesAndStopIsTerminalWithoutNetwork() throws {
         let renderer = try WebWallpaperRenderer(embed: WebEmbed(provider: .youtube, videoID: "M7lc1UVf-VE"), onError: { XCTFail($0) }, document: "<html><body>Offline lifecycle fixture</body></html>")
         XCTAssertNil(renderer.webView)

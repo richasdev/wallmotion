@@ -18,6 +18,7 @@ pub enum GifError {
     FrameOutsideCanvas,
     NoFrames,
     Overflow,
+    BudgetExceeded,
 }
 
 struct Cursor<'a> {
@@ -106,6 +107,12 @@ impl<'a> Cursor<'a> {
 /// Requires a trailer and at least one image. Bytes after the trailer are ignored.
 /// This is a metadata probe, not validation of the compressed pixel stream.
 pub fn probe_gif(bytes: &[u8]) -> Result<GifInfo, GifError> {
+    probe_gif_with_budget(bytes, u64::MAX)
+}
+
+/// Stops at the first complete frame that exceeds the decoded canvas budget.
+/// A budget rejection does not validate the remaining bytes or require a trailer.
+pub fn probe_gif_with_budget(bytes: &[u8], max_decoded_bytes: u64) -> Result<GifInfo, GifError> {
     let mut cursor = Cursor { bytes, position: 0 };
     match cursor.take(6)? {
         b"GIF87a" | b"GIF89a" => {}
@@ -145,6 +152,9 @@ pub fn probe_gif(bytes: &[u8]) -> Result<GifInfo, GifError> {
                     return Err(GifError::InvalidBlock);
                 }
                 frames = frames.checked_add(1).ok_or(GifError::Overflow)?;
+                if decoded_size(width, height, frames)? > max_decoded_bytes {
+                    return Err(GifError::BudgetExceeded);
+                }
             }
             0x3b => {
                 if frames == 0 {
@@ -188,12 +198,29 @@ pub struct WMGifInfo {
 /// No data is retained after this call. The checked parser cannot panic.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn wm_gif_probe(bytes: *const u8, len: usize, out: *mut WMGifInfo) -> i32 {
+    // SAFETY: This compatibility entry point forwards its identical pointer contract.
+    unsafe { wm_gif_probe_bounded(bytes, len, u64::MAX, out) }
+}
+
+/// Returns 0 on success, 1 for invalid input, 2 when the budget is exceeded.
+/// All error paths leave `out` unchanged; rejection may skip the remaining input.
+///
+/// # Safety
+/// The caller must provide the same readable buffer and writable aligned output
+/// contract as `wm_gif_probe`. No references or data are retained after return.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wm_gif_probe_bounded(
+    bytes: *const u8,
+    len: usize,
+    max_decoded_bytes: u64,
+    out: *mut WMGifInfo,
+) -> i32 {
     if bytes.is_null() || out.is_null() || !out.is_aligned() || len > isize::MAX as usize {
         return 1;
     }
     // SAFETY: The caller provides the readable allocation documented above.
     let input = unsafe { core::slice::from_raw_parts(bytes, len) };
-    match probe_gif(input) {
+    match probe_gif_with_budget(input, max_decoded_bytes) {
         Ok(info) => {
             // SAFETY: The caller provides aligned writable output storage.
             unsafe {
@@ -206,6 +233,7 @@ pub unsafe extern "C" fn wm_gif_probe(bytes: *const u8, len: usize, out: *mut WM
             }
             0
         }
+        Err(GifError::BudgetExceeded) => 2,
         Err(_) => 1,
     }
 }
@@ -217,6 +245,41 @@ mod tests {
     // Real 1x1 GIF with a two-color global palette and a valid LZW pixel stream.
     const ONE: &[u8] = b"GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b";
     const IMAGE: &[u8] = b"\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00";
+
+    #[test]
+    fn bounded_probe_stops_before_rejected_tail_and_preserves_output() {
+        assert_eq!(probe_gif_with_budget(ONE, 4), probe_gif(ONE));
+        assert_eq!(probe_gif_with_budget(ONE, 3), Err(GifError::BudgetExceeded));
+        let mut truncated_animation = ONE[..ONE.len() - 1].to_vec();
+        truncated_animation.extend_from_slice(IMAGE);
+        // No trailer: over-budget scans reject without parsing the tail. A scan
+        // within budget must still validate the rest and report truncation.
+        assert_eq!(
+            probe_gif_with_budget(&truncated_animation, 7),
+            Err(GifError::BudgetExceeded)
+        );
+        assert_eq!(
+            probe_gif_with_budget(&truncated_animation, 8),
+            Err(GifError::Truncated)
+        );
+        let mut out = WMGifInfo {
+            width: 9,
+            height: 8,
+            frames: 7,
+            decoded_bytes: 6,
+        };
+        let previous = out;
+        assert_eq!(
+            unsafe { wm_gif_probe_bounded(ONE.as_ptr(), ONE.len(), 3, &mut out) },
+            2
+        );
+        assert_eq!(out, previous);
+        assert_eq!(
+            unsafe { wm_gif_probe_bounded(ONE.as_ptr(), ONE.len(), 4, &mut out) },
+            0
+        );
+        assert_eq!(out.decoded_bytes, 4);
+    }
 
     #[test]
     fn real_single_and_two_frame_gifs() {

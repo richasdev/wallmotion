@@ -70,3 +70,13 @@ O [BUG-HUNTER-1](https://github.com/richasdev/wallmotion/pull/35#issuecomment-65
 O fixture JSON v1 literal com `https://www.youtube-nocookie.com/embed/M7lc1UVf-VE`, foto local e seleções cobre preservação integral, ausência de escrita no load, manutenção de `.remote` e round-trip após editar/salvar em v2. Testes adicionais confirmam rejeição da nova entrada direta e de URLs persistidas que já eram inválidas (HTTP, credenciais, hosts anteriormente bloqueados e HTML).
 
 Checks desta correção: `CARGO_INCREMENTAL=0 sh scripts/build-native.sh` aprovado; `swift test -j 2` aprovado (44 Swift Testing, 17 XCTest, 4 skips explícitos, sem warnings); `git diff --check` aprovado. Rust tests/Clippy não foram repetidos, pois não há alteração Rust/ABI. Nenhum teste de rede foi executado nesta revisão. Fixtures de persistência/JS/WebKit não certificam reprodução real YouTube/Vimeo. CI continua bloqueado por billing #11. O novo commit invalida os pareceres anteriores; são necessários três novos pareceres no mesmo HEAD antes de integração por outro agente.
+
+### Integração de origin/main no PR #35
+
+Merge normal de `origin/main` em `agents/sol-web`, preservando scanner Rust/ABI com orçamento durante scan (#23), cota global de GIF por monitor (#14), observador de oclusão (#13) e política de três revisores/merger separado (#30). O conflito textual em `docs/QA.md` foi resolvido mantendo os roteiros de fontes web e orçamento GIF.
+
+A integração mínima conecta a WKWebView ao observador de oclusão já integrado: ao ocultar, suspende e descarta a view; ao voltar visível, recria somente se não houver pausa manual/política. Fixture HTML local injetada no renderer permite testar essa integração sem acessar rede. Não há reestruturação da política nativa de vídeo/GIF. A regressão de URL legada continua coberta pelo fixture literal v1 e round-trip v2.
+
+Checks após o merge: build Rust estático release com `CARGO_INCREMENTAL=0 sh scripts/build-native.sh`; `cargo test --locked --manifest-path crates/wallmotion-media/Cargo.toml --target-dir .build/native` (7 aprovados); Clippy `--all-targets -- -D warnings` aprovado; `swift test -j 2` (48 Swift Testing e 22 XCTest, 4 skips explícitos, sem warnings); diff staged sem erros ou marcadores de conflito. Rust usa `.build/native` e `CARGO_INCREMENTAL=0`.
+
+Nenhuma reprodução real de YouTube/Vimeo ou medição de energia foi repetida nesta integração. Fixtures offline e notificações de oclusão não certificam autoplay dos provedores nem oclusão física em todos os desktops/Spaces. CI segue bloqueado por billing #11. O novo HEAD exige três pareceres novos antes do merge por outro agente.
