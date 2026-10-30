@@ -251,7 +251,7 @@ struct LibraryView: View {
                     .font(.callout.weight(.medium))
                     .foregroundStyle(!hasAppliedWallpaper || model.isPaused ? Color.secondary : Color.accentColor)
                 Button { model.togglePause() } label: {
-                    Label(model.state.settings.isManuallyPaused ? "Retomar" : "Pausar", systemImage: model.state.settings.isManuallyPaused ? "play.fill" : "pause.fill")
+                    Label(model.manualPauseActionTitle, systemImage: model.state.settings.isManuallyPaused ? "play.fill" : "pause.fill")
                         .frame(maxWidth: .infinity)
                 }.disabled(!model.canEdit).help("Controlar a reprodução em todos os monitores")
             }
@@ -260,6 +260,9 @@ struct LibraryView: View {
             .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
             Toggle("Pausar em baixo consumo", isOn: Binding(get: { model.state.settings.pauseOnLowPower }, set: { model.setPauseOnLowPower($0) }))
                 .font(.caption).disabled(!model.canEdit)
+            Toggle("Pausar sob pressão térmica", isOn: Binding(get: { model.state.settings.pauseOnThermalPressure }, set: { model.setPauseOnThermalPressure($0) }))
+                .font(.caption).disabled(!model.canEdit)
+                .help("Pausa quando o macOS indica pressão térmica alta e retoma apenas no estado nominal. Vídeos web reiniciam ao retomar.")
             Label(model.state.settings.audioDisplayID == nil ? "Som desativado" : "Som em um monitor", systemImage: model.state.settings.audioDisplayID == nil ? "speaker.slash" : "speaker.wave.2")
                 .font(.caption).foregroundStyle(.secondary)
             Text("Arquivos originais preservados")

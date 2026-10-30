@@ -55,7 +55,7 @@ final class LibraryModelTests: XCTestCase {
         let store = LibraryStore(rootURL: directory)
         let original = Data("{\"version\": 1, corrupt".utf8)
         try original.write(to: store.stateURL)
-        let model = LibraryModel(store: store)
+        let model = LibraryModel(thermalState: { .nominal }, store: store)
         defer { model.stop() }
 
         XCTAssertFalse(model.canEdit)
@@ -64,6 +64,7 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertFalse(model.addURL("https://cdn.example.com/video.mp4"))
         model.togglePause()
         model.setPauseOnLowPower(false)
+        model.setPauseOnThermalPressure(false)
         XCTAssertTrue(model.state.wallpapers.isEmpty)
         XCTAssertEqual(model.state.settings, PlaybackSettings())
         XCTAssertEqual(try Data(contentsOf: store.stateURL), original)
@@ -73,7 +74,7 @@ final class LibraryModelTests: XCTestCase {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = LibraryStore(rootURL: directory)
-        let model = LibraryModel(store: store)
+        let model = LibraryModel(thermalState: { .nominal }, store: store)
         defer { model.stop() }
         XCTAssertTrue(model.addURL("https://cdn.example.com/live.m3u8?token=a%2Fb"))
         model.togglePause()
@@ -84,7 +85,7 @@ final class LibraryModelTests: XCTestCase {
         let persisted = try store.load()
         XCTAssertEqual(persisted, model.state)
 
-        let restored = LibraryModel(store: store)
+        let restored = LibraryModel(thermalState: { .nominal }, store: store)
         defer { restored.stop() }
         XCTAssertTrue(restored.canEdit)
         XCTAssertNil(restored.errorMessage)
@@ -103,7 +104,7 @@ final class LibraryModelTests: XCTestCase {
         let store = LibraryStore(rootURL: directory.appendingPathComponent("Library"))
         let photo = directory.appendingPathComponent("photo.png")
         _ = try writePhoto(to: photo)
-        let model = LibraryModel(store: store)
+        let model = LibraryModel(thermalState: { .nominal }, store: store)
         defer { model.stop() }
         await model.importFiles([photo, photo])
         model.refreshPlayback(force: false)
@@ -115,7 +116,7 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(model.state.mediaFit(for: second.id, on: displayID), .fit)
         model.apply(first, to: displayID)
         XCTAssertEqual(model.state.mediaFit(for: first.id, on: displayID), .fill)
-        let restored = LibraryModel(store: store)
+        let restored = LibraryModel(thermalState: { .nominal }, store: store)
         defer { restored.stop() }
         XCTAssertEqual(restored.state.mediaFit(for: first.id, on: displayID), .fill)
         XCTAssertEqual(try store.load(), model.state)
@@ -130,7 +131,7 @@ final class LibraryModelTests: XCTestCase {
         let store = LibraryStore(rootURL: directory.appendingPathComponent("Library", isDirectory: true))
         let source = directory.appendingPathComponent("Original photo.png")
         let originalBytes = try writePhoto(to: source)
-        let model = LibraryModel(store: store)
+        let model = LibraryModel(thermalState: { .nominal }, store: store)
         defer { model.stop() }
         await model.importFiles([source])
 
@@ -164,7 +165,7 @@ final class LibraryModelTests: XCTestCase {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let unsupported = directory.appendingPathComponent("notas.txt")
         try Data("texto".utf8).write(to: unsupported)
-        let model = LibraryModel(store: store)
+        let model = LibraryModel(thermalState: { .nominal }, store: store)
         defer { model.stop() }
 
         let firstSelection = Task { await model.importFiles([source]) }
@@ -191,7 +192,7 @@ final class LibraryModelTests: XCTestCase {
         let queuedBytes = try writePhoto(to: queuedSource)
         let cleanupStarted = TestAsyncGate()
         let finishCleanup = TestAsyncGate()
-        let model = LibraryModel(store: store, beforeRollbackCleanup: {
+        let model = LibraryModel(thermalState: { .nominal }, store: store, beforeRollbackCleanup: {
             await cleanupStarted.open()
             await finishCleanup.wait()
         })
@@ -249,7 +250,7 @@ final class LibraryModelTests: XCTestCase {
         try store.save(initial)
         let savedBytes = try Data(contentsOf: store.stateURL)
         let engine = DesktopCoordinator(gifBudgetLimit: 0)
-        let model = LibraryModel(store: store, engine: engine)
+        let model = LibraryModel(thermalState: { .nominal }, store: store, engine: engine)
         defer { model.stop() }
         model.refreshPlayback(force: false)
         model.apply(animation, to: displayID)
@@ -278,7 +279,7 @@ final class LibraryModelTests: XCTestCase {
         let state = LibraryState(wallpapers: [item])
         try store.save(state)
         let engine = DesktopCoordinator(gifBudgetLimit: 4)
-        let model = LibraryModel(store: store, engine: engine)
+        let model = LibraryModel(thermalState: { .nominal }, store: store, engine: engine)
         defer { model.stop() }
         model.refreshPlayback(force: false)
         try FileManager.default.removeItem(at: store.stateURL)
@@ -301,7 +302,7 @@ final class LibraryModelTests: XCTestCase {
                                    settings: .init(isManuallyPaused: true))
         try store.save(initial)
         let bytes = try Data(contentsOf: store.stateURL)
-        let model = LibraryModel(store: store)
+        let model = LibraryModel(thermalState: { .nominal }, store: store)
         defer { model.stop() }
         model.refreshPlayback(force: false)
         model.setMediaFit(.fill, on: displayID)
@@ -318,7 +319,7 @@ final class LibraryModelTests: XCTestCase {
         var initial = LibraryState(wallpapers: [first, second], assignments: ["one": first.id, "two": second.id])
         initial.setMediaFit(.fill, for: first.id, on: "one")
         try store.save(initial)
-        let model = LibraryModel(store: store, engine: DesktopCoordinator(targets: { [] }),
+        let model = LibraryModel(thermalState: { .nominal }, store: store, engine: DesktopCoordinator(targets: { [] }),
                                  connectedDisplays: { [Display(id: "one", name: "One"), Display(id: "two", name: "Two")] })
         defer { model.stop() }
         model.refreshPlayback(force: false)
@@ -349,7 +350,7 @@ final class LibraryModelTests: XCTestCase {
         let video = try Wallpaper.remote("https://example.com/first.mp4")
         let initial = LibraryState(wallpapers: [photo, video], assignments: ["one": video.id, "two": photo.id])
         try store.save(initial)
-        let model = LibraryModel(store: store, engine: DesktopCoordinator(targets: { [] }),
+        let model = LibraryModel(thermalState: { .nominal }, store: store, engine: DesktopCoordinator(targets: { [] }),
                                  connectedDisplays: { [Display(id: "one", name: "One"), Display(id: "two", name: "Two")] })
         defer { model.stop() }
         model.refreshPlayback(force: false)
@@ -380,7 +381,7 @@ final class LibraryModelTests: XCTestCase {
         let store = LibraryStore(rootURL: directory)
         let item = try Wallpaper.remote("https://example.com/first.mp4")
         try store.save(LibraryState(wallpapers: [item], assignments: ["one": item.id]))
-        let model = LibraryModel(store: store, engine: DesktopCoordinator(targets: { [] }),
+        let model = LibraryModel(thermalState: { .nominal }, store: store, engine: DesktopCoordinator(targets: { [] }),
                                  connectedDisplays: { [Display(id: "one", name: "One"), Display(id: "two", name: "Two")] })
         defer { model.stop() }
         model.refreshPlayback(force: false)
@@ -395,7 +396,7 @@ final class LibraryModelTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = LibraryStore(rootURL: directory)
         let connected = TestDisplays([Display(id: "one", name: "One"), Display(id: "two", name: "Two")])
-        let model = LibraryModel(store: store, engine: DesktopCoordinator(targets: { [] }), connectedDisplays: { connected.values })
+        let model = LibraryModel(thermalState: { .nominal }, store: store, engine: DesktopCoordinator(targets: { [] }), connectedDisplays: { connected.values })
         defer { model.stop() }
         model.refreshPlayback(force: false)
         XCTAssertNil(model.state.settings.audioDisplayID)
@@ -408,7 +409,7 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(model.state.settings.audioDisplayID, "two")
         model.setAudioDisplayID("unknown")
         XCTAssertEqual(model.state.settings.audioDisplayID, "two")
-        let restored = LibraryModel(store: store, engine: DesktopCoordinator(targets: { [] }), connectedDisplays: { connected.values })
+        let restored = LibraryModel(thermalState: { .nominal }, store: store, engine: DesktopCoordinator(targets: { [] }), connectedDisplays: { connected.values })
         defer { restored.stop() }
         restored.refreshPlayback(force: false)
         XCTAssertEqual(restored.state.settings.audioDisplayID, "two")
@@ -431,7 +432,7 @@ final class LibraryModelTests: XCTestCase {
         let initial = LibraryState(wallpapers: [missing], assignments: [displayID: missing.id])
         try store.save(initial)
         let bytes = try Data(contentsOf: store.stateURL)
-        let model = LibraryModel(store: store)
+        let model = LibraryModel(thermalState: { .nominal }, store: store)
         defer { model.stop() }
         model.refreshPlayback(force: false)
         model.setDisplayMode(.mirrored, sourceDisplayID: displayID)
@@ -444,7 +445,7 @@ final class LibraryModelTests: XCTestCase {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = LibraryStore(rootURL: directory)
-        let model = LibraryModel(store: store, engine: DesktopCoordinator(targets: { [] }),
+        let model = LibraryModel(thermalState: { .nominal }, store: store, engine: DesktopCoordinator(targets: { [] }),
                                  connectedDisplays: { [Display(id: "one", name: "One")] })
         defer { model.stop() }
         model.refreshPlayback(force: false)
@@ -458,7 +459,7 @@ final class LibraryModelTests: XCTestCase {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = LibraryStore(rootURL: directory)
-        let model = LibraryModel(store: store, engine: DesktopCoordinator(targets: { [] }))
+        let model = LibraryModel(thermalState: { .nominal }, store: store, engine: DesktopCoordinator(targets: { [] }))
         defer { model.stop() }
         model.setAudioVolume(0.35)
         XCTAssertEqual(model.state.settings.audioVolume, 0.35)
@@ -480,7 +481,7 @@ final class LibraryModelTests: XCTestCase {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = LibraryStore(rootURL: directory.appendingPathComponent("Library", isDirectory: true))
-        let model = LibraryModel(store: store, engine: DesktopCoordinator(targets: { [] }), connectedDisplays: {
+        let model = LibraryModel(thermalState: { .nominal }, store: store, engine: DesktopCoordinator(targets: { [] }), connectedDisplays: {
             [Display(id: "fixture-left", name: "Monitor principal"), Display(id: "fixture-right", name: "Monitor externo")]
         })
         defer { model.stop() }
