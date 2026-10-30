@@ -49,6 +49,16 @@ final class PhotoDecodingTests: XCTestCase {
         catch is CancellationError { }
     }
 
+    func testNonLocalURLsAreRejectedBeforeImageIO() async throws {
+        for text in ["https://127.0.0.1:9/image.png", "http://example.com/image.png", "file://remote.invalid/image.png", "data:image/png;base64,aGVsbG8="] {
+            let url = try XCTUnwrap(URL(string: text))
+            do {
+                _ = try await PhotoDecodeWorker.shared.decode(PhotoDecodeRequest(url: url, mediaFit: .fit, viewportWidth: 100, viewportHeight: 100))
+                XCTFail("Non-local URL must not reach ImageIO")
+            } catch PhotoDecodingError.unreadable { }
+        }
+    }
+
     func testUnreadablePhotoFailsWithoutRetainingOutput() async throws {
         let missing = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         do {
