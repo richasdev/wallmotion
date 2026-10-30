@@ -73,10 +73,11 @@ actor PhotoDecodeWorker {
 }
 
 enum PhotoDecodingError: LocalizedError {
-    case unreadable, overBudget
+    case unreadable, overBudget, batchOverBudget
     var errorDescription: String? {
         switch self {
         case .unreadable: "Não foi possível decodificar a foto."
+        case .batchOverBudget: "As fotos preparadas para este lote excederam o limite de memória. Use fotos com resolução menor."
         case .overBudget: "A foto decodificada excedeu o limite de memória. Use uma cópia com resolução menor."
         }
     }
