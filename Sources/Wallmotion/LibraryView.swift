@@ -89,8 +89,12 @@ struct LibraryView: View {
 
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Label("Wallmotion", systemImage: "play.rectangle.on.rectangle.fill")
-                .font(.title2.weight(.semibold)).padding(.top, 18)
+            HStack(spacing: 10) {
+                BrandLogoView(size: 28)
+                Text("Wallmotion")
+                    .font(.title2.weight(.bold))
+            }
+            .padding(.top, 18)
             Text("SEUS MONITORES").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
             ForEach(model.displays) { display in
                 Button { selectedDisplay = display.id } label: {
@@ -195,8 +199,8 @@ private struct WallpaperCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             ZStack {
-                LinearGradient(colors: [.accentColor.opacity(0.25), .indigo.opacity(0.1)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                Image(systemName: symbol).font(.system(size: 38, weight: .light)).foregroundStyle(Color.accentColor)
+                BrandTheme.cardBackground
+                Image(systemName: symbol).font(.system(size: 38, weight: .light)).foregroundStyle(BrandTheme.cyan)
             }
             .frame(height: 118).clipShape(RoundedRectangle(cornerRadius: 10))
             Text(item.title).font(.headline).lineLimit(1).help(item.title)
@@ -214,6 +218,6 @@ private struct WallpaperCard: View {
         }
         .padding(16)
         .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(isApplied ? Color.accentColor : .primary.opacity(0.07), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(isApplied ? BrandTheme.cyan : .primary.opacity(0.07), lineWidth: isApplied ? 1.5 : 1))
     }
 }
