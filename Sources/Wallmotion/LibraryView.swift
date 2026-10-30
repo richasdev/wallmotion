@@ -10,9 +10,6 @@ struct LibraryView: View {
     @State private var sortOrder = LibrarySortOrder.recent
     @State private var catalog = LibraryCatalogProjection()
     @State private var showingURL = false
-    @State private var isWebSource = false
-    @State private var urlText = ""
-    @State private var urlError: String?
     @State private var pendingRename: Wallpaper?
     @State private var pendingRemoval: Wallpaper?
     @State private var isDropTargeted = false
@@ -360,38 +357,15 @@ struct LibraryView: View {
     }
 
     private var urlSheet: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("Adicionar vídeo por URL").font(.title2.weight(.semibold))
-            Toggle("Fonte web (YouTube ou Vimeo)", isOn: $isWebSource)
-                .onChange(of: isWebSource) { _, _ in urlError = nil }
-            Text(isWebSource ? "Cole a URL de um vídeo individual público. Links YouTube com tempo inicial são preservados. Autoplay e incorporação dependem do provedor; login e DRM não são suportados." : "Cole um link HTTPS direto de vídeo ou HLS (.m3u8).")
-                .foregroundStyle(.secondary)
-            TextField(isWebSource ? "https://www.youtube.com/watch?v=…" : "https://exemplo.com/video.mp4", text: $urlText)
-                .textFieldStyle(.roundedBorder)
-                .onChange(of: urlText) { _, _ in urlError = nil }
-                .onSubmit { submitURL() }
-            if let urlError { Label(urlError, systemImage: "exclamationmark.circle").font(.callout).foregroundStyle(.red) }
-            Text("A conexão com o provedor será feita ao aplicar o wallpaper. Links temporários podem expirar.")
-                .font(.caption).foregroundStyle(.secondary)
-            HStack {
-                Spacer()
-                Button("Cancelar") { showingURL = false }.keyboardShortcut(.cancelAction)
-                Button("Adicionar") { submitURL() }
-                    .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
-                    .disabled(urlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        AddURLSheet(canAdd: model.canEdit && !model.isImporting) { text, web in
+            if model.addURL(text, web: web) {
+                showingURL = false
+                return nil
             }
-        }.padding(28).frame(width: 480)
-    }
-
-    private func submitURL() {
-        if model.addURL(urlText, web: isWebSource) {
-            urlText = ""
-            urlError = nil
-            showingURL = false
-        } else {
-            urlError = model.errorMessage
+            let error = model.errorMessage ?? "Não foi possível adicionar o link."
             model.errorMessage = nil
-        }
+            return error
+        } onCancel: { showingURL = false }
     }
 
     private func selectAvailableDisplay() {
