@@ -61,7 +61,7 @@ struct LibraryView: View {
                     .labelsHidden()
                     .frame(maxWidth: 320)
                     .disabled(!model.canEdit)
-                    Text("Ajustar mostra toda a mídia. Preencher recorta as bordas, sem distorcer.")
+                    Text("Ajustar mostra toda a mídia. Preencher recorta as bordas, sem distorcer. Fotos muito grandes usam resolução reduzida para limitar memória.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }

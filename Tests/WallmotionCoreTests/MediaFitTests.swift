@@ -32,8 +32,60 @@ struct MediaFitTests {
         let wide = CGSize(width: 8000, height: 2000)
         let retina = CGSize(width: 2000, height: 2000)
         #expect(MediaFit.fit.decodePixelLimit(for: wide, viewport: retina) == 2000)
-        #expect(MediaFit.fill.decodePixelLimit(for: wide, viewport: retina) == 8000)
+        let fill = MediaFit.fill.decodePixelLimit(for: wide, viewport: retina)
+        #expect(fill < 8000)
+        #expect(PhotoDecodeBudget.estimatedBytes(for: wide, pixelLimit: fill) <= PhotoDecodeBudget.maximumBytes)
         #expect(MediaFit.fill.decodePixelLimit(for: CGSize(width: 64, height: 32), viewport: retina) == 64)
+    }
+
+    @Test func extremeReviewFixturesStayWithinByteBudgetWithoutAllocatingBitmaps() {
+        let fixtures: [(CGSize, CGSize)] = [
+            (CGSize(width: 6000, height: 60000), CGSize(width: 6000, height: 4000)),
+            (CGSize(width: 60000, height: 2000), CGSize(width: 3840, height: 2160)),
+            (CGSize(width: 60000, height: 6000), CGSize(width: 4000, height: 6000)),
+            (CGSize(width: 1, height: 1_000_000_000), CGSize(width: 6000, height: 4000)),
+            (CGSize(width: 1_000_000_000, height: 1), CGSize(width: 6000, height: 4000))
+        ]
+        for (source, viewport) in fixtures {
+            for fit in MediaFit.allCases {
+                let edge = fit.decodePixelLimit(for: source, viewport: viewport)
+                #expect((1...16_384).contains(edge))
+                // Independently account for upward rounding and conservative 16 B/px,
+                // including row padding. No image/decoder or pixel buffer is allocated.
+                let scale = min(1, Double(edge) / max(source.width, source.height))
+                let width = max(1, Int(ceil(source.width * scale)))
+                let height = max(1, Int(ceil(source.height * scale)))
+                let bytes = ((width * 16 + 63) / 64) * 64 * height
+                #expect(bytes <= 128 * 1024 * 1024)
+            }
+            #expect(MediaFit.fill.decodePixelLimit(for: source, viewport: viewport) < Int(max(source.width, source.height)))
+        }
+    }
+
+    @Test func budgetBoundaryIsEnforcedAndRetinaQualitySurvivesWithinBudget() {
+        let source = CGSize(width: 7680, height: 4320)
+        let retina = CGSize(width: 3840, height: 2160)
+        for fit in MediaFit.allCases {
+            #expect(fit.decodePixelLimit(for: source, viewport: retina) == 3840)
+        }
+        let square = CGSize(width: 60000, height: 60000)
+        let edge = MediaFit.fill.decodePixelLimit(for: square, viewport: square)
+        #expect(PhotoDecodeBudget.estimatedBytes(for: square, pixelLimit: edge) <= PhotoDecodeBudget.maximumBytes)
+        #expect(PhotoDecodeBudget.estimatedBytes(for: square, pixelLimit: edge + 1) > PhotoDecodeBudget.maximumBytes)
+    }
+
+    @Test func invalidAndOverflowingDimensionsNeverOverflowIntegerConversion() {
+        let viewport = CGSize(width: 3840, height: 2160)
+        for fit in MediaFit.allCases {
+            for invalid in [CGFloat.nan, .infinity, -1, 0] {
+                #expect(fit.decodePixelLimit(for: CGSize(width: invalid, height: 100), viewport: viewport) == 1)
+                #expect(fit.decodePixelLimit(for: viewport, viewport: CGSize(width: invalid, height: 100)) == 1)
+            }
+            let huge = CGSize(width: CGFloat.greatestFiniteMagnitude, height: 1)
+            let limit = fit.decodePixelLimit(for: huge, viewport: viewport)
+            #expect((1...PhotoDecodeBudget.maximumDimension).contains(limit))
+            #expect(PhotoDecodeBudget.estimatedBytes(for: huge, pixelLimit: limit) <= PhotoDecodeBudget.maximumBytes)
+        }
     }
 
     @Test func legacyVersionOneDefaultsToFit() throws {

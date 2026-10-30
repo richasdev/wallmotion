@@ -17,11 +17,49 @@ public enum MediaFit: String, Codable, CaseIterable, Sendable {
                       width: size.width, height: size.height)
     }
 
-    /// ImageIO's longest-edge limit, capped at source resolution (no upsampling).
+    /// Longest edge for ImageIO, bounded before decoding in both presentation modes.
+    /// Extreme crops retain their geometry but use a lower resolution bitmap.
     public func decodePixelLimit(for media: CGSize, viewport: CGSize) -> Int {
-        guard media.width > 0, media.height > 0,
-              media.width.isFinite, media.height.isFinite else { return 1 }
-        let destination = frame(for: media, in: CGRect(origin: .zero, size: viewport))
-        return max(1, Int(ceil(min(max(media.width, media.height), max(destination.width, destination.height)))))
+        guard media.width >= 1, media.height >= 1,
+              media.width.isFinite, media.height.isFinite,
+              viewport.width > 0, viewport.height > 0,
+              viewport.width.isFinite, viewport.height.isFinite else { return 1 }
+        let horizontal = viewport.width / media.width
+        let vertical = viewport.height / media.height
+        let scale = min(1, self == .fit ? min(horizontal, vertical) : max(horizontal, vertical))
+        // Clamp while still floating point: even hostile metadata must never overflow Int.
+        let requested = Int(ceil(min(CGFloat(PhotoDecodeBudget.maximumDimension), max(media.width, media.height) * scale)))
+        var lower = 1
+        var upper = max(1, requested)
+        while lower < upper {
+            let candidate = (lower + upper + 1) / 2
+            if PhotoDecodeBudget.estimatedBytes(for: media, pixelLimit: candidate) <= PhotoDecodeBudget.maximumBytes {
+                lower = candidate
+            } else {
+                upper = candidate - 1
+            }
+        }
+        return lower
+    }
+}
+
+/// Per-photo output budget, not a bound on codec scratch memory or process RSS.
+public enum PhotoDecodeBudget {
+    public static let maximumBytes = 128 * 1024 * 1024
+    public static let maximumDimension = 16_384
+    // Conservatively reserve RGBA float32 (16 bytes/pixel), even though the
+    // renderer disables floating-point decode. Include 64-byte row alignment.
+    private static let bytesPerPixel = 16
+
+    public static func estimatedBytes(for media: CGSize, pixelLimit: Int) -> Int {
+        guard media.width >= 1, media.height >= 1,
+              media.width.isFinite, media.height.isFinite,
+              (1...maximumDimension).contains(pixelLimit) else { return Int.max }
+        let longest = max(media.width, media.height)
+        let edge = min(CGFloat(pixelLimit), longest)
+        let width = max(1, Int(ceil((media.width / longest) * edge)))
+        let height = max(1, Int(ceil((media.height / longest) * edge)))
+        let rowBytes = ((width * bytesPerPixel + 63) / 64) * 64
+        return rowBytes * height
     }
 }

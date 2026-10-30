@@ -124,8 +124,16 @@ final class WallpaperRenderer {
                         kCGImageSourceCreateThumbnailFromImageAlways: true,
                         kCGImageSourceCreateThumbnailWithTransform: true,
                         kCGImageSourceThumbnailMaxPixelSize: maxPixels,
+                        kCGImageSourceShouldAllowFloat: false,
                         kCGImageSourceShouldCacheImmediately: true
                       ] as CFDictionary) else { throw RendererError.unreadableImage }
+                // Defense in depth if a codec returns an unexpected layout. Use division
+                // to avoid overflow, and check before retaining or handing it to AppKit.
+                guard thumbnail.width <= maxPixels, thumbnail.height <= maxPixels,
+                      thumbnail.height > 0,
+                      thumbnail.bytesPerRow <= PhotoDecodeBudget.maximumBytes / thumbnail.height else {
+                    throw RendererError.photoTooLarge
+                }
                 image = NSImage(cgImage: thumbnail, size: NSSize(width: thumbnail.width, height: thumbnail.height))
             }
             let view = ImageSurface(image: image, mediaFit: mediaFit)
@@ -231,10 +239,11 @@ final class WallpaperRenderer {
 }
 
 enum RendererError: LocalizedError {
-    case unreadableImage, missingFile
+    case unreadableImage, missingFile, photoTooLarge
     var errorDescription: String? {
         switch self {
         case .unreadableImage: "Não foi possível decodificar a imagem ou GIF."
+        case .photoTooLarge: "A foto decodificada excedeu o limite de memória. Use uma cópia com resolução menor."
         case .missingFile: "O vídeo importado não está mais disponível. Importe o arquivo novamente."
         }
     }

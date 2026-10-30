@@ -13,7 +13,7 @@
 - `MediaFit` define Ajustar (aspect fit) e Preencher (aspect fill), com recorte central no contêiner AppKit para fotos/GIFs e gravidade nativa do AVPlayerLayer para vídeos. `mediaFits` guarda preferências por UUID de display e UUID de wallpaper; o campo opcional mantém JSON versão 1 e usa Ajustar quando ausente.
 - Preferências, biblioteca e atribuições são um único documento versionado salvo por escrita atômica. Arquivo inválido causa erro visível, sem sobrescrever os dados existentes.
 - Pausa manual e pausa por política são estados separados. Desbloquear/acordar nunca deve desfazer uma pausa manual.
-- Fotos usam thumbnail ImageIO dimensionada à tela; GIFs passam por orçamento conservador de 256 MiB de frames por mídia antes de abrir o decodificador AppKit. Isso limita entradas caras, mas não garante um teto de memória residente total.
+- Fotos usam thumbnail ImageIO dimensionada à tela/modo, com teto conservador de 128 MiB por bitmap (16 bytes/pixel, linhas alinhadas a 64 bytes, lado até 16.384 pixels), degradação de resolução acima do teto e verificação do layout retornado; GIFs passam por orçamento conservador de 256 MiB de frames por mídia antes de abrir o decodificador AppKit. Isso limita entradas caras, mas não garante um teto de memória residente total.
 
 ## Contrato de URLs
 
