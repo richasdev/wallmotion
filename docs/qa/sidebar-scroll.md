@@ -1,0 +1,7 @@
+# Sidebar overflow
+
+The monitor sidebar now uses a native SwiftUI scroll view. Its content keeps a viewport-derived minimum height so the lower playback/power controls remain near the bottom when content fits. When monitor rows, long names or small height exceed the viewport, the entire sidebar scrolls and the lower controls remain reachable. Scrolling is session presentation only; no library writes, playback previews or additional media players are introduced.
+
+The existing temporary-library snapshot fixture accepts `WALLMOTION_SNAPSHOT_DISPLAY_COUNT` (0...20) and `WALLMOTION_SNAPSHOT_SIDEBAR_BOTTOM=1`. The latter finds the overflowing narrow native scroll view, moves its document to the bottom and asserts the clip position changed before capture. This checks actual AppKit scroll geometry rather than just waiting for an image. It is not certification of on-screen wheel/trackpad interaction or VoiceOver speech.
+
+Use `WALLMOTION_SNAPSHOT_COMPACT=1` with `WALLMOTION_SNAPSHOT_PATH` and the optional fixture test. Executed local cases: zero/one monitor in a compact window, six monitors at top and bottom, and a two-monitor layout. The full local check passed (16 Rust + Clippy, 35 Python, 135 Swift Testing and 126 XCTest executed with 7 opt-in skips); the additional four component captures passed their targeted fixture invocation. Captures were inspected for readable controls and scroll reachability. Only synthetic display labels and a temporary library are used; no physical display configuration changes.
