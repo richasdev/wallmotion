@@ -5,21 +5,10 @@
       <rect x="100" y="100" width="824" height="824" rx="185" ry="185" />
     </clipPath>
 
-    <!-- Linhas de Aurora com gradiente muito suave e sutil (sem forçar degradê) -->
-    <linearGradient id="aurora-cyan" x1="0" y1="0.5" x2="1" y2="0.5">
-      <stop offset="0%" stop-color="#00F2FE" />
-      <stop offset="100%" stop-color="#00C4FF" />
-    </linearGradient>
-
-    <linearGradient id="aurora-violet" x1="0" y1="0.5" x2="1" y2="0.5">
-      <stop offset="0%" stop-color="#7F00FF" />
-      <stop offset="100%" stop-color="#9D4EDD" />
-    </linearGradient>
-
     <!-- Rim highlight minimalista monocromático -->
     <linearGradient id="rim-stroke" x1="0.5" y1="0" x2="0.5" y2="1">
-      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.25" />
-      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.04" />
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.22" />
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.03" />
     </linearGradient>
   </defs>
 
@@ -30,15 +19,15 @@
 
     <!-- ======================================================== -->
     <!-- 2. BRANCO: O "W" NO CANTO SUPERIOR ESQUERDO (~25% ÁREA)   -->
-    <!-- Camada atrás da aurora: o topo fica visível, a base      -->
-    <!-- fica escondida atrás das linhas de aurora. Sem shadow.   -->
+    <!-- Camada atrás da aurora: o corpo fica no preto puro, e a  -->
+    <!-- ponta inferior das pernas fica escondida pela aurora.     -->
     <!-- ======================================================== -->
     <g id="monogram-w">
-      <path d="M 215 225
-               L 282 485
-               L 350 335
-               L 418 485
-               L 485 225"
+      <path d="M 215 230
+               L 282 505
+               L 350 345
+               L 418 505
+               L 485 230"
             fill="none"
             stroke="#FFFFFF"
             stroke-width="28"
@@ -47,28 +36,31 @@
     </g>
 
     <!-- ======================================================== -->
-    <!-- 3 & 4. AS DUAS LINHAS DE AURORA (CIANO E VIOLETA)        -->
-    <!-- Passando NA FRENTE do W, cobrindo a parte inferior dele  -->
-    <!-- Sem shadowing, fluxo dinâmico e suave                    -->
+    <!-- 3 & 4. DUAS LINHAS DE AURORA (BELAS CURVAS, MAIS ABAIXO)  -->
+    <!-- Ciano (#00F2FE) e Violeta (#7F00FF)                      -->
+    <!-- Cruzando a base do W com curvas orgânicas de Bézier      -->
+    <!-- Sem shadowing, fluxo cinético elegante                   -->
     <!-- ======================================================== -->
 
-    <!-- Linha 2: Violeta Aurora (Fita inferior) -->
-    <path d="M 70 595
-             C 240 500, 360 540, 520 480
-             C 680 420, 800 470, 954 430"
+    <!-- Linha 2: Violeta Aurora (Curva fluida inferior) -->
+    <path d="M 70 640
+             C 180 670, 250 560, 380 550
+             C 520 540, 580 700, 720 705
+             C 820 710, 895 640, 954 600"
           fill="none"
-          stroke="url(#aurora-violet)"
-          stroke-width="26"
+          stroke="#7F00FF"
+          stroke-width="28"
           stroke-linecap="round"
           stroke-linejoin="round" />
 
-    <!-- Linha 1: Ciano Aurora (Fita superior, cruzando o W) -->
-    <path d="M 70 525
-             C 240 435, 360 475, 520 415
-             C 680 355, 800 405, 954 365"
+    <!-- Linha 1: Ciano Aurora (Curva fluida superior cobrindo a base do W) -->
+    <path d="M 70 565
+             C 180 595, 245 485, 375 480
+             C 510 475, 585 625, 725 630
+             C 825 635, 895 565, 954 525"
           fill="none"
-          stroke="url(#aurora-cyan)"
-          stroke-width="26"
+          stroke="#00F2FE"
+          stroke-width="28"
           stroke-linecap="round"
           stroke-linejoin="round" />
   </g>
