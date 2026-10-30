@@ -6,6 +6,18 @@ struct ThumbnailPixelSize: Hashable, Sendable {
     let width: Int
     let height: Int
 
+    /// Round upward so resizing within one bucket reuses a request without
+    /// asking for fewer pixels than the bounded display geometry requires.
+    var bucketed: Self {
+        func bucket(_ value: Int) -> Int { min(ThumbnailBudget.maximumDimension, ((value + 31) / 32) * 32) }
+        return Self(width: bucket(width), height: bucket(height))
+    }
+
+    private init(width: Int, height: Int) {
+        self.width = width
+        self.height = height
+    }
+
     init(points: CGSize, scale: CGFloat) {
         let scale = scale.isFinite && scale > 0 ? scale : 1
         func bounded(_ value: CGFloat) -> Int {

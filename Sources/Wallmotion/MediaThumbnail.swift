@@ -12,22 +12,22 @@ private enum ThumbnailCache {
         return cache
     }()
 
-    static func key(_ url: URL, width: Int, height: Int) -> NSString { "\(url.path)#\(width)x\(height)" as NSString }
+    static func key(_ url: URL, kind: String, width: Int, height: Int) -> NSString { "\(url.path)#\(kind)#\(width)x\(height)" as NSString }
 }
 
 struct MediaThumbnail: View {
     let item: Wallpaper
     let localURL: URL?
     @Environment(\.displayScale) private var displayScale
-    @State private var image: NSImage?
+    @State private var presentation = ThumbnailPresentation()
 
     var body: some View {
         GeometryReader { geometry in
             let size = pixelDimensions(for: geometry.size)
-            let cacheKey = localURL.map { ThumbnailCache.key($0, width: size.width, height: size.height) }
+            let cacheKey = localURL.map { ThumbnailCache.key($0, kind: item.kind.rawValue, width: size.width, height: size.height) }
             ZStack {
                 LinearGradient(colors: [.accentColor.opacity(0.25), .indigo.opacity(0.1)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                if let image {
+                if let image = presentation.image {
                     Image(nsImage: image).resizable().scaledToFill()
                 } else {
                     Image(systemName: fallbackSymbol).font(.system(size: 38, weight: .light)).foregroundStyle(Color.accentColor)
@@ -43,7 +43,7 @@ struct MediaThumbnail: View {
     }
 
     private func pixelDimensions(for size: CGSize) -> ThumbnailPixelSize {
-        ThumbnailPixelSize(points: size, scale: displayScale)
+        ThumbnailPixelSize(points: size, scale: displayScale).bucketed
     }
 
     private var fallbackSymbol: String {
@@ -56,21 +56,26 @@ struct MediaThumbnail: View {
 
     @MainActor
     private func loadThumbnail(width: Int, height: Int, cacheKey: NSString?) async {
-        image = nil
-        guard let localURL, let cacheKey else { return }
-        if let cached = ThumbnailCache.images.object(forKey: cacheKey) { image = cached; return }
+        guard !Task.isCancelled else { return }
+        let request = ThumbnailRequest(url: localURL, kind: item.kind.rawValue, width: width, height: height)
+        presentation.begin(request)
+        guard localURL != nil, let cacheKey else { return }
+        if let cached = ThumbnailCache.images.object(forKey: cacheKey) {
+            presentation.publish(cached, for: request)
+            return
+        }
         do {
-            let cgImage = try await ThumbnailScheduler.shared.image(for: ThumbnailRequest(
-                url: localURL, kind: item.kind.rawValue, width: width, height: height))
+            let cgImage = try await ThumbnailScheduler.shared.image(for: request)
             try Task.checkCancellation()
             guard let cost = ThumbnailBudget.cost(of: cgImage) else { throw ThumbnailError.unavailable }
             let result = NSImage(cgImage: cgImage, size: .zero)
             ThumbnailCache.images.setObject(result, forKey: cacheKey, cost: cost)
-            image = result
+            presentation.publish(result, for: request)
         } catch is CancellationError {
             // A recycled or resized card no longer needs this result.
         } catch {
-            if !Task.isCancelled { image = nil }
+            // Keep a prepared image of the same asset during a failed resize.
+            // begin already cleared it if the media source changed.
         }
     }
 }
