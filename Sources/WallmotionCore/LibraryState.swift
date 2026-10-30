@@ -113,7 +113,7 @@ public struct LibraryState: Codable, Equatable, Sendable {
               assignments.allSatisfy({ !$0.key.isEmpty && ids.contains($0.value) }) else { throw LibraryError.invalidState }
         if displayMode == .spanned, let mirroredWallpaperID,
            let item = wallpapers.first(where: { $0.id == mirroredWallpaperID }) {
-            guard item.kind == .image, case .local = item.source else { throw LibraryError.invalidState }
+            guard item.supportsPanorama else { throw LibraryError.invalidState }
         }
         let fitIDs = Set(wallpapers.map { $0.id.uuidString })
         guard mediaFits.allSatisfy({ display, fits in
