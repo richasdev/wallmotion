@@ -1,0 +1,9 @@
+# Rename draft feedback
+
+The rename sheet shows a monospaced X/200 counter, a near-limit caption from 180 through 200 and an exceeded caption above 200. Textual status accompanies semantic color; the counter has a descriptive accessibility label. The count uses the same leading/trailing whitespace trim as MediaTitle.normalized so a valid trimmed title does not display a contradictory red count. A tooltip explains that trim. Unicode is counted as extended graphemes, including joined emoji.
+
+UI draft admission is bounded independently at 256 raw graphemes and 4096 UTF-8 bytes, checking the byte prefix before grapheme traversal. An oversized edit/paste is rejected, preserving the previous draft and showing an explicit error; Save stays disabled until a valid edit or Cancel. Text is not silently truncated into another savable name. An oversized legacy initial title starts a blank draft with an explanatory error; Cancel leaves its stored title intact. These limits bound retained editable state, not upstream TextKit/paste allocation. The domain's 200-character/4096-byte validation and transactional model rename remain unchanged.
+
+Draft tests cover 179/180/200/201 boundaries, trimmed whitespace, joined emoji, rejected-paste retention/save blocking, recovery after a valid edit, byte-heavy combining scalars and oversized initial values. Existing optional rename snapshots accept title/light-mode environment values to inspect normal/near/limit/exceeded states. They check component composition, not physical keyboard/VoiceOver speech.
+
+Counter foreground contrast calculations against white and #202020 bases were 7.06/9.44 (warning light/dark) and 7.25/6.97 (exceeded light/dark). These describe the specified palette/base pairs, not all OS display configurations or certification of the whole sheet.
