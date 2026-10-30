@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import Testing
 @testable import WallmotionCore
 
@@ -63,16 +64,46 @@ struct GIFPreflightTests {
         #expect(throws: LibraryError.invalidGIF) { try GIFPreflight.inspect(data: zeroCanvas) }
     }
 
-    @Test func mappedURLInspectionMatchesInMemoryInspectionWithoutChangingSource() throws {
+    @Test func streamedURLInspectionMatchesInMemoryInspectionWithoutChangingSource() throws {
         try withTemporaryDirectory { directory in
             let url = directory.appendingPathComponent("animation.gif")
             let data = fixture(frames: 2)
             try data.write(to: url)
-            let mapped = try GIFPreflight.inspect(url: url, maxDecodedBytes: 8)
+            let streamed = try GIFPreflight.inspect(url: url, maxDecodedBytes: 8)
             let memory = try GIFPreflight.inspect(data: data)
-            #expect(mapped == memory)
+            #expect(streamed == memory)
             #expect(try Data(contentsOf: url) == data)
             #expect(throws: LibraryError.gifTooLarge) { try GIFPreflight.inspect(url: url, maxDecodedBytes: 7) }
+        }
+    }
+
+    @Test func descriptorScanPreservesOffsetAndReportsTruncatedFile() throws {
+        try withTemporaryDirectory { directory in
+            let url = directory.appendingPathComponent("animation.gif")
+            let bytes = fixture(frames: 2)
+            try bytes.write(to: url)
+            let fd = open(url.path, O_RDWR | O_CLOEXEC)
+            #expect(fd >= 0)
+            defer { close(fd) }
+            #expect(lseek(fd, 7, SEEK_SET) == 7)
+            #expect(try GIFPreflight.inspect(descriptor: fd).frames == 2)
+            #expect(lseek(fd, 0, SEEK_CUR) == 7)
+            #expect(ftruncate(fd, 6) == 0)
+            #expect(throws: LibraryError.invalidGIF) { try GIFPreflight.inspect(descriptor: fd) }
+            #expect(lseek(fd, 0, SEEK_CUR) == 7)
+        }
+    }
+
+    @Test func URLScanRejectsSymlinkAndFIFOWithoutBlocking() throws {
+        try withTemporaryDirectory { directory in
+            let source = directory.appendingPathComponent("source.gif")
+            try fixture().write(to: source)
+            let link = directory.appendingPathComponent("link.gif")
+            try FileManager.default.createSymbolicLink(at: link, withDestinationURL: source)
+            #expect(throws: LibraryError.notRegularFile) { try GIFPreflight.inspect(url: link) }
+            let fifo = directory.appendingPathComponent("fifo.gif")
+            #expect(mkfifo(fifo.path, 0o600) == 0)
+            #expect(throws: LibraryError.invalidGIF) { try GIFPreflight.inspect(url: fifo) }
         }
     }
 

@@ -1,6 +1,9 @@
 //! Allocation-free GIF structure inspection. Compressed image data is skipped,
 //! never decoded. The estimate accounts for a full RGBA canvas for every frame.
 
+#[cfg(unix)]
+mod file_input;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GifInfo {
     pub width: u32,
@@ -19,29 +22,64 @@ pub enum GifError {
     NoFrames,
     Overflow,
     BudgetExceeded,
+    ReadFailure,
 }
 
-struct Cursor<'a> {
+trait Input {
+    fn read(&mut self, output: &mut [u8]) -> Result<(), GifError>;
+    fn skip(&mut self, length: usize) -> Result<(), GifError>;
+}
+
+struct SliceInput<'a> {
     bytes: &'a [u8],
     position: usize,
 }
 
-impl<'a> Cursor<'a> {
-    fn take(&mut self, length: usize) -> Result<&'a [u8], GifError> {
+impl Input for SliceInput<'_> {
+    fn read(&mut self, output: &mut [u8]) -> Result<(), GifError> {
+        let end = self
+            .position
+            .checked_add(output.len())
+            .ok_or(GifError::Overflow)?;
+        output.copy_from_slice(
+            self.bytes
+                .get(self.position..end)
+                .ok_or(GifError::Truncated)?,
+        );
+        self.position = end;
+        Ok(())
+    }
+
+    fn skip(&mut self, length: usize) -> Result<(), GifError> {
         let end = self
             .position
             .checked_add(length)
             .ok_or(GifError::Overflow)?;
-        let value = self
-            .bytes
+        self.bytes
             .get(self.position..end)
             .ok_or(GifError::Truncated)?;
         self.position = end;
-        Ok(value)
+        Ok(())
+    }
+}
+
+struct Cursor<R> {
+    input: R,
+}
+
+impl<R: Input> Cursor<R> {
+    fn read<const N: usize>(&mut self) -> Result<[u8; N], GifError> {
+        let mut bytes = [0; N];
+        self.input.read(&mut bytes)?;
+        Ok(bytes)
+    }
+
+    fn skip(&mut self, length: usize) -> Result<(), GifError> {
+        self.input.skip(length)
     }
 
     fn byte(&mut self) -> Result<u8, GifError> {
-        self.take(1)?.first().copied().ok_or(GifError::Truncated)
+        Ok(self.read::<1>()?[0])
     }
 
     fn word(&mut self) -> Result<u32, GifError> {
@@ -55,7 +93,7 @@ impl<'a> Cursor<'a> {
             let entries = 1usize
                 .checked_shl(u32::from(packed & 7) + 1)
                 .ok_or(GifError::Overflow)?;
-            self.take(entries.checked_mul(3).ok_or(GifError::Overflow)?)?;
+            self.skip(entries.checked_mul(3).ok_or(GifError::Overflow)?)?;
         }
         Ok(())
     }
@@ -68,7 +106,7 @@ impl<'a> Cursor<'a> {
             if length == 0 {
                 return Ok(present);
             }
-            self.take(length)?;
+            self.skip(length)?;
             present = true;
         }
     }
@@ -80,7 +118,7 @@ impl<'a> Cursor<'a> {
                 if self.byte()? != 4 {
                     return Err(GifError::InvalidBlock);
                 }
-                self.take(4)?;
+                self.skip(4)?;
                 if self.byte()? != 0 {
                     return Err(GifError::InvalidBlock);
                 }
@@ -91,7 +129,7 @@ impl<'a> Cursor<'a> {
                 if self.byte()? != expected {
                     return Err(GifError::InvalidBlock);
                 }
-                self.take(usize::from(expected))?;
+                self.skip(usize::from(expected))?;
                 self.subblocks()?;
             }
             // Comments and unknown extensions are sequences of data subblocks.
@@ -113,8 +151,12 @@ pub fn probe_gif(bytes: &[u8]) -> Result<GifInfo, GifError> {
 /// Stops at the first complete frame that exceeds the decoded canvas budget.
 /// A budget rejection does not validate the remaining bytes or require a trailer.
 pub fn probe_gif_with_budget(bytes: &[u8], max_decoded_bytes: u64) -> Result<GifInfo, GifError> {
-    let mut cursor = Cursor { bytes, position: 0 };
-    match cursor.take(6)? {
+    probe_input(SliceInput { bytes, position: 0 }, max_decoded_bytes)
+}
+
+fn probe_input(input: impl Input, max_decoded_bytes: u64) -> Result<GifInfo, GifError> {
+    let mut cursor = Cursor { input };
+    match &cursor.read::<6>()? {
         b"GIF87a" | b"GIF89a" => {}
         _ => return Err(GifError::InvalidHeader),
     }
@@ -124,7 +166,7 @@ pub fn probe_gif_with_budget(bytes: &[u8], max_decoded_bytes: u64) -> Result<Gif
         return Err(GifError::InvalidDimensions);
     }
     let packed = cursor.byte()?;
-    cursor.take(2)?; // Background color index and pixel aspect ratio.
+    cursor.skip(2)?; // Background color index and pixel aspect ratio.
     cursor.color_table(packed)?;
     let mut frames = 0u32;
     loop {
@@ -171,6 +213,17 @@ pub fn probe_gif_with_budget(bytes: &[u8], max_decoded_bytes: u64) -> Result<Gif
             _ => return Err(GifError::InvalidBlock),
         }
     }
+}
+
+/// Scans a regular file using 8 KiB of read-ahead. Does not change its seek
+/// offset or map pages; concurrent truncation becomes EOF/read failure. Buffered
+/// bytes are a partial snapshot, not a guarantee of a coherent mutable file.
+#[cfg(unix)]
+pub fn probe_gif_file_with_budget(
+    file: &std::fs::File,
+    max_decoded_bytes: u64,
+) -> Result<GifInfo, GifError> {
+    probe_input(file_input::FileInput::new(file)?, max_decoded_bytes)
 }
 
 fn decoded_size(width: u32, height: u32, frames: u32) -> Result<u64, GifError> {
@@ -221,6 +274,49 @@ pub unsafe extern "C" fn wm_gif_probe_bounded(
     // SAFETY: The caller provides the readable allocation documented above.
     let input = unsafe { core::slice::from_raw_parts(bytes, len) };
     match probe_gif_with_budget(input, max_decoded_bytes) {
+        Ok(info) => {
+            // SAFETY: The caller provides aligned writable output storage.
+            unsafe {
+                out.write(WMGifInfo {
+                    width: info.width,
+                    height: info.height,
+                    frames: info.frames,
+                    decoded_bytes: info.decoded_bytes,
+                });
+            }
+            0
+        }
+        Err(GifError::BudgetExceeded) => 2,
+        Err(_) => 1,
+    }
+}
+
+/// Same result codes as wm_gif_probe_bounded; read errors are invalid input.
+/// Duplicates the descriptor for this call and never changes the caller's offset.
+/// No file-backed memory mapping or whole-file allocation is used.
+///
+/// # Safety
+/// `descriptor` must be an open descriptor throughout this call. `out` must be
+/// aligned and writable for one WMGifInfo. No descriptor/data is retained.
+#[cfg(unix)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wm_gif_probe_fd_bounded(
+    descriptor: i32,
+    max_decoded_bytes: u64,
+    out: *mut WMGifInfo,
+) -> i32 {
+    use std::os::fd::BorrowedFd;
+    if descriptor < 0 || out.is_null() || !out.is_aligned() {
+        return 1;
+    }
+    // SAFETY: The caller keeps this descriptor open for the documented duration.
+    let borrowed = unsafe { BorrowedFd::borrow_raw(descriptor) };
+    let owned = match borrowed.try_clone_to_owned() {
+        Ok(owned) => owned,
+        Err(_) => return 1,
+    };
+    let file = std::fs::File::from(owned);
+    match probe_gif_file_with_budget(&file, max_decoded_bytes) {
         Ok(info) => {
             // SAFETY: The caller provides aligned writable output storage.
             unsafe {
