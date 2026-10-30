@@ -36,30 +36,40 @@ final class ThumbnailStressTests: XCTestCase {
         CGImageDestinationAddImage(destination, try XCTUnwrap(context.makeImage()), [kCGImageDestinationLossyCompressionQuality: 0.9] as CFDictionary)
         XCTAssertTrue(CGImageDestinationFinalize(destination))
         _ = try XCTUnwrap(MediaThumbnailDecoding.imageThumbnail(url: url, targetWidth: 440, targetHeight: 236))
-        let concurrency = Concurrency()
-        let cpuStart = cpuSeconds()
-        let start = ContinuousClock.now
-        let completed = try await withThrowingTaskGroup(of: Int.self, returning: Int.self) { group in
-            for index in 0..<48 {
-                group.addTask {
-                    try await Task.detached(priority: .utility) {
-                        concurrency.begin()
-                        defer { concurrency.end() }
-                        return try autoreleasepool {
-                            guard let image = MediaThumbnailDecoding.imageThumbnail(url: url, targetWidth: 400 + index, targetHeight: 236),
-                                  ThumbnailBudget.cost(of: image) != nil else { throw CocoaError(.fileReadCorruptFile) }
-                            return 1
-                        }
-                    }.value
+        for limit in [0, 2, 4, 0] {
+            let concurrency = Concurrency()
+            let decode: ThumbnailScheduler.Decode = { request in
+                concurrency.begin()
+                defer { concurrency.end() }
+                return try autoreleasepool {
+                    guard let image = MediaThumbnailDecoding.imageThumbnail(url: url, targetWidth: request.width, targetHeight: request.height),
+                          ThumbnailBudget.cost(of: image) != nil else { throw CocoaError(.fileReadCorruptFile) }
+                    return image
                 }
             }
-            var count = 0
-            for try await value in group { count += value }
-            return count
+            let scheduler = limit == 0 ? nil : ThumbnailScheduler(maximumConcurrent: limit, decode: decode)
+            let cpuStart = cpuSeconds()
+            let start = ContinuousClock.now
+            let completed = try await withThrowingTaskGroup(of: Int.self, returning: Int.self) { group in
+                for index in 0..<48 {
+                    let request = ThumbnailRequest(url: url, kind: "image", width: 400 + index, height: 236)
+                    group.addTask {
+                        let image: CGImage
+                        if let scheduler { image = try await scheduler.image(for: request) }
+                        else { image = try await Task.detached(priority: .utility) { try await decode(request) }.value }
+                        guard ThumbnailBudget.cost(of: image) != nil else { throw CocoaError(.fileReadCorruptFile) }
+                        return 1
+                    }
+                }
+                var count = 0
+                for try await value in group { count += value }
+                return count
+            }
+            let duration = start.duration(to: .now)
+            print("THUMBNAIL_STRESS limit=\(limit) requests=48 completed=\(completed) peak_active=\(concurrency.peak) elapsed=\(duration) process_cpu_ms=\((cpuSeconds() - cpuStart) * 1000)")
+            XCTAssertEqual(completed, 48)
+            XCTAssertGreaterThan(concurrency.peak, 0)
+            if limit > 0 { XCTAssertLessThanOrEqual(concurrency.peak, limit) }
         }
-        let duration = start.duration(to: .now)
-        print("THUMBNAIL_STRESS baseline requests=48 completed=\(completed) peak_active=\(concurrency.peak) elapsed=\(duration) process_cpu_ms=\((cpuSeconds() - cpuStart) * 1000)")
-        XCTAssertEqual(completed, 48)
-        XCTAssertGreaterThan(concurrency.peak, 0)
     }
 }
