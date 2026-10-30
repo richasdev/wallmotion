@@ -517,12 +517,9 @@ final class LibraryModelTests: XCTestCase {
         window.setFrameOrigin(NSPoint(x: -10000, y: -10000))
         window.orderBack(nil)
         defer { window.orderOut(nil); window.close() }
-        hosting.layoutSubtreeIfNeeded()
+        // Let fixture thumbnail tasks start; this delay alone is not a pass condition.
         try await Task.sleep(for: .milliseconds(250))
-        hosting.layoutSubtreeIfNeeded()
-        window.displayIfNeeded()
-        let bitmap = try XCTUnwrap(hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds))
-        hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+        let bitmap = try await LibrarySnapshotCapture.capture(hosting)
         let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
         let destination = URL(fileURLWithPath: path)
         try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
