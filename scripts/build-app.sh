@@ -1,5 +1,6 @@
 #!/bin/sh
 set -eu
+unset CDPATH
 cd "$(dirname "$0")/.."
 sh scripts/build-native.sh
 swift build -j 2 -c release
