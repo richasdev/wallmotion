@@ -28,11 +28,16 @@ struct MediaThumbnail: View {
             let size = pixelDimensions(for: geometry.size)
             let cacheKey = localURL.map { ThumbnailCache.key($0, kind: item.kind.rawValue, width: size.width, height: size.height) }
             ZStack {
-                LinearGradient(colors: [.accentColor.opacity(0.25), .indigo.opacity(0.1)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                LivingArtwork(warm: item.kind == .video)
                 if let image = presentation.image {
                     Image(nsImage: image).resizable().scaledToFill()
                 } else {
-                    Image(systemName: fallbackSymbol).font(.system(size: 38, weight: .light)).foregroundStyle(Color.accentColor)
+                    VStack(spacing: 8) {
+                        Image(systemName: fallbackSymbol).font(.system(size: 28, weight: .light))
+                        Text("Sem prévia").font(.caption2.weight(.medium))
+                    }
+                    .foregroundStyle(.white).padding(14)
+                    .background(.black.opacity(0.65), in: RoundedRectangle(cornerRadius: 16))
                 }
             }
             .frame(width: geometry.size.width, height: geometry.size.height)

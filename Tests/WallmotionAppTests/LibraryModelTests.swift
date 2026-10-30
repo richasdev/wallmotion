@@ -745,7 +745,7 @@ final class LibraryModelTests: XCTestCase {
         let query = LibraryQuery(text: environment["WALLMOTION_SNAPSHOT_SEARCH"] ?? "",
             filter: LibraryMediaFilter(rawValue: environment["WALLMOTION_SNAPSHOT_FILTER"] ?? "") ?? .all,
             sort: LibrarySortOrder(rawValue: environment["WALLMOTION_SNAPSHOT_SORT"] ?? "") ?? .recent)
-        let hosting = NSHostingView(rootView: LibraryView(model: model, initialQuery: query))
+        let hosting = NSHostingView(rootView: LibraryView(model: model, initialQuery: query, initialSceneControls: environment["WALLMOTION_SNAPSHOT_SCENE_CONTROLS"] == "1"))
         hosting.appearance = NSAppearance(named: appearance)
         hosting.frame = bounds
         let window = NSWindow(contentRect: bounds, styleMask: [.borderless], backing: .buffered, defer: false)
