@@ -24,6 +24,7 @@ struct RenameDraft: Sendable {
     }
 
     mutating func replace(with value: String) {
+        guard value != text else { return } // Reconciliation must not acknowledge a rejected edit.
         guard Self.accepts(value) else {
             inputError = "O texto é grande demais para este campo. Ele não foi inserido; digite ou cole um nome menor."
             return

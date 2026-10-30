@@ -22,6 +22,8 @@ final class RenameDraftTests: XCTestCase {
         XCTAssertEqual(draft.text, "Nome anterior")
         XCTAssertNotNil(draft.inputError)
         XCTAssertNotNil(draft.validationError)
+        draft.replace(with: "Nome anterior")
+        XCTAssertNotNil(draft.inputError, "Same-value reconciliation must not unblock Save.")
         draft.replace(with: "Novo nome")
         XCTAssertEqual(draft.text, "Novo nome")
         XCTAssertNil(draft.inputError)
