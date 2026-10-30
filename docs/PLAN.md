@@ -23,6 +23,19 @@ Cada issue concluída deve ter commit próprio com referência à issue. Builds 
 - #8: medições reais de energia/performance; fullscreen/oclusão; assinatura, notarização e início automático opt-in.
 - Futuro: playlists, agendamento, thumbnails em cache, arrastar e soltar e importação/exportação de coleções.
 
+## Situação da primeira entrega — 30/10/2026
+
+- #1–#4: arquitetura, biblioteca, renderização desktop e interface implementadas e publicadas.
+- #5: política de energia, recuperação, testes AppKit e correções da revisão integradas.
+- #6: build release do app, assinatura ad-hoc de desenvolvimento, workflow e QA adicionados.
+- #9: scanner Rust integrado via ABI C, orçamento de GIF, downsample de fotos e benchmark reproduzível.
+- #10: nome Wallmotion padronizado no conteúdo atual e classe `DesktopCoordinator`.
+- #12: limpeza de artefatos Cargo entre ciclos; execução local removeu 43 MiB e preservou release/app.
+- #11: CI remoto impedido de iniciar por cobrança/limite da conta GitHub; checks locais passaram.
+- #7 e #8 permanecem como evolução: páginas web, métricas sustentadas, QA de hardware e distribuição pública.
+
+O app é um MVP de desenvolvimento. As verificações automatizadas e os limites físicos estão em [QA](QA.md) e as decisões sobre achados em [resolução da revisão](REVIEW-RESOLUTION.md).
+
 ## Fluxo multiagente
 
 1. Antigravity estuda APIs públicas, ciclo de vida, limites e armadilhas.
