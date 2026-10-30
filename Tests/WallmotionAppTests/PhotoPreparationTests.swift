@@ -3,7 +3,7 @@ import XCTest
 import WallmotionCore
 @testable import Wallmotion
 
-private actor PhotoTestGate {
+actor PhotoTestGate {
     private var waiters: [CheckedContinuation<Void, Never>] = []
     private var open = false
     func wait() async {

@@ -32,7 +32,7 @@ actor PhotoDecodeWorker {
 
     func decode(_ request: PhotoDecodeRequest) throws -> DecodedPhoto {
         try Task.checkCancellation()
-        let result = try decodeImage(request)
+        let result = try autoreleasepool { try decodeImage(request) }
         try Task.checkCancellation()
         return result
     }
