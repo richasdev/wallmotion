@@ -33,6 +33,11 @@ final class LibraryModel {
         return "Reprodução ativa"
     }
 
+    func localMediaURL(for wallpaper: Wallpaper) -> URL? {
+        guard case .local = wallpaper.source else { return nil }
+        return try? store.resolvedURL(for: wallpaper)
+    }
+
     func start() {
         guard !started else { return }
         started = true

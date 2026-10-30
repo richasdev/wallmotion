@@ -2,6 +2,20 @@
 
 Data: 2026-10-30. Branch: `agents/sol-fit-fill`. Referência: https://github.com/richasdev/wallmotion/issues/20.
 
+## Roteiro específico de ajustar/preencher
+
+Este arquivo concentra o roteiro e os limites da issue #20. `docs/QA.md` permanece conforme main; o conteúdo dos demais recursos não foi alterado.
+
+- [ ] Alternar Ajustar/Preencher em fotos, GIFs e vídeos de proporções diferentes, incluindo retrato e panorama; verificar faixas/recorte central sem distorção em Retina.
+- [ ] Trocar de mídia/monitor e voltar; reabrir o app e confirmar preferência por par mídia/monitor.
+- [ ] Carregar JSON versão 1 sem `mediaFits`; confirmar padrão Ajustar sem perda de atribuições.
+- [ ] Confirmar a explicação de resolução reduzida no seletor. Em fotos extremas, aceitar menor nitidez para respeitar o orçamento, mantendo proporção e recorte.
+- [ ] Repetir pausa manual, oclusão/desoclusão e alteração do outro monitor com GIF em Preencher; a decisão central de playback deve continuar efetiva.
+
+Ajustar mostra toda a mídia, com possíveis faixas; Preencher mantém a proporção e recorta no centro. Fotos usam dimensões orientadas e escala Retina, sem decodificar acima da resolução original. Ambos os modos respeitam o teto conservador de 128 MiB por bitmap (16 bytes/pixel e linhas alinhadas a 64 bytes) e lado máximo de 16.384 pixels. Ao atingir o teto, a resolução é reduzida e o recorte preservado; o layout real retornado pelo ImageIO também é verificado. O orçamento é por bitmap de saída, não por RSS global/temporários dos codecs; decode permanece síncrono. Trocar modo recria apenas o renderer daquele monitor, reiniciando seu vídeo. GIF continua sujeito aos orçamentos existentes da main.
+
+Os roteiros gerais de Spaces, Stage Manager, pausa por política, vídeos remotos e consumo de energia permanecem em `../QA.md`. Sem certificação física de dois monitores, nitidez em todas as telas ou benchmark de pico de memória/energia; CI remoto bloqueado por billing #11.
+
 ## Comportamento
 
 - Ajustar mostra a mídia inteira; Preencher recorta no centro. Ambos preservam a proporção.
@@ -57,3 +71,15 @@ Merge normal de `origin/main` em `agents/sol-fit-fill`, base integrada `00afda7b
 A resolução conserva `!force` na reutilização, orçamento GIF antes de criar o renderer, confirmação da cota somente depois de sucesso e preservação de renderer/cota anteriores em falhas. Acrescenta os critérios de modo/escala Retina à mesma condição, encaminhando o modo ao renderer. O observador de oclusão e o scanner/ABI integrados permanecem intactos. O teste de orçamento foi adaptado para `ImageSurface.imageView` e verifica trocar fit → fill no limite exato da cota sem cobrança duplicada.
 
 Checks locais da árvore integrada: Rust estático via `CARGO_INCREMENTAL=0 sh scripts/build-native.sh`, 7 testes Rust e Clippy `-D warnings` aprovados; `swift test -j 2` aprovou 50 testes Swift Testing e 16 XCTest (19 executados, 3 ignorados: snapshot/rede opt-in e dois monitores); `swift build -c release -j 2` aprovado; sem conflitos pendentes e `git diff --cached --check` aprovado. CI remoto segue bloqueado por billing #11. Sem nova medição de memória/energia ou validação física em dois monitores. O merge invalida todas as aprovações de HEAD anteriores; requer três novas revisões independentes e merger separado.
+
+## Integração do PR #39 — main 4cd97d1
+
+Merge normal da main `4cd97d16562ad357b34cc440a660a2c3f5d2ebe5` na branch da issue #20, sem novas funcionalidades. A resolução mantém integralmente `RendererPlaybackState`, `applyPlaybackState`, decisão única de play/pause/animação, reamostragem da visibilidade, tokens de seek, rejeição de conclusões antigas/duplicadas, pausa durante seek e stop terminal do PR #39. O parâmetro `mediaFit` foi composto com as injeções de visibilidade/player/seek do inicializador. O coordenador encaminha tanto o modo quanto a visibilidade, sem substituir a política central.
+
+Os testes de oclusão usam agora `ImageSurface.imageView`, preservando suas asserções; o teste de GIF coberto exercita Preencher, e o refresh do segundo display inclui Preencher sem retomar o GIF coberto do primeiro. Testes de seek do PR #39 permanecem integrais.
+
+`docs/QA.md` foi restaurado byte a byte da main. O antigo `docs/QA-20.md` foi movido para este arquivo; roteiro manual, limites e histórico do recurso ficam em `docs/qa/media-fit.md`. A seção central de playback em `docs/ARCHITECTURE.md` foi mantida e os documentos de métricas/miniaturas/outros recursos não receberam edições próprias desta branch.
+
+Checks desta integração: `CARGO_INCREMENTAL=0 sh scripts/build-native.sh` antes de Swift; 7 testes Rust e Clippy `--all-targets -- -D warnings` aprovados; `swift test -j 2` aprovou 56 testes Swift Testing e 23 XCTest (25 executados, 2 ignorados: snapshot/rede opt-in). Passaram os testes de GIF coberto, refresh de outro display sem retomar o coberto, seek remoto com player/seek injetados e stop terminal. O teste existente entre displays também passou nesta sessão; isso não substitui QA visual/manual em hardware. `git diff --exit-code origin/main -- docs/QA.md Sources/WallmotionCore/RendererPlaybackState.swift` confirmou ambos idênticos à main. Sem conflitos pendentes. CI remoto bloqueado por billing #11; novas aprovações de três sessões independentes são necessárias para o novo HEAD.
+
+`swift build -c release -j 2` também passou na árvore composta com `4cd97d1`.

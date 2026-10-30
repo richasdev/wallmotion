@@ -20,8 +20,6 @@ Esse teste passou localmente: estado pronto, tempo de reprodução avançando, �
 
 - [ ] Abrir `dist/Wallmotion.app`; biblioteca vazia mostra ações claras.
 - [ ] Importar JPEG/HEIC e verificar orientação e nitidez em Retina.
-- [ ] Alternar Ajustar/Preencher para fotos, GIFs e vídeos de proporções diferentes; verificar faixas/recorte central sem distorção em Retina.
-- [ ] Trocar de mídia/monitor e voltar; verificar modo persistido por par mídia/monitor após reabrir.
 - [ ] Importar GIF animado; pausar/retomar e verificar os frames.
 - [ ] Importar MP4/MOV com áudio; verificar loop contínuo e silêncio.
 - [ ] Adicionar URL HTTPS de MP4 e HLS; reproduzir, interromper rede e tentar novamente.
@@ -33,6 +31,8 @@ Esse teste passou localmente: estado pronto, tempo de reprodução avançando, �
 - [ ] Alternar Spaces, Mission Control, Stage Manager e apps fullscreen.
 - [ ] Pausar manualmente; bloquear, dormir e acordar. Manter pausa manual.
 - [ ] Ativar modo de baixo consumo com preferência ligada/desligada.
+- [ ] Cobrir completamente um GIF/vídeo e retomar pausa manual, wake ou baixo consumo; continuar sem reproduzir enquanto coberto. Trocar mídia em outro monitor deve preservar essa condição. Descobrir a janela deve respeitar a pausa manual.
+- [ ] Durante o loop remoto, cobrir a janela/pausar/encerrar antes da conclusão do seek; não retomar o transporte após stop. Verificar Spaces/Stage Manager e medir CPU/GPU/energia separadamente em Instruments; os testes não certificam economia medida.
 - [ ] Fechar biblioteca, abrir pela barra de menu e encerrar o app.
 - [ ] Reabrir e verificar seleção por monitor e preferências restauradas.
 - [ ] Corromper uma cópia da biblioteca de teste; erro deve preservar os bytes originais.
@@ -40,9 +40,9 @@ Esse teste passou localmente: estado pronto, tempo de reprodução avançando, �
 
 ## Limites de compatibilidade
 
-O modo inicial Ajustar preserva proporção e mostra toda a mídia, com possíveis faixas. Preencher mantém a proporção e recorta as bordas no centro; a escolha é persistida por mídia/monitor. Dados versão 1 sem `mediaFits` mantêm Ajustar. As janelas participam dos Spaces normais; fullscreen e Stage Manager precisam de validação física. As notificações distribuídas de bloqueio são sinais de melhor esforço do macOS; eventos públicos de tela/repouso/sessão complementam a pausa. GIF tem orçamento conservador de 256 MiB de frames por mídia e 512 MiB somando as views dos monitores conectados, inclusive pausadas; isso não representa um teto garantido de RAM total do app.
+O modo de exibição inicial é proporcional, com possíveis faixas em mídias de outra proporção. As janelas participam dos Spaces normais; fullscreen e Stage Manager precisam de validação física. As notificações distribuídas de bloqueio são sinais de melhor esforço do macOS; eventos públicos de tela/repouso/sessão complementam a pausa. GIF tem orçamento conservador de 256 MiB de frames por mídia e 512 MiB somando as views dos monitores conectados, inclusive pausadas; isso não representa um teto garantido de RAM total do app.
 
-Fotos são decodificadas com ImageIO para o tamanho proporcional exigido pelo modo e pela escala Retina, limitado à resolução original. Preencher pode exigir mais pixels que Ajustar. Antes de decodificar, ambos os modos limitam o bitmap a um orçamento conservador de 128 MiB (16 bytes/pixel e linhas alinhadas a 64 bytes) e lado máximo de 16.384 pixels. Ao atingir o teto, a resolução é reduzida, preservando proporção/recorte; a UI informa essa degradação. O renderizador também confere bytes por linha e altura do resultado. Esse limite é por bitmap, sem garantia sobre memória temporária do codec ou RSS total. O app não publica metadados no Now Playing e configura `preventsDisplaySleepDuringVideoPlayback = false`. Isso deve ser verificado com `pmset -g assertions`, pois outros frameworks/apps podem manter o sistema acordado.
+Fotos são decodificadas com ImageIO para o tamanho do monitor. O app não publica metadados no Now Playing e configura `preventsDisplaySleepDuringVideoPlayback = false`. Isso deve ser verificado com `pmset -g assertions`, pois outros frameworks/apps podem manter o sistema acordado.
 
 Build local usa assinatura ad-hoc de desenvolvimento e arquitetura do host. Distribuição pública requer Developer ID, notarização e teste de arquiteturas compatíveis. Não remova a quarentena global do macOS para testar.
 
@@ -52,3 +52,11 @@ Build local usa assinatura ad-hoc de desenvolvimento e arquitetura do host. Dist
 - Execução final `swift test -j 2`: 40 testes do núcleo aprovados; 15 testes AppKit, sendo 12 aprovados e 3 ignorados (snapshot opt-in, stream remoto opt-in e segundo monitor indisponível). Sem falhas ou avisos de compilação na execução final.
 - `git diff --check`: aprovado. CI remoto bloqueado por billing (#11); estes resultados são locais.
 - Desconexão/reconexão foi simulada no coordenador; QA físico com dois monitores e medição de RSS/energia continuam pendentes. O teto estima frames, não a memória residente total nem o pico temporário da troca.
+
+## Regressão de oclusão da issue #36
+
+`RendererPlaybackStateTests` testa a tabela pausa/visibilidade/stop, retomadas enquanto coberto, seek pendente, falha, conclusão antiga/duplicada e stop terminal. Os testes AppKit injetam visibilidade e conclusões de seek, verificando `NSImageView.animates` e `AVPlayer.rate` com GIF e H.264 locais. O caminho remoto usa AVPlayer simples com fixture local e seek controlado, sem rede. Dois displays lógicos sobre uma tela física criam renderers independentes e comprovam que trocar o segundo preserva a pausa por oclusão do primeiro. O teste físico de dois monitores permanece separado e pode ser ignorado.
+
+Essas verificações não comprovam cobertura real pelo WindowServer, compatibilidade com todos os Spaces/Stage Manager, streaming remoto nem redução medida de consumo; essas medições precisam de hardware e profiler.
+
+Checks locais da correção em 2026-10-30: `CARGO_INCREMENTAL=0 sh scripts/build-native.sh`, `CARGO_INCREMENTAL=0 cargo test --locked --manifest-path crates/wallmotion-media/Cargo.toml --target-dir .build/native` (7 aprovados), Clippy no mesmo target com `--all-targets -- -D warnings` aprovado; `swift test -j 2` (46 testes core aprovados, 18 AppKit executados: 15 aprovados e 3 ignorados por snapshot/rede opt-in e segundo monitor físico indisponível), sem falhas ou avisos na execução final; `git diff --check` aprovado. CI remoto bloqueado por billing (#11).
