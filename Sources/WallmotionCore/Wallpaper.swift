@@ -79,10 +79,17 @@ public enum MediaURL {
 }
 
 public enum LibraryError: LocalizedError, Equatable {
+    case gifInputTooLarge(limit: UInt64)
     case gifTooComplex
     case emptyMedia, mediaChanged
     case notRegularLibrary, libraryTooLarge
     case unsupportedFile, invalidURL, webPageURL, invalidLocalPath, notRegularFile, unsupportedVersion, invalidState, invalidGIF, gifTooLarge, unsupportedEmbed
+
+    private static func gifInputMessage(_ limit: UInt64) -> String {
+        let unit = UInt64(1024 * 1024)
+        let size = limit >= unit && limit % unit == 0 ? "\(limit / unit) MiB" : "\(limit) bytes"
+        return "Este arquivo GIF ultrapassa o limite de \(size) de entrada. Converta para MP4 ou use um arquivo menor."
+    }
 
     public var errorDescription: String? {
         switch self {
@@ -98,6 +105,7 @@ public enum LibraryError: LocalizedError, Equatable {
         case .notRegularFile: "Selecione um arquivo de mídia comum."
         case .unsupportedVersion: "Esta biblioteca foi criada por uma versão incompatível do Wallmotion."
         case .invalidState: "A biblioteca contém seleções ou identificadores inválidos."
+        case .gifInputTooLarge(let limit): Self.gifInputMessage(limit)
         case .gifTooComplex: "A estrutura deste GIF exige trabalho demais para ser verificada. Converta a animação para MP4 ou use uma cópia mais simples."
         case .invalidGIF: "O arquivo GIF está incompleto ou tem uma estrutura inválida."
         case .gifTooLarge: "Este GIF ultrapassa o orçamento estimado de 256 MiB de frames. Converta a animação para MP4 ou reduza a resolução."

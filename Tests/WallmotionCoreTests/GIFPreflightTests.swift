@@ -167,4 +167,67 @@ struct GIFPreflightTests {
             #expect(!FileManager.default.fileExists(atPath: store.mediaDirectory.path))
         }
     }
+    @Test func encodedInputBoundariesCountTrailingBytesAndRemainDistinctFromFrames() throws {
+        var bytes = fixture()
+        bytes.append(contentsOf: [42, 42, 42, 42])
+        let exact = UInt64(bytes.count)
+        #expect(try GIFPreflight.inspect(data: bytes, maxInputBytes: exact).decodedBytes == 4)
+        #expect(throws: LibraryError.gifInputTooLarge(limit: exact - 1)) {
+            try GIFPreflight.inspect(data: bytes, maxInputBytes: exact - 1)
+        }
+        #expect(throws: LibraryError.gifTooLarge) {
+            try GIFPreflight.inspect(data: bytes, maxDecodedBytes: 3, maxInputBytes: exact)
+        }
+        try withTemporaryDirectory { root in
+            let source = root.appendingPathComponent("small.gif")
+            try bytes.write(to: source)
+            #expect(try GIFPreflight.inspect(url: source, maxInputBytes: exact).decodedBytes == 4)
+            try GIFPreflight.validateInputSize(url: source, maxInputBytes: exact)
+            #expect(throws: LibraryError.gifInputTooLarge(limit: exact - 1)) {
+                try GIFPreflight.validateInputSize(url: source, maxInputBytes: exact - 1)
+            }
+            let invalid = root.appendingPathComponent("invalid.gif")
+            try Data("not a GIF".utf8).write(to: invalid)
+            try GIFPreflight.validateInputSize(url: invalid) // Metadata-only, intentionally no format scan.
+            #expect(throws: LibraryError.invalidGIF) { try GIFPreflight.inspect(url: invalid) }
+        }
+    }
+
+    @Test func sparseInputIsRejectedBeforeCopyAndDefaultBoundaryIsInclusive() throws {
+        try withTemporaryDirectory { root in
+            let source = root.appendingPathComponent("sparse.gif")
+            try fixture().write(to: source)
+            let fd = open(source.path, O_RDWR | O_CLOEXEC)
+            #expect(fd >= 0)
+            guard fd >= 0 else { return }
+            defer { close(fd) }
+            let limit = GIFPreflight.defaultInputBudget
+            #expect(ftruncate(fd, off_t(limit)) == 0)
+            #expect(try GIFPreflight.inspect(url: source).decodedBytes == 4)
+            try GIFPreflight.validateInputSize(url: source)
+            #expect(ftruncate(fd, off_t(limit + 1)) == 0)
+            #expect(lseek(fd, 7, SEEK_SET) == 7)
+            #expect(throws: LibraryError.gifInputTooLarge(limit: limit)) {
+                try GIFPreflight.inspect(descriptor: fd)
+            }
+            #expect(lseek(fd, 0, SEEK_CUR) == 7)
+            #expect(throws: LibraryError.gifInputTooLarge(limit: limit)) {
+                try GIFPreflight.validateInputSize(url: source)
+            }
+            let store = LibraryStore(rootURL: root.appendingPathComponent("Library"))
+            var copied = false
+            #expect(throws: LibraryError.gifInputTooLarge(limit: limit)) {
+                try ManagedMediaFiles.copy(from: source, filename: "copy.gif", kind: .gif, root: store.rootURL) { _, _ in
+                    copied = true
+                }
+            }
+            #expect(!copied)
+            #expect(throws: LibraryError.gifInputTooLarge(limit: limit)) { try store.importFile(at: source) }
+            #expect(!FileManager.default.fileExists(atPath: store.rootURL.path))
+            var metadata = stat()
+            #expect(fstat(fd, &metadata) == 0)
+            #expect(metadata.st_size == off_t(limit + 1))
+        }
+    }
+
 }
