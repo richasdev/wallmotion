@@ -156,6 +156,86 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertNil(model.errorMessage)
     }
 
+    func testRemovingOneOfTwoValidEntriesPreservesSharedCopyUntilLastReference() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = LibraryStore(rootURL: directory.appendingPathComponent("Library", isDirectory: true))
+        let source = directory.appendingPathComponent("Original.png")
+        let original = try writePhoto(to: source)
+        let first = try store.importFile(at: source)
+        let second = Wallpaper(title: "Second reference", kind: first.kind, source: first.source)
+        let initial = LibraryState(wallpapers: [first, second], assignments: ["fixture": second.id])
+        try store.save(initial) // Shared filename is accepted by the persisted-state contract.
+        let copy = try store.resolvedURL(for: second)
+        let model = LibraryModel(thermalState: { .nominal }, memoryMonitor: TestMemoryPressureMonitor(), store: store, engine: DesktopCoordinator(targets: { [] }), connectedDisplays: { [] })
+        defer { model.stop() }
+        model.remove(first)
+        XCTAssertEqual(model.state.wallpapers.map(\.id), [second.id])
+        XCTAssertEqual(model.state.assignments, ["fixture": second.id])
+        guard FileManager.default.fileExists(atPath: copy.path) else { return XCTFail("Removing one valid entry deleted another entry's managed file") }
+        XCTAssertEqual(try Data(contentsOf: copy), original)
+        model.remove(second)
+        XCTAssertTrue(model.state.wallpapers.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: copy.path))
+        XCTAssertEqual(try Data(contentsOf: source), original)
+        XCTAssertNil(model.errorMessage)
+    }
+
+    func testRemovingMissingIDIsNoOpAndDoesNotDeleteItsSuppliedSource() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = LibraryStore(rootURL: directory.appendingPathComponent("Library", isDirectory: true))
+        let source = directory.appendingPathComponent("Original.png")
+        _ = try writePhoto(to: source)
+        let current = try store.importFile(at: source)
+        let initial = LibraryState(wallpapers: [current])
+        try store.save(initial)
+        let before = try Data(contentsOf: store.stateURL)
+        let copy = try store.resolvedURL(for: current)
+        let model = LibraryModel(thermalState: { .nominal }, memoryMonitor: TestMemoryPressureMonitor(), store: store, engine: DesktopCoordinator(targets: { [] }), connectedDisplays: { [] })
+        defer { model.stop() }
+        let missing = Wallpaper(title: "Already removed", kind: .image, source: current.source)
+        model.remove(missing)
+        XCTAssertEqual(model.state, initial)
+        XCTAssertEqual(try Data(contentsOf: store.stateURL), before)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: copy.path))
+        XCTAssertNil(model.errorMessage)
+    }
+
+    func testRemovalUsesCurrentRecordInsteadOfStaleCallerSourceAndFailedSaveKeepsCopies() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = LibraryStore(rootURL: directory.appendingPathComponent("Library", isDirectory: true))
+        let firstSource = directory.appendingPathComponent("First.png")
+        let nextSource = directory.appendingPathComponent("Next.png")
+        _ = try writePhoto(to: firstSource)
+        _ = try writePhoto(to: nextSource)
+        let stale = try store.importFile(at: firstSource)
+        let imported = try store.importFile(at: nextSource)
+        let firstCopy = try store.resolvedURL(for: stale)
+        let currentCopy = try store.resolvedURL(for: imported)
+        var current = stale
+        current.source = imported.source
+        try store.save(LibraryState(wallpapers: [current]))
+        let model = LibraryModel(thermalState: { .nominal }, memoryMonitor: TestMemoryPressureMonitor(), store: store, engine: DesktopCoordinator(targets: { [] }), connectedDisplays: { [] })
+        defer { model.stop() }
+        let saved = try Data(contentsOf: store.stateURL)
+        try FileManager.default.removeItem(at: store.stateURL)
+        try FileManager.default.createDirectory(at: store.stateURL, withIntermediateDirectories: false)
+        model.remove(stale)
+        XCTAssertEqual(model.state.wallpapers, [current])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: firstCopy.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: currentCopy.path))
+        try FileManager.default.removeItem(at: store.stateURL)
+        try saved.write(to: store.stateURL)
+        model.errorMessage = nil
+        model.remove(stale)
+        XCTAssertTrue(model.state.wallpapers.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: currentCopy.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: firstCopy.path), "A stale source supplied by the caller must not select the physical file to delete.")
+        XCTAssertNil(model.errorMessage)
+    }
+
     func testImportQueuesConcurrentSelectionsAndKeepsValidDuplicatesAndOriginals() async throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

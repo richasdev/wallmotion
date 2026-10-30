@@ -399,12 +399,19 @@ final class LibraryModel {
         }
     }
 
+    func hasOtherLocalReferences(to item: Wallpaper) -> Bool {
+        guard case .local = item.source else { return false }
+        return state.wallpapers.contains { $0.id != item.id && $0.source == item.source }
+    }
+
     func remove(_ item: Wallpaper) {
+        guard canEdit, let current = state.wallpapers.first(where: { $0.id == item.id }) else { return }
         var next = state
-        next.remove(id: item.id)
+        next.remove(id: current.id)
         guard update(next) else { return }
         refreshPlayback(force: false)
-        do { try store.deleteMedia(for: item) }
+        guard !hasOtherLocalReferences(to: current) else { return }
+        do { try store.deleteMedia(for: current) }
         catch { errorMessage = "Item removido da biblioteca, mas a cópia de mídia não pôde ser apagada. \(error.localizedDescription)" }
     }
 
