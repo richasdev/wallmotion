@@ -1,0 +1,13 @@
+# Native HLS resolution preference
+
+Playback settings now persist `hlsResolution`: automatic (default), HD 1280×720, Full HD 1920×1080 or 4K 3840×2160. Older settings with no key decode as automatic and retain unrestricted selection; library schema remains 4. Unknown enum values reject loading instead of silently rewriting a future/unsupported preference.
+
+The native remote adapter applies `AVPlayerItem.preferredMaximumResolution` before item publication and on every retry. Changing the preference updates the current item without replacing the player/item, seeking or resuming playback. Automatic restores CGSize.zero. Renderer reuse receives the current preference; new renderers receive it before playback starts. A failed settings save leaves the previous in-memory and active preference unchanged.
+
+[Apple documents preferredMaximumResolution](https://developer.apple.com/documentation/avfoundation/avplayeritem/preferredmaximumresolution) as a desired maximum for HLS only, with zero meaning no preferred limit. It is a preference, not a guaranteed cap, bitrate limit, memory budget, measured energy saving or quality enhancement. The actual variants, codec, color/HDR, device and server determine playback. The explicit profile dimensions are landscape-shaped; portrait/nonstandard streams may have different variant-selection behavior and need workload QA. No upscaling or transcoding is introduced. YouTube/Vimeo embeds and local videos are unaffected; remote MP4 files do not gain an HLS variant ladder from this setting.
+
+The control appears under Opções do fundo → Qualidade de links HLS. It applies globally to native remote playback, including future connected displays. Audio, fit, manual/system pause and assignments stay independent.
+
+Validation covers legacy defaults, per-profile persistence with unchanged audio/assignments, unsupported profile rejection and failed-save rollback. The existing native adapter video fixture verifies item identity survives preference updates, a simulated stall retry inherits the latest preference, changing to automatic during pause keeps rate zero, and updates after stop do not resurrect playback. The fixture is a local MP4 to exercise public object properties deterministically, **not a real HLS adaptive-selection or energy test**. Real HLS variant, portrait and hardware/color QA remain open under the linked issue and #8.
+
+For visual inspection, a temporary fixture-only edit initialized the options disclosure as expanded, produced `/tmp/wallmotion-hls-expanded.png`, then restored the production collapsed default in a `finally` block. The source change is not part of the delivered app. The capture checks composition, not on-screen interaction or HLS stream adaptation.

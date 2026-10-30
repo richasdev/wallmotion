@@ -548,6 +548,25 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertNotNil(model.errorMessage)
     }
 
+    func testHLSPreferencePersistsAndFailedSavePreservesPreviousSelection() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = LibraryStore(rootURL: directory.appendingPathComponent("Library", isDirectory: true))
+        let model = LibraryModel(thermalState: { .nominal }, store: store, connectedDisplays: { [] })
+        defer { model.stop() }
+        model.setHLSResolution(.fullHD1080)
+        XCTAssertEqual(model.state.settings.hlsResolution, .fullHD1080)
+        XCTAssertEqual(try store.load().settings.hlsResolution, .fullHD1080)
+        let bytes = try Data(contentsOf: store.stateURL)
+        model.setHLSResolution(.fullHD1080)
+        XCTAssertEqual(try Data(contentsOf: store.stateURL), bytes)
+        try FileManager.default.removeItem(at: store.stateURL)
+        try FileManager.default.createDirectory(at: store.stateURL, withIntermediateDirectories: false)
+        model.setHLSResolution(.hd720)
+        XCTAssertEqual(model.state.settings.hlsResolution, .fullHD1080)
+        XCTAssertNotNil(model.errorMessage)
+    }
+
     func testOptionalLibraryViewSnapshotUsesOnlyTemporaryFixtures() async throws {
         guard let path = ProcessInfo.processInfo.environment["WALLMOTION_SNAPSHOT_PATH"], !path.isEmpty else {
             throw XCTSkip("Defina WALLMOTION_SNAPSHOT_PATH para exportar o snapshot de QA.")

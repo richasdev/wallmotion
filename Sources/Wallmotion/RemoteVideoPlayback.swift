@@ -1,5 +1,6 @@
 import AVFoundation
 import Network
+import WallmotionCore
 
 struct RemotePlaybackFailure: Equatable {
     let transient: Bool
@@ -47,14 +48,16 @@ final class RemoteVideoPlayback {
     private var monitorGeneration = 0
     private var itemGeneration = 0
     private var stopped = false
+    private var hlsResolution: HLSResolution
 
     var state: RemotePlaybackState { recovery.state }
     var canPlay: Bool { recovery.canPlay }
 
-    init(player: AVPlayer, url: URL, scheduler: any RecoveryScheduling = RecoveryScheduler(),
+    init(player: AVPlayer, url: URL, hlsResolution: HLSResolution = .automatic, scheduler: any RecoveryScheduling = RecoveryScheduler(),
          onPlaybackRequested: @escaping @MainActor () -> Void = {},
          onRestart: @escaping @MainActor () -> Void = {},
          onState: @escaping @MainActor (RemotePlaybackState) -> Void) {
+        self.hlsResolution = hlsResolution
         self.player = player
         self.url = url
         self.onState = onState
@@ -77,6 +80,17 @@ final class RemoteVideoPlayback {
         replaceItem(initial: true)
     }
 
+    func setHLSResolution(_ value: HLSResolution) {
+        guard !stopped, hlsResolution != value else { return }
+        hlsResolution = value
+        if let item = player.currentItem { applyResolution(to: item) }
+    }
+
+    private func applyResolution(to item: AVPlayerItem) {
+        let dimensions = hlsResolution.maximumDimensions
+        item.preferredMaximumResolution = dimensions.map { CGSize(width: CGFloat($0.width), height: CGFloat($0.height)) } ?? .zero
+    }
+
     func setPaused(_ value: Bool) {
         guard !stopped else { return }
         recovery.setPaused(value)
@@ -94,6 +108,7 @@ final class RemoteVideoPlayback {
         itemGeneration += 1
         let ticket = itemGeneration
         let item = initial ? (player.currentItem ?? AVPlayerItem(url: url)) : AVPlayerItem(url: url)
+        applyResolution(to: item)
         if player.currentItem !== item { player.replaceCurrentItem(with: item) }
         statusObserver = item.observe(\.status, options: [.initial, .new]) { [weak self] _, _ in
             Task { @MainActor [weak self] in
