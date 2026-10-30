@@ -136,9 +136,9 @@ final class LibraryModel {
         if !failures.isEmpty { errorMessage = failures.joined(separator: "\n") }
     }
 
-    @discardableResult func addURL(_ text: String) -> Bool {
+    @discardableResult func addURL(_ text: String, web: Bool = false) -> Bool {
         do {
-            let item = try Wallpaper.remote(text)
+            let item = try web ? Wallpaper.web(text) : Wallpaper.remote(text)
             var next = state
             next.wallpapers.append(item)
             return update(next)

@@ -6,6 +6,7 @@ struct LibraryView: View {
     @State private var selectedDisplay = ""
     @State private var search = ""
     @State private var showingURL = false
+    @State private var isWebSource = false
     @State private var urlText = ""
     @State private var urlError: String?
     @State private var pendingRemoval: Wallpaper?
@@ -143,9 +144,11 @@ struct LibraryView: View {
     private var urlSheet: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text("Adicionar vídeo por URL").font(.title2.weight(.semibold))
-            Text("Cole um link HTTPS direto de vídeo ou HLS (.m3u8). Links de páginas como YouTube ainda não são suportados.")
+            Toggle("Fonte web (YouTube ou Vimeo)", isOn: $isWebSource)
+                .onChange(of: isWebSource) { _, _ in urlError = nil }
+            Text(isWebSource ? "Cole a URL de um vídeo individual público. Autoplay e incorporação dependem do provedor; login e DRM não são suportados." : "Cole um link HTTPS direto de vídeo ou HLS (.m3u8).")
                 .foregroundStyle(.secondary)
-            TextField("https://exemplo.com/video.mp4", text: $urlText)
+            TextField(isWebSource ? "https://www.youtube.com/watch?v=…" : "https://exemplo.com/video.mp4", text: $urlText)
                 .textFieldStyle(.roundedBorder)
                 .onChange(of: urlText) { _, _ in urlError = nil }
                 .onSubmit { submitURL() }
@@ -163,7 +166,7 @@ struct LibraryView: View {
     }
 
     private func submitURL() {
-        if model.addURL(urlText) {
+        if model.addURL(urlText, web: isWebSource) {
             urlText = ""
             urlError = nil
             showingURL = false
@@ -202,6 +205,7 @@ private struct WallpaperCard: View {
             Text(item.title).font(.headline).lineLimit(1).help(item.title)
             HStack {
                 Text(item.kind.rawValue.uppercased()).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                if case .web(let embed) = item.source { Text(embed.provider == .youtube ? "YouTube" : "Vimeo").font(.caption).foregroundStyle(.secondary) }
                 if case .remote = item.source { Label("URL", systemImage: "link").font(.caption).foregroundStyle(.secondary) }
                 Spacer()
                 Button(role: .destructive, action: onRemove) { Image(systemName: "trash") }

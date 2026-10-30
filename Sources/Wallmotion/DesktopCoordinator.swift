@@ -62,6 +62,7 @@ final class VideoSurface: NSView {
 @MainActor
 final class WallpaperRenderer {
     let window: DesktopWindow
+    private var webRenderer: WebWallpaperRenderer?
     private let player: AVPlayer?
     private let imageView: NSImageView?
     private var looper: AVPlayerLooper?
@@ -74,7 +75,13 @@ final class WallpaperRenderer {
     private var stopped = false
 
     init(wallpaper: Wallpaper, url: URL, screen: NSScreen, onError: @escaping @MainActor (String) -> Void) throws {
-        if wallpaper.kind == .image || wallpaper.kind == .gif {
+        if case .web(let embed) = wallpaper.source {
+            let renderer = try WebWallpaperRenderer(embed: embed, onError: onError)
+            webRenderer = renderer
+            player = nil
+            imageView = nil
+            window = DesktopWindow(screen: screen, view: renderer.surface)
+        } else if wallpaper.kind == .image || wallpaper.kind == .gif {
             let image: NSImage
             if wallpaper.kind == .gif {
                 _ = try GIFPreflight.inspect(url: url)
@@ -165,6 +172,7 @@ final class WallpaperRenderer {
     func setPaused(_ value: Bool) {
         guard !stopped else { return }
         paused = value
+        webRenderer?.setPaused(value)
         imageView?.animates = !value
         if value { player?.pause() } else { player?.play() }
         window.orderBack(nil)
@@ -172,6 +180,8 @@ final class WallpaperRenderer {
 
     func stop() {
         stopped = true
+        webRenderer?.stop()
+        webRenderer = nil
         paused = true
         statusObserver?.invalidate()
         statusObserver = nil
