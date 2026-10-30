@@ -1,0 +1,175 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <!-- macOS Elevation Drop Shadows -->
+    <filter id="ambient-shadow" x="-10%" y="-10%" width="130%" height="135%" filterUnits="userSpaceOnUse">
+      <feGaussianBlur stdDeviation="32" in="SourceAlpha" result="blur1" />
+      <feOffset dx="0" dy="30" in="blur1" result="offset1" />
+      <feComponentTransfer in="offset1" result="shadow1">
+        <feFuncA type="linear" slope="0.32" />
+      </feComponentTransfer>
+      <feGaussianBlur stdDeviation="14" in="SourceAlpha" result="blur2" />
+      <feOffset dx="0" dy="14" in="blur2" result="offset2" />
+      <feComponentTransfer in="offset2" result="shadow2">
+        <feFuncA type="linear" slope="0.22" />
+      </feComponentTransfer>
+      <feMerge>
+        <feMergeNode in="shadow1" />
+        <feMergeNode in="shadow2" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+
+    <!-- Glowing Aurora Filter -->
+    <filter id="aurora-glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="14" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+
+    <filter id="soft-glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="45" />
+    </filter>
+
+    <!-- W Monogram Drop Shadow -->
+    <filter id="w-shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="6" in="SourceAlpha" result="blur" />
+      <feOffset dx="0" dy="6" in="blur" result="offset" />
+      <feComponentTransfer in="offset" result="shadow">
+        <feFuncA type="linear" slope="0.45" />
+      </feComponentTransfer>
+      <feMerge>
+        <feMergeNode in="shadow" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+
+    <!-- Gradients -->
+    <linearGradient id="tile-bg" x1="0.5" y1="0" x2="0.5" y2="1">
+      <stop offset="0%" stop-color="#121626" />
+      <stop offset="45%" stop-color="#0B0E1B" />
+      <stop offset="100%" stop-color="#05060C" />
+    </linearGradient>
+
+    <linearGradient id="rim-stroke" x1="0.5" y1="0" x2="0.5" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.45" />
+      <stop offset="15%" stop-color="#FFFFFF" stop-opacity="0.15" />
+      <stop offset="85%" stop-color="#FFFFFF" stop-opacity="0.02" />
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.12" />
+    </linearGradient>
+
+    <linearGradient id="inner-glass" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.08" />
+      <stop offset="40%" stop-color="#FFFFFF" stop-opacity="0.01" />
+      <stop offset="100%" stop-color="#000000" stop-opacity="0.35" />
+    </linearGradient>
+
+    <!-- Silky Minimal Aurora Gradients -->
+    <linearGradient id="wave-magenta" x1="0" y1="0.8" x2="1" y2="0.2">
+      <stop offset="0%" stop-color="#4A00E0" stop-opacity="0.85" />
+      <stop offset="50%" stop-color="#8E2DE2" stop-opacity="0.85" />
+      <stop offset="85%" stop-color="#E100FF" stop-opacity="0.8" />
+      <stop offset="100%" stop-color="#FF007F" stop-opacity="0.8" />
+    </linearGradient>
+
+    <linearGradient id="wave-cyan" x1="0.1" y1="0.9" x2="0.9" y2="0.1">
+      <stop offset="0%" stop-color="#0052D4" />
+      <stop offset="40%" stop-color="#2D6BFF" />
+      <stop offset="75%" stop-color="#00C4FF" />
+      <stop offset="100%" stop-color="#00F2FE" />
+    </linearGradient>
+
+    <linearGradient id="wave-highlight" x1="0" y1="0.5" x2="1" y2="0.5">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0" />
+      <stop offset="25%" stop-color="#E0F7FF" stop-opacity="0.7" />
+      <stop offset="60%" stop-color="#00F2FE" stop-opacity="0.95" />
+      <stop offset="85%" stop-color="#FFFFFF" stop-opacity="0.6" />
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0" />
+    </linearGradient>
+
+    <!-- W Monogram Gradient (Apple Frosted Glass & Specular White) -->
+    <linearGradient id="w-stroke-grad" x1="0" y1="0" x2="0.5" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="1" />
+      <stop offset="40%" stop-color="#E8F4FF" stop-opacity="0.95" />
+      <stop offset="100%" stop-color="#BEE3FF" stop-opacity="0.85" />
+    </linearGradient>
+
+    <radialGradient id="aurora-core" cx="0.55" cy="0.55" r="0.5">
+      <stop offset="0%" stop-color="#00F2FE" stop-opacity="0.28" />
+      <stop offset="45%" stop-color="#7F00FF" stop-opacity="0.20" />
+      <stop offset="80%" stop-color="#121626" stop-opacity="0" />
+    </radialGradient>
+
+    <!-- Squircle Clip Path (macOS standard 824x824 at (100,100) with r=185) -->
+    <clipPath id="squircle-clip">
+      <rect x="100" y="100" width="824" height="824" rx="185" ry="185" />
+    </clipPath>
+  </defs>
+
+  <!-- Ambient Shadow and Base Squircle Tile -->
+  <g filter="url(#ambient-shadow)">
+    <rect x="100" y="100" width="824" height="824" rx="185" ry="185" fill="url(#tile-bg)" />
+  </g>
+
+  <!-- Clipped Artwork Elements Inside Squircle -->
+  <g clip-path="url(#squircle-clip)">
+    <!-- Ambient Radial Glow Behind Waves -->
+    <circle cx="560" cy="560" r="450" fill="url(#aurora-core)" />
+    <circle cx="720" cy="450" r="280" fill="#E100FF" opacity="0.14" filter="url(#soft-glow)" />
+    <circle cx="420" cy="680" r="260" fill="#00D2FF" opacity="0.16" filter="url(#soft-glow)" />
+
+    <!-- Wave Layer 1: Deep Violet & Radiant Magenta Flow (Soft Base) -->
+    <path d="M70 730 C 260 580, 440 760, 640 600 C 780 490, 870 560, 960 520 L 960 960 L 70 960 Z"
+          fill="url(#wave-magenta)" opacity="0.75" />
+
+    <!-- Wave Layer 2: Main Dynamic Aurora Wave (Electric Cyan -> Royal Blue) -->
+    <path d="M70 630 C 270 480, 430 720, 660 510 C 780 390, 870 430, 960 380 L 960 960 L 70 960 Z"
+          fill="url(#wave-cyan)" opacity="0.95" />
+
+    <!-- Crest High-energy Luminous Ridge -->
+    <path d="M70 626 C 270 476, 430 716, 660 506 C 780 386, 870 426, 960 376 L 960 396 C 870 446, 780 406, 660 526 C 430 736, 270 496, 70 646 Z"
+          fill="url(#wave-highlight)" opacity="0.9" filter="url(#aurora-glow)" />
+
+    <!-- Silky Translucent Front Ribbon (Minimalist Glass Fold) -->
+    <path d="M70 550 C 280 410, 450 630, 670 440 C 790 340, 880 370, 960 340 L 960 440 C 880 470, 790 440, 670 540 C 450 730, 280 510, 70 650 Z"
+          fill="url(#wave-highlight)" opacity="0.32" />
+
+    <!-- ======================================================== -->
+    <!-- MINIMALIST "W" MONOGRAM IN TOP-LEFT CORNER               -->
+    <!-- Positioned within the macOS optical safe zone:           -->
+    <!-- x in [220, 360], y in [215, 315]                         -->
+    <!-- ======================================================== -->
+    <g filter="url(#w-shadow)">
+      <!-- Subtle ambient halo behind the W -->
+      <circle cx="290" cy="265" r="95" fill="#00F2FE" opacity="0.08" filter="url(#aurora-glow)" />
+
+      <!-- Minimalist geometric W with Apple rounded terminal joints -->
+      <path d="M 232 225
+               L 262 312
+               L 290 252
+               L 318 312
+               L 348 225"
+            fill="none"
+            stroke="url(#w-stroke-grad)"
+            stroke-width="17"
+            stroke-linecap="round"
+            stroke-linejoin="round" />
+
+      <!-- Apex specular dots on the W vertices for optical crispness -->
+      <circle cx="232" cy="225" r="3" fill="#FFFFFF" opacity="0.95" />
+      <circle cx="290" cy="252" r="3" fill="#FFFFFF" opacity="0.95" />
+      <circle cx="348" cy="225" r="3" fill="#FFFFFF" opacity="0.95" />
+    </g>
+
+    <!-- Tactile Glass Surface Reflections (macOS HIG styling) -->
+    <rect x="100" y="100" width="824" height="824" fill="url(#inner-glass)" />
+
+    <!-- Top Soft Highlight Oval (Physical Glass Curvature) -->
+    <ellipse cx="512" cy="180" rx="360" ry="120" fill="#FFFFFF" opacity="0.06" />
+  </g>
+
+  <!-- Precise macOS Rim Highlight Stroke -->
+  <rect x="100.5" y="100.5" width="823" height="823" rx="184.5" ry="184.5"
+        fill="none" stroke="url(#rim-stroke)" stroke-width="2" pointer-events="none" />
+</svg>
