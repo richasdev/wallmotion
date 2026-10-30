@@ -46,7 +46,9 @@ struct BackgroundControls: View {
                     displayModePicker
                 }
             }
-            Text(model.state.displayMode == .mirrored
+            Text(model.state.displayMode == .spanned
+                 ? "Uma foto atravessa a disposição das telas. Espaços entre monitores também fazem parte do panorama."
+                 : model.state.displayMode == .mirrored
                  ? "A mídia e o enquadramento valem para todos os monitores, inclusive os conectados depois."
                  : "Selecione um monitor na lateral e escolha seu fundo. Suas escolhas individuais ficam salvas.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -170,6 +172,7 @@ struct BackgroundControls: View {
         )) {
             Text("Separado por monitor").tag(DisplayMode.independent)
             Text("Mesmo fundo em todos").tag(DisplayMode.mirrored)
+            Text("Panorâmico (foto)").tag(DisplayMode.spanned)
         }.labelsHidden().accessibilityLabel("Organização dos monitores")
             .accessibilityHint("No modo separado, cada monitor mantém sua escolha de fundo.")
     }
@@ -192,7 +195,15 @@ struct BackgroundControls: View {
     }
 
     private func fitDescription(_ fit: MediaFit) -> String {
-        switch fit {
+        if model.state.displayMode == .spanned {
+            return switch fit {
+            case .fit: "Mostra a foto inteira no conjunto das telas, com bordas quando necessário."
+            case .fill: "Preenche o conjunto das telas sem distorcer, recortando as bordas da foto."
+            case .center: "Centraliza no conjunto das telas usando a maior escala de pixels conectada como referência."
+            case .stretch: "Estica a foto até as bordas do conjunto das telas; as proporções podem mudar."
+            }
+        }
+        return switch fit {
         case .fit: "Mostra toda a mídia sem distorcer; pode deixar bordas."
         case .fill: "Preenche a tela sem distorcer, recortando as bordas."
         case .center: "Centraliza em tamanho original; o que exceder a tela será recortado."

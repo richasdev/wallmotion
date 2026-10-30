@@ -73,7 +73,7 @@ struct DisplayPreferencesTests {
         #expect(try state.validated() == state)
     }
 
-    @Test func versionsOneAndTwoMigrateToThreeWithoutLosingIndependentPreferences() throws {
+    @Test func legacyVersionsMigrateToFourWithoutLosingIndependentPreferences() throws {
         let wallpaper = Wallpaper(title: "Legacy image", kind: .image, source: .local(filename: "legacy.png"))
         let settings = PlaybackSettings(pauseOnLowPower: false, isManuallyPaused: true)
         let original = LibraryState(
@@ -85,7 +85,7 @@ struct DisplayPreferencesTests {
             displayMode: .independent
         )
 
-        for legacyVersion in [1, 2] {
+        for legacyVersion in [1, 2, 3] {
             var object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(original)) as? [String: Any])
             object["version"] = legacyVersion
             object.removeValue(forKey: "displayMode")
@@ -97,7 +97,7 @@ struct DisplayPreferencesTests {
             let legacyData = try JSONSerialization.data(withJSONObject: object)
             let migrated = try JSONDecoder().decode(LibraryState.self, from: legacyData).validated()
 
-            #expect(migrated.version == 3)
+            #expect(migrated.version == 4)
             #expect(migrated.displayMode == .independent)
             #expect(migrated.mirroredWallpaperID == nil)
             #expect(migrated.assignments == original.assignments)

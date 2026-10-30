@@ -206,7 +206,7 @@ final class LibraryModel {
     func setDisplayMode(_ mode: DisplayMode, sourceDisplayID: String) {
         guard canEdit, mode != state.displayMode else { return }
         var next = state
-        if mode == .mirrored {
+        if mode.isShared {
             next.mirroredWallpaperID = activeWallpaperID(on: sourceDisplayID)
             next.mirroredMediaFit = mediaFit(on: sourceDisplayID)
         }
@@ -234,12 +234,12 @@ final class LibraryModel {
         guard canEdit, state.wallpapers.contains(where: { $0.id == item.id }),
               displays.contains(where: { $0.id == displayID }) else { return }
         var next = state
-        if next.displayMode == .mirrored { next.mirroredWallpaperID = item.id }
+        if next.displayMode.isShared { next.mirroredWallpaperID = item.id }
         else { next.assignments[displayID] = item.id }
         do { try engine.validateAssignments(state: next, store: store) }
         catch { errorMessage = error.localizedDescription; return }
         if update(next) {
-            let affected = next.displayMode == .mirrored ? displays.map(\.id) : [displayID]
+            let affected = next.displayMode.isShared ? displays.map(\.id) : [displayID]
             for id in affected {
                 playbackErrors[id] = nil
                 remotePlaybackStates[id] = nil
@@ -262,7 +262,7 @@ final class LibraryModel {
 
     func clear(displayID: String) {
         var next = state
-        if next.displayMode == .mirrored { next.mirroredWallpaperID = nil }
+        if next.displayMode.isShared { next.mirroredWallpaperID = nil }
         else { next.assignments.removeValue(forKey: displayID) }
         if update(next) { refreshPlayback(force: false) }
     }

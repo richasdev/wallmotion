@@ -22,6 +22,15 @@ struct Display: Identifiable, Equatable {
 struct DesktopTarget {
     let id: String
     let screen: NSScreen
+    let frame: CGRect
+    let backingScale: CGFloat
+
+    @MainActor init(id: String, screen: NSScreen, frame: CGRect? = nil, backingScale: CGFloat? = nil) {
+        self.id = id
+        self.screen = screen
+        self.frame = frame ?? screen.frame
+        self.backingScale = backingScale ?? screen.backingScaleFactor
+    }
 
     @MainActor static var connected: [Self] {
         NSScreen.screens.compactMap { screen in
@@ -35,8 +44,9 @@ final class DesktopWindow: NSWindow {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 
-    init(screen: NSScreen, view: NSView) {
-        super.init(contentRect: screen.frame, styleMask: .borderless, backing: .buffered, defer: false)
+    init(screen: NSScreen, view: NSView, frame: CGRect? = nil) {
+        let frame = frame ?? screen.frame
+        super.init(contentRect: frame, styleMask: .borderless, backing: .buffered, defer: false)
         level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopWindow)) + 1)
         collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
         ignoresMouseEvents = true
@@ -45,7 +55,7 @@ final class DesktopWindow: NSWindow {
         hasShadow = false
         isReleasedWhenClosed = false
         contentView = view
-        setFrame(screen.frame, display: true)
+        setFrame(frame, display: true)
     }
 }
 
@@ -53,10 +63,12 @@ final class DesktopWindow: NSWindow {
 final class ImageSurface: NSView {
     let imageView: NSImageView
     let mediaFit: MediaFit
+    let panoramaFrame: CGRect?
 
-    init(image: NSImage, mediaFit: MediaFit) {
+    init(image: NSImage, mediaFit: MediaFit, panoramaFrame: CGRect? = nil) {
         imageView = NSImageView(image: image)
         self.mediaFit = mediaFit
+        self.panoramaFrame = panoramaFrame
         super.init(frame: .zero)
         wantsLayer = true
         layer?.backgroundColor = NSColor.black.cgColor
@@ -70,7 +82,7 @@ final class ImageSurface: NSView {
 
     override func layout() {
         super.layout()
-        imageView.frame = mediaFit.frame(for: imageView.image?.size ?? .zero, in: bounds)
+        imageView.frame = panoramaFrame ?? mediaFit.frame(for: imageView.image?.size ?? .zero, in: bounds)
     }
 }
 
@@ -146,7 +158,7 @@ final class WallpaperRenderer {
     private let isWindowVisible: @MainActor (NSWindow) -> Bool
     private let seekToStart: @MainActor (AVPlayer, @escaping @MainActor @Sendable (Bool) -> Void) -> Void
 
-    init(wallpaper: Wallpaper, url: URL, screen: NSScreen, mediaFit: MediaFit = .fit, preparedPhoto: DecodedPhoto? = nil, webDocument: String? = nil,
+    init(wallpaper: Wallpaper, url: URL, screen: NSScreen, mediaFit: MediaFit = .fit, preparedPhoto: DecodedPhoto? = nil, targetFrame: CGRect? = nil, targetScale: CGFloat? = nil, panorama: PanoramaLayout? = nil, webDocument: String? = nil,
          isWindowVisible: @escaping @MainActor (NSWindow) -> Bool = { $0.occlusionState.contains(.visible) },
          makePlayer: @MainActor (AVPlayerItem, Bool) -> AVPlayer = { item, local in
              local ? AVQueuePlayer() : AVPlayer(playerItem: item)
@@ -159,6 +171,10 @@ final class WallpaperRenderer {
          recoveryScheduler: any RecoveryScheduling = RecoveryScheduler(),
          onState: @escaping @MainActor (RemotePlaybackState) -> Void = { _ in },
          onError: @escaping @MainActor (String) -> Void) throws {
+        let frame = targetFrame ?? screen.frame
+        let scale = targetScale ?? screen.backingScaleFactor
+        let photoScale = panorama?.referenceScale ?? scale
+        let viewport = panorama?.pixelSize ?? CGSize(width: frame.width * scale, height: frame.height * scale)
         self.isWindowVisible = isWindowVisible
         self.seekToStart = seekToStart
         if case .web(let embed) = wallpaper.source {
@@ -166,7 +182,7 @@ final class WallpaperRenderer {
             webRenderer = renderer
             player = nil
             imageView = nil
-            window = DesktopWindow(screen: screen, view: renderer.surface)
+            window = DesktopWindow(screen: screen, view: renderer.surface, frame: frame)
         } else if wallpaper.kind == .image || wallpaper.kind == .gif {
             let image: NSImage
             if wallpaper.kind == .gif {
@@ -177,26 +193,28 @@ final class WallpaperRenderer {
                    let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
                    let width = properties[kCGImagePropertyPixelWidth] as? NSNumber,
                    let height = properties[kCGImagePropertyPixelHeight] as? NSNumber {
-                    image.size = NSSize(width: width.doubleValue / screen.backingScaleFactor,
-                                        height: height.doubleValue / screen.backingScaleFactor)
+                    image.size = NSSize(width: width.doubleValue / scale,
+                                        height: height.doubleValue / scale)
                 }
             } else {
                 let decoded: DecodedPhoto
                 do {
                     decoded = try preparedPhoto ?? PhotoDecodeWorker.decodeImage(PhotoDecodeRequest(
                     url: url, mediaFit: mediaFit,
-                    viewportWidth: screen.frame.width * screen.backingScaleFactor,
-                    viewportHeight: screen.frame.height * screen.backingScaleFactor))
+                    viewportWidth: viewport.width, viewportHeight: viewport.height))
                 } catch PhotoDecodingError.unreadable { throw RendererError.unreadableImage }
                 catch PhotoDecodingError.overBudget { throw RendererError.photoTooLarge }
                 image = NSImage(cgImage: decoded.image, size: NSSize(
-                    width: decoded.sourceSize.width / screen.backingScaleFactor,
-                    height: decoded.sourceSize.height / screen.backingScaleFactor))
+                    width: decoded.sourceSize.width / photoScale,
+                    height: decoded.sourceSize.height / photoScale))
             }
-            let view = ImageSurface(image: image, mediaFit: mediaFit)
+            let panoramaFrame = panorama.map {
+                $0.imageFrame(sourcePixels: CGSize(width: image.size.width * photoScale, height: image.size.height * photoScale), fit: mediaFit, on: frame)
+            }
+            let view = ImageSurface(image: image, mediaFit: mediaFit, panoramaFrame: panoramaFrame)
             imageView = view.imageView
             player = nil
-            window = DesktopWindow(screen: screen, view: view)
+            window = DesktopWindow(screen: screen, view: view, frame: frame)
         } else {
             if url.isFileURL, !FileManager.default.isReadableFile(atPath: url.path) { throw RendererError.missingFile }
             let item = AVPlayerItem(url: url)
@@ -206,7 +224,7 @@ final class WallpaperRenderer {
             mediaPlayer.automaticallyWaitsToMinimizeStalling = true
             player = mediaPlayer
             imageView = nil
-            window = DesktopWindow(screen: screen, view: VideoSurface(player: mediaPlayer, mediaFit: mediaFit))
+            window = DesktopWindow(screen: screen, view: VideoSurface(player: mediaPlayer, mediaFit: mediaFit), frame: frame)
             if let queue = mediaPlayer as? AVQueuePlayer {
                 looper = AVPlayerLooper(player: queue, templateItem: item)
                 loopObserver = looper?.observe(\.status, options: [.initial, .new]) { looper, _ in
@@ -351,6 +369,7 @@ final class DesktopCoordinator {
         let frame: CGRect
         let mediaFit: MediaFit
         let backingScale: CGFloat
+        let panorama: PanoramaLayout?
         let token: UUID
         let renderer: WallpaperRenderer
     }
@@ -365,7 +384,7 @@ final class DesktopCoordinator {
     }
 
     private func geometry(_ targets: [DesktopTarget]) -> [TargetGeometry] {
-        targets.map { TargetGeometry(id: $0.id, frame: $0.screen.frame, scale: $0.screen.backingScaleFactor) }
+        targets.map { TargetGeometry(id: $0.id, frame: $0.frame, scale: $0.backingScale) }
     }
     private(set) var gifBudget: GIFPlaybackBudget
     private let targets: @MainActor () -> [DesktopTarget]
@@ -393,7 +412,22 @@ final class DesktopCoordinator {
     }
 
     func validateAssignments(state: LibraryState, store: LibraryStore) throws {
+        try validatePanorama(state: state, targets: targets())
         _ = try proposedBudget(state: state, store: store, connected: targets().map(\.id))
+    }
+
+    private func validatePanorama(state: LibraryState, targets: [DesktopTarget]) throws {
+        guard state.displayMode == .spanned else { return }
+        if let id = state.mirroredWallpaperID {
+            guard let item = state.wallpapers.first(where: { $0.id == id }), item.kind == .image,
+                  case .local = item.source else { throw PanoramaError.photoRequired }
+        }
+        if !targets.isEmpty, panorama(state: state, targets: targets) == nil { throw PanoramaError.invalidGeometry }
+    }
+
+    private func panorama(state: LibraryState, targets: [DesktopTarget]) -> PanoramaLayout? {
+        state.displayMode == .spanned
+            ? PanoramaLayout(frames: targets.map(\.frame), backingScales: targets.map(\.backingScale)) : nil
     }
 
     private func proposedBudget(state: LibraryState, store: LibraryStore, connected: [String]) throws -> GIFPlaybackBudget {
@@ -420,6 +454,7 @@ final class DesktopCoordinator {
                          onError: @escaping @MainActor (String, String) -> Void) {
         latestPaused = paused
         let currentTargets = targets()
+        let layout = panorama(state: state, targets: currentTargets)
         let connected = Set(currentTargets.map(\.id))
         let assignments = state.effectiveAssignments(for: currentTargets.map(\.id))
         let assigned = Set(assignments.keys)
@@ -446,12 +481,12 @@ final class DesktopCoordinator {
                   let wallpaper = state.wallpapers.first(where: { $0.id == id }), wallpaper.kind == .image else { continue }
             let fit = state.mediaFit(for: id, on: target.id)
             if !force, !pendingReloads.contains(target.id), let entry = renderers[target.id],
-               entry.wallpaperID == id, entry.frame == target.screen.frame,
-               entry.backingScale == target.screen.backingScaleFactor, entry.mediaFit == fit { continue }
+               entry.wallpaperID == id, entry.frame == target.frame,
+               entry.backingScale == target.backingScale, entry.mediaFit == fit, entry.panorama == layout { continue }
             do {
+                let viewport = layout?.pixelSize ?? CGSize(width: target.frame.width * target.backingScale, height: target.frame.height * target.backingScale)
                 requests[target.id] = PhotoDecodeRequest(url: try store.resolvedURL(for: wallpaper), mediaFit: fit,
-                    viewportWidth: target.screen.frame.width * target.screen.backingScaleFactor,
-                    viewportHeight: target.screen.frame.height * target.screen.backingScaleFactor)
+                    viewportWidth: viewport.width, viewportHeight: viewport.height)
             } catch {
                 // Resolve errors use the same non-mutating failure path as decode errors.
                 photos.cancel()
@@ -475,6 +510,7 @@ final class DesktopCoordinator {
         if !requiresPreparedPhotos { photos.cancel() }
         latestPaused = paused
         let currentTargets = targets()
+        let layout = panorama(state: state, targets: currentTargets)
         let connected = Set(currentTargets.map(\.id))
         let available = Set(state.wallpapers.map(\.id))
         let assignments = state.effectiveAssignments(for: currentTargets.map(\.id))
@@ -489,7 +525,10 @@ final class DesktopCoordinator {
             entry.renderer.setAudioEnabled(false)
         }
         let proposed: GIFPlaybackBudget
-        do { proposed = try proposedBudget(state: state, store: store, connected: currentTargets.map(\.id)) }
+        do {
+            try validatePanorama(state: state, targets: currentTargets)
+            proposed = try proposedBudget(state: state, store: store, connected: currentTargets.map(\.id))
+        }
         catch {
             renderers.values.forEach { $0.renderer.setPaused(paused) }
             for id in assigned { onError(id, error.localizedDescription) }
@@ -510,8 +549,8 @@ final class DesktopCoordinator {
                   let wallpaper = state.wallpapers.first(where: { $0.id == wallpaperID }) else { continue }
             let reloadRequested = pendingReloads.remove(displayID) != nil
             let mediaFit = state.mediaFit(for: wallpaperID, on: displayID)
-            if !force, !reloadRequested, let entry = renderers[displayID], entry.wallpaperID == wallpaperID, entry.frame == screen.frame,
-               entry.mediaFit == mediaFit, entry.backingScale == screen.backingScaleFactor {
+            if !force, !reloadRequested, let entry = renderers[displayID], entry.wallpaperID == wallpaperID, entry.frame == target.frame,
+               entry.mediaFit == mediaFit, entry.backingScale == target.backingScale, entry.panorama == layout {
                 entry.renderer.setPaused(paused)
                 entry.renderer.setAudioPolicy(enabled: state.settings.audioDisplayID == displayID, volume: state.settings.audioVolume)
                 continue
@@ -524,7 +563,7 @@ final class DesktopCoordinator {
                     guard let result = preparedPhotos[displayID] else { throw PhotoDecodingError.unreadable }
                     photo = try result.get()
                 } else { photo = nil }
-                let renderer = try WallpaperRenderer(wallpaper: wallpaper, url: store.resolvedURL(for: wallpaper), screen: screen, mediaFit: mediaFit, preparedPhoto: photo, webDocument: webDocument,
+                let renderer = try WallpaperRenderer(wallpaper: wallpaper, url: store.resolvedURL(for: wallpaper), screen: screen, mediaFit: mediaFit, preparedPhoto: photo, targetFrame: target.frame, targetScale: target.backingScale, panorama: layout, webDocument: webDocument,
                                                      isWindowVisible: isWindowVisible, onState: { [weak self] state in
                     guard self?.renderers[displayID]?.token == token else { return }
                     onState(displayID, state)
@@ -535,7 +574,7 @@ final class DesktopCoordinator {
                 // Keep the previous renderer and charge intact on any failure.
                 renderers.removeValue(forKey: displayID)?.renderer.stop()
                 gifBudget = nextBudget
-                renderers[displayID] = Entry(wallpaperID: wallpaperID, frame: screen.frame, mediaFit: mediaFit, backingScale: screen.backingScaleFactor, token: token, renderer: renderer)
+                renderers[displayID] = Entry(wallpaperID: wallpaperID, frame: target.frame, mediaFit: mediaFit, backingScale: target.backingScale, panorama: layout, token: token, renderer: renderer)
                 renderer.setPaused(paused)
                 renderer.setAudioPolicy(enabled: state.settings.audioDisplayID == displayID, volume: state.settings.audioVolume)
                 if let state = renderer.remotePlaybackState { onState(displayID, state) }
@@ -564,5 +603,15 @@ final class DesktopCoordinator {
         gifBudget = GIFPlaybackBudget(limit: gifBudget.limit)
         pendingReloads.removeAll()
         previous.forEach { $0.renderer.stop() }
+    }
+}
+
+private enum PanoramaError: LocalizedError {
+    case photoRequired, invalidGeometry
+    var errorDescription: String? {
+        switch self {
+        case .photoRequired: "Escolha uma foto para usar o modo panorâmico. Vídeos e GIFs ainda não são compatíveis."
+        case .invalidGeometry: "Não foi possível calcular a disposição dos monitores para o panorama."
+        }
     }
 }
