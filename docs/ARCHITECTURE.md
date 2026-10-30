@@ -8,6 +8,7 @@
 - `crates/wallmotion-media`: scanner Rust sem alocação de frames e sem decodificação LZW. Ligado estaticamente pelo alvo C `CWallmotionMedia`; build explícito antes do Swift. Não há IPC nem processo Rust separado.
 - Janelas borderless no nível desktop + 1 (abaixo dos ícones), sem foco e com `ignoresMouseEvents`; participam dos Spaces normais. Fullscreen/Stage Manager precisam de QA em hardware real.
 - `NSImageView` para fotos/GIFs; `AVQueuePlayer` + `AVPlayerLooper` para vídeos locais. URLs remotas usam AVPlayer, repetição em fim de item para arquivos finitos e reprodução contínua para HLS ao vivo.
+- Fontes `.web(embed:)` usam um `WebWallpaperRenderer` com WKWebView efêmera e APIs oficiais YouTube/Vimeo. Pausa suspende mídia, remove handlers e descarta a view; retomar cria um novo player. URLs `.remote(url:)` continuam no AVFoundation. A biblioteca v1 migra em memória para v2 sem reclassificar fontes; a próxima gravação atômica persiste v2.
 - Arquivos importados são copiados para Application Support/Wallmotion/Media. A biblioteca referencia a cópia, evitando perda de acesso quando a origem muda. O app de desenvolvimento não usa App Sandbox; sandbox futuro exige uma estratégia explícita de bookmarks.
 - Atribuições usam o UUID de display fornecido por CoreGraphics. Monitores desconectados preservam a seleção. Quando UUID não está disponível, o ID numérico é usado como fallback de sessão e pode mudar entre conexões. A reconciliação preserva janelas/players cuja mídia e geometria continuam iguais.
 - Preferências, biblioteca e atribuições são um único documento versionado salvo por escrita atômica. Arquivo inválido causa erro visível, sem sobrescrever os dados existentes.
@@ -16,7 +17,9 @@
 
 ## Contrato de URLs
 
-URLs remotas devem usar HTTPS, possuir host e não conter credenciais. Rejeitar páginas conhecidas de provedores e extensões claramente de páginas web; permitir caminhos sem extensão usados por CDNs. Validar sintaxe não prova que o servidor retorna mídia: erros de reprodução são apresentados pelo app. Redirecionamentos e codecs são responsabilidade do AVFoundation; não há extração de vídeos ou bypass de DRM.
+URLs de vídeo direto (`remote`) devem usar HTTPS, possuir host e não conter credenciais. Rejeitar páginas conhecidas de provedores e extensões claramente de páginas web; permitir caminhos sem extensão usados por CDNs. Validar sintaxe não prova que o servidor retorna mídia: erros de reprodução são apresentados pelo app. Redirecionamentos e codecs são responsabilidade do AVFoundation; não há extração de vídeos ou bypass de DRM.
+
+Fontes web são um contrato separado: IDs de vídeo e hash Vimeo validados, hosts e rotas explícitos, parâmetros externos não repassados ao player. O wrapper local usa origem/referrer HTTPS derivada do bundle ID, CSP restrita e navegação principal bloqueada após o documento inicial. Veja [fontes web](WEB-SOURCES.md).
 
 ## Limites do MVP
 
