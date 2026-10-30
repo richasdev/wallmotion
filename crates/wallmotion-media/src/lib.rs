@@ -188,7 +188,7 @@ pub struct WMGifInfo {
 /// No data is retained after this call. The checked parser cannot panic.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn wm_gif_probe(bytes: *const u8, len: usize, out: *mut WMGifInfo) -> i32 {
-    if bytes.is_null() || out.is_null() || len > isize::MAX as usize {
+    if bytes.is_null() || out.is_null() || !out.is_aligned() || len > isize::MAX as usize {
         return 1;
     }
     // SAFETY: The caller provides the readable allocation documented above.

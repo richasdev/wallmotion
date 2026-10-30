@@ -149,7 +149,10 @@ final class LibraryModel {
         guard state.wallpapers.contains(where: { $0.id == item.id }), displays.contains(where: { $0.id == displayID }) else { return }
         var next = state
         next.assignments[displayID] = item.id
-        if update(next) { refreshPlayback(force: false) }
+        if update(next) {
+            playbackErrors[displayID] = nil
+            refreshPlayback(force: false)
+        }
     }
 
     func clear(displayID: String) {
@@ -183,7 +186,12 @@ final class LibraryModel {
         displays = NSScreen.screens.compactMap { screen in
             Display.identify(screen).map { Display(id: $0, name: screen.localizedName) }
         }
-        playbackErrors = [:]
+        if force {
+            playbackErrors = [:]
+        } else {
+            let connected = Set(displays.map(\.id))
+            playbackErrors = playbackErrors.filter { connected.contains($0.key) && state.assignments[$0.key] != nil }
+        }
         engine.rebuild(state: state, store: store, paused: isPaused, force: force) { [weak self] id, message in
             self?.playbackErrors[id] = message
         }

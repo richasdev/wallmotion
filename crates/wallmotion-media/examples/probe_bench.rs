@@ -4,7 +4,7 @@ use std::hint::black_box;
 use std::path::Path;
 use std::process;
 use std::time::Instant;
-use wallmotion_media::{probe_gif, GifInfo};
+use wallmotion_media::{GifInfo, probe_gif};
 
 /// Gera um container GIF estruturalmente válido sem depender de arquivos em disco.
 ///
@@ -66,12 +66,33 @@ fn main() {
         // Modo padrão: fixture sintética de 120 frames (ex.: 2s a 60fps), 10.000 iterações
         let frames = 120u32;
         let iters = 10_000usize;
-        eprintln!("Nenhum argumento fornecido. Executando fixture sintética padrão ({} frames, {} iterações)...", frames, iters);
-        (format!("Sintético (1920x1080, {} frames)", frames), generate_synthetic_gif(1920, 1080, frames), iters)
+        eprintln!(
+            "Nenhum argumento fornecido. Executando fixture sintética padrão ({} frames, {} iterações)...",
+            frames, iters
+        );
+        (
+            format!("Sintético (1920x1080, {} frames)", frames),
+            generate_synthetic_gif(1920, 1080, frames),
+            iters,
+        )
     } else if args[1] == "--synthetic" || args[1] == "-s" {
-        let frames = args.get(2).and_then(|s| s.parse::<u32>().ok()).unwrap_or(120);
-        let iters = args.get(3).and_then(|s| s.parse::<usize>().ok()).unwrap_or(10_000);
-        (format!("Sintético (1920x1080, {} frames)", frames), generate_synthetic_gif(1920, 1080, frames), iters)
+        let frames = args
+            .get(2)
+            .and_then(|s| s.parse::<u32>().ok())
+            .unwrap_or(120);
+        if !(1..=100_000).contains(&frames) {
+            eprintln!("Erro: use entre 1 e 100000 frames sintéticos.");
+            process::exit(2);
+        }
+        let iters = args
+            .get(3)
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(10_000);
+        (
+            format!("Sintético (1920x1080, {} frames)", frames),
+            generate_synthetic_gif(1920, 1080, frames),
+            iters,
+        )
     } else if args[1] == "--help" || args[1] == "-h" {
         print_usage(program);
         process::exit(0);
@@ -89,9 +110,17 @@ fn main() {
                 process::exit(1);
             }
         };
-        let iters = args.get(2).and_then(|s| s.parse::<usize>().ok()).unwrap_or(5_000);
+        let iters = args
+            .get(2)
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(5_000);
         (format!("Arquivo ({})", path_str), file_bytes, iters)
     };
+
+    if !(1..=1_000_000).contains(&iterations) {
+        eprintln!("Erro: use entre 1 e 1000000 iterações.");
+        process::exit(2);
+    }
 
     // Validação prévia fora da medição cronometrada
     let initial_info: GifInfo = match probe_gif(&bytes) {
@@ -107,7 +136,8 @@ fn main() {
     eprintln!("Tamanho dos bytes em memória: {} bytes", bytes.len());
     eprintln!("Dimensões: {}x{}", initial_info.width, initial_info.height);
     eprintln!("Frames detectados: {}", initial_info.frames);
-    eprintln!("Estimativa descompactada (RGBA): {} bytes ({:.2} MB)",
+    eprintln!(
+        "Estimativa descompactada (RGBA): {} bytes ({:.2} MB)",
         initial_info.decoded_bytes,
         initial_info.decoded_bytes as f64 / (1024.0 * 1024.0)
     );
@@ -144,19 +174,38 @@ fn main() {
     let sum_ns: u64 = durations_ns.iter().sum();
     let mean_ns = sum_ns as f64 / iterations as f64;
 
-    let variance = durations_ns.iter().map(|&ns| {
-        let diff = ns as f64 - mean_ns;
-        diff * diff
-    }).sum::<f64>() / iterations as f64;
+    let variance = durations_ns
+        .iter()
+        .map(|&ns| {
+            let diff = ns as f64 - mean_ns;
+            diff * diff
+        })
+        .sum::<f64>()
+        / iterations as f64;
     let std_dev_ns = variance.sqrt();
 
     println!();
     println!("--- Resultados da Medição ---");
     println!("Iterações válidas:        {}", iterations);
-    println!("Tempo total acumulado:    {:.3} ms", total_elapsed.as_secs_f64() * 1_000.0);
-    println!("Média por scan:           {:.1} ns ({:.3} µs)", mean_ns, mean_ns / 1_000.0);
-    println!("Mediana (p50):            {} ns ({:.3} µs)", median_ns, median_ns as f64 / 1_000.0);
-    println!("Percentil 95 (p95):       {} ns ({:.3} µs)", p95_ns, p95_ns as f64 / 1_000.0);
+    println!(
+        "Tempo total acumulado:    {:.3} ms",
+        total_elapsed.as_secs_f64() * 1_000.0
+    );
+    println!(
+        "Média por scan:           {:.1} ns ({:.3} µs)",
+        mean_ns,
+        mean_ns / 1_000.0
+    );
+    println!(
+        "Mediana (p50):            {} ns ({:.3} µs)",
+        median_ns,
+        median_ns as f64 / 1_000.0
+    );
+    println!(
+        "Percentil 95 (p95):       {} ns ({:.3} µs)",
+        p95_ns,
+        p95_ns as f64 / 1_000.0
+    );
     println!("Mínimo:                   {} ns", min_ns);
     println!("Máximo:                   {} ns", max_ns);
     println!("Desvio Padrão:            {:.1} ns", std_dev_ns);
@@ -165,14 +214,21 @@ fn main() {
     println!("  Largura:                {} px", initial_info.width);
     println!("  Altura:                 {} px", initial_info.height);
     println!("  Contagem de frames:     {}", initial_info.frames);
-    println!("  Memória estimada (RGBA): {} bytes ({:.2} MB)",
+    println!(
+        "  Memória estimada (RGBA): {} bytes ({:.2} MB)",
         initial_info.decoded_bytes,
         initial_info.decoded_bytes as f64 / (1024.0 * 1024.0)
     );
     println!();
     println!("NOTA TÉCNICA:");
     println!("  Throughput em GB/s sobre o arquivo foi omitido intencionalmente: o scanner pula");
-    println!("  subblocos de dados LZW sem decodificar pixels. Declarar uma 'taxa de transferência'");
-    println!("  sobre o tamanho do arquivo comprimido seria uma métrica fictícia e não representaria");
-    println!("  a complexidade algorítmica (O(N) onde N é o número de blocos/extensões estruturais).");
+    println!(
+        "  subblocos de dados LZW sem decodificar pixels. Declarar uma 'taxa de transferência'"
+    );
+    println!(
+        "  sobre o tamanho do arquivo comprimido seria uma métrica fictícia e não representaria"
+    );
+    println!(
+        "  a complexidade algorítmica (O(N) onde N é o número de blocos/extensões estruturais)."
+    );
 }
