@@ -30,4 +30,36 @@ int32_t wm_gif_probe_fd_limited(int32_t descriptor, uint64_t max_decoded_bytes, 
 // Does not validate GIF structure, read content, change offset or retain descriptor.
 int32_t wm_gif_check_input_fd(int32_t descriptor, uint64_t max_encoded_bytes);
 
+// Immutable animation ABI. The caller keeps bytes immutable/readable for decode.
+// out must be aligned writable storage disjoint from input and handle storage.
+// All status failures preserve output. 0=success, 1=invalid, 2=pixel budget,
+// 3=structure work, 4=encoded budget, 5=frame count, 6=allocation/overflow,
+// 7=ICC retention limit, 8=frame index. Limits do not promise process RSS/CPU.
+typedef struct WMGifAnimation WMGifAnimation;
+typedef struct {
+    uint32_t width, height, frames;
+    uint64_t decoded_bytes;
+    uint16_t repeat_count;
+    uint8_t repeat_infinite;
+} WMGifAnimationInfo;
+typedef struct {
+    const uint8_t *pixels; // Borrowed row-major straight RGBA, width*4 stride.
+    size_t length;
+    uint16_t delay_centiseconds;
+} WMGifFrameView;
+typedef struct { const uint8_t *bytes; size_t length; } WMGifByteView;
+int32_t wm_gif_animation_decode(const uint8_t *bytes, size_t len,
+    uint64_t max_encoded, uint64_t max_decoded, uint64_t max_working,
+    uint32_t max_frames, const WMGifAnimation **out);
+// A successful decode yields one owned reference. retain adds one, release
+// consumes one; null retain/release is allowed. Never release a borrowed pointer.
+// Getters and retain require an already owned reference throughout the call;
+// callers may read concurrently, but must not race their last release with use.
+const WMGifAnimation *wm_gif_animation_retain(const WMGifAnimation *handle);
+void wm_gif_animation_release(const WMGifAnimation *handle);
+int32_t wm_gif_animation_info(const WMGifAnimation *handle, WMGifAnimationInfo *out);
+// Borrowed views stay immutable/valid while any owned handle reference is alive.
+int32_t wm_gif_animation_frame(const WMGifAnimation *handle, uint32_t index, WMGifFrameView *out);
+int32_t wm_gif_animation_icc(const WMGifAnimation *handle, WMGifByteView *out);
+
 #endif
