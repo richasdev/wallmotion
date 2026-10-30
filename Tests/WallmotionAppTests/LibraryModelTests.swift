@@ -574,8 +574,14 @@ final class LibraryModelTests: XCTestCase {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = LibraryStore(rootURL: directory.appendingPathComponent("Library", isDirectory: true))
+        let environment = ProcessInfo.processInfo.environment
+        let syntheticCount = environment["WALLMOTION_SNAPSHOT_DISPLAY_COUNT"].flatMap(Int.init)
+        if let syntheticCount, !(0...20).contains(syntheticCount) { throw XCTSkip("Synthetic display count must be 0...20") }
         let model = LibraryModel(thermalState: { .nominal }, store: store, engine: DesktopCoordinator(targets: { [] }), connectedDisplays: {
-            [Display(id: "fixture-left", name: "Monitor principal"), Display(id: "fixture-right", name: "Monitor externo")]
+            if let syntheticCount {
+                return (0..<syntheticCount).map { Display(id: "fixture-\($0)", name: "Monitor de teste \($0 + 1)") }
+            }
+            return [Display(id: "fixture-left", name: "Monitor principal"), Display(id: "fixture-right", name: "Monitor externo")]
         })
         defer { model.stop() }
         let photo = directory.appendingPathComponent("Montanhas ao amanhecer.png")
@@ -589,7 +595,6 @@ final class LibraryModelTests: XCTestCase {
             model.apply(photo, to: display.id)
             model.setMediaFit(.fill, on: display.id)
         }
-        let environment = ProcessInfo.processInfo.environment
         let compact = environment["WALLMOTION_SNAPSHOT_COMPACT"] == "1"
         if environment["WALLMOTION_SNAPSHOT_MIRRORED"] == "1", let display = model.displays.first {
             model.setDisplayMode(.mirrored, sourceDisplayID: display.id)
@@ -613,6 +618,22 @@ final class LibraryModelTests: XCTestCase {
         defer { window.orderOut(nil); window.close() }
         // Let fixture thumbnail tasks start; this delay alone is not a pass condition.
         try await Task.sleep(for: .milliseconds(250))
+        if environment["WALLMOTION_SNAPSHOT_SIDEBAR_BOTTOM"] == "1" {
+            hosting.layoutSubtreeIfNeeded()
+            func scrollViews(in view: NSView) -> [NSScrollView] {
+                (view as? NSScrollView).map { [$0] } ?? view.subviews.flatMap { scrollViews(in: $0) }
+            }
+            let sidebar = try XCTUnwrap(scrollViews(in: hosting).first {
+                $0.bounds.width < 320 && ($0.documentView?.bounds.height ?? 0) > $0.contentView.bounds.height + 1
+            })
+            let document = try XCTUnwrap(sidebar.documentView)
+            let before = sidebar.contentView.bounds.origin
+            let bottom = document.isFlipped ? max(document.bounds.minY, document.bounds.maxY - sidebar.contentView.bounds.height) : document.bounds.minY
+            sidebar.contentView.scroll(to: NSPoint(x: before.x, y: bottom))
+            sidebar.reflectScrolledClipView(sidebar.contentView)
+            XCTAssertNotEqual(sidebar.contentView.bounds.origin, before, "Overflowing sidebar must reach its lower controls.")
+            try await Task.sleep(for: .milliseconds(100))
+        }
         let bitmap = try await LibrarySnapshotCapture.capture(hosting)
         let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
         let destination = URL(fileURLWithPath: path)
