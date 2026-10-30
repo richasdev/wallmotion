@@ -1,6 +1,11 @@
+import csv
+import io
 import importlib.util
+import json
 import pathlib
+import tempfile
 import unittest
+from unittest import mock
 
 
 SCRIPT = pathlib.Path(__file__).resolve().parents[1] / "scripts" / "collect-performance.py"
@@ -52,6 +57,69 @@ class ArgumentTests(unittest.TestCase):
             args = parser.parse_args(["--pid", pid, "--interval", interval, "--duration", duration])
             with self.subTest(pid=pid, interval=interval, duration=duration), self.assertRaises(SystemExit):
                 collector.validate_args(args, parser)
+
+
+class CollectionLifecycleTests(unittest.TestCase):
+    SAMPLE = {
+        "uid": 501,
+        "cpu_percent": 4.5,
+        "rss_bytes": 8192,
+        "process_elapsed_seconds": 12,
+        "command": "/Applications/Wallmotion.app/Contents/MacOS/Wallmotion",
+    }
+
+    def test_process_exit_preserves_partial_json_and_reports_early_exit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = pathlib.Path(directory) / "metrics.json"
+            stderr = io.StringIO()
+            with (
+                mock.patch.object(collector.sys, "platform", "darwin"),
+                mock.patch.object(collector, "sample_process", side_effect=[self.SAMPLE.copy(), collector.ProcessUnavailableError("PID 123 exited")]),
+                mock.patch.object(collector.time, "monotonic", side_effect=[100.0, 100.0, 100.0]),
+                mock.patch.object(collector.time, "sleep"),
+                mock.patch("sys.stderr", stderr),
+            ):
+                status = collector.main(["--pid", "123", "--interval", "0.1", "--duration", "1", "--format", "json", "--output", str(output)])
+
+            result = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(status, collector.EXIT_EARLY)
+            self.assertEqual(result["status"], "process_unavailable")
+            self.assertEqual(result["termination_reason"], "PID 123 exited")
+            self.assertEqual(len(result["samples"]), 1)
+            self.assertIn("1 sample(s)", stderr.getvalue())
+
+    def test_process_exit_preserves_partial_csv_and_status_columns(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = pathlib.Path(directory) / "metrics.csv"
+            with (
+                mock.patch.object(collector.sys, "platform", "darwin"),
+                mock.patch.object(collector, "sample_process", side_effect=[self.SAMPLE.copy(), collector.ProcessUnavailableError("PID 123 exited")]),
+                mock.patch.object(collector.time, "monotonic", side_effect=[100.0, 100.0, 100.0]),
+                mock.patch.object(collector.time, "sleep"),
+                mock.patch("sys.stderr", io.StringIO()),
+            ):
+                status = collector.main(["--pid", "123", "--interval", "0.1", "--duration", "1", "--format", "csv", "--output", str(output)])
+
+            with output.open(encoding="utf-8", newline="") as stream:
+                rows = list(csv.DictReader(stream))
+            self.assertEqual(status, collector.EXIT_EARLY)
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["collection_status"], "process_unavailable")
+            self.assertEqual(rows[0]["termination_reason"], "PID 123 exited")
+
+    def test_invalid_initial_pid_fails_without_creating_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = pathlib.Path(directory) / "metrics.json"
+            with (
+                mock.patch.object(collector.sys, "platform", "darwin"),
+                mock.patch.object(collector, "sample_process", side_effect=collector.ProcessUnavailableError("PID 123 is not running")),
+                mock.patch("sys.stderr", io.StringIO()),
+                self.assertRaises(SystemExit) as raised,
+            ):
+                collector.main(["--pid", "123", "--interval", "0.1", "--duration", "1", "--format", "json", "--output", str(output)])
+
+            self.assertEqual(raised.exception.code, 2)
+            self.assertFalse(output.exists())
 
 
 if __name__ == "__main__":

@@ -11,10 +11,12 @@ python3 scripts/collect-performance.py --pid 12345 --interval 5 --duration 900 -
 
 Substitua `12345` pelo PID retornado por `pgrep` (ou pelo PID exibido no Activity Monitor). JSON pode ser selecionado com `--format json`. A saída JSON inclui os limites; em CSV, o relatório é escrito em stderr para manter o arquivo CSV legível. CPU vem de `ps %cpu` e pode exceder 100% em sistemas multicore; RSS é o residente amostrado convertido de KiB para bytes. A ferramenta não coleta GPU ou potência: `ps` não fornece aqui uma métrica por processo com unidade verificada. Amostras podem perder picos entre intervalos. O coletor valida que o PID existe, pertence ao usuário atual e é Wallmotion; não usa sudo nem acessa dados de outros processos.
 
+Se o processo terminar ou ficar indisponível depois da validação inicial, o coletor grava as amostras já obtidas e inclui `status`/`termination_reason` no JSON ou nas colunas CSV. O código de saída `3` indica resultado parcial e duração não cumprida; `0` indica duração concluída, `2` indica argumentos ou PID inicial inválidos sem arquivo de saída, e `130` indica interrupção pelo usuário após gravar as amostras parciais.
+
 Os testes de parsing e argumentos podem ser executados sem iniciar o app:
 
 ```sh
-python3 -m unittest discover -s tests -p 'test_collect_performance.py'
+python3 -m unittest discover -s Tests -p 'test_collect_performance.py'
 ```
 
 **Data:** Outubro de 2026  

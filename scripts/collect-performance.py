@@ -18,6 +18,13 @@ MIN_INTERVAL = 0.1
 MAX_INTERVAL = 3600.0
 MAX_DURATION = 86400.0
 MAX_SAMPLES = 100_000
+EXIT_COMPLETED = 0
+EXIT_EARLY = 3
+EXIT_INTERRUPTED = 130
+
+
+class ProcessUnavailableError(RuntimeError):
+    """The validated PID disappeared or could no longer be queried."""
 
 
 def positive_float(value: str) -> float:
@@ -89,7 +96,7 @@ def sample_process(pid: int) -> dict[str, float | int | str]:
         check=False,
     )
     if result.returncode != 0 or not result.stdout.strip():
-        raise RuntimeError(f"PID {pid} is not running or cannot be inspected")
+        raise ProcessUnavailableError(f"PID {pid} exited or became unavailable to ps")
     try:
         row = parse_ps_line(result.stdout)
     except (ValueError, IndexError) as exc:
@@ -113,34 +120,67 @@ def limits_report() -> dict[str, str]:
     }
 
 
-def collect(pid: int, interval: float, duration: float) -> list[dict[str, float | int | str]]:
+def collect(pid: int, interval: float, duration: float, first_sample: dict) -> dict:
     started = time.monotonic()
     deadline = started + duration
     rows = []
+    status = "completed"
+    reason = "requested duration reached"
+    next_sample = first_sample
     while True:
         now = time.monotonic()
         try:
-            row = sample_process(pid)
+            row = next_sample if next_sample is not None else sample_process(pid)
+            next_sample = None
             row["elapsed_seconds"] = round(now - started, 3)
             row["timestamp_utc"] = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
             rows.append(row)
             if now >= deadline:
                 break
             time.sleep(min(interval, deadline - now))
-        except KeyboardInterrupt:
+        except ProcessUnavailableError as exc:
+            status = "process_unavailable"
+            reason = str(exc)
             break
-    return rows
+        except (RuntimeError, OSError) as exc:
+            status = "sampling_error"
+            reason = str(exc)
+            break
+        except KeyboardInterrupt:
+            status = "interrupted"
+            reason = "collection interrupted by user"
+            break
+    return {
+        "status": status,
+        "termination_reason": reason,
+        "requested_duration_seconds": duration,
+        "samples": rows,
+    }
 
 
-def write_output(rows: list[dict[str, float | int | str]], fmt: str, stream) -> None:
+def write_output(result: dict, fmt: str, stream) -> None:
     if fmt == "json":
-        json.dump({"samples": rows, "limits": limits_report()}, stream, indent=2)
+        json.dump({**result, "limits": limits_report()}, stream, indent=2)
         stream.write("\n")
         return
-    fields = ("timestamp_utc", "elapsed_seconds", "cpu_percent", "rss_bytes", "process_elapsed_seconds")
+    fields = (
+        "timestamp_utc",
+        "elapsed_seconds",
+        "cpu_percent",
+        "rss_bytes",
+        "process_elapsed_seconds",
+        "collection_status",
+        "termination_reason",
+        "requested_duration_seconds",
+    )
     writer = csv.DictWriter(stream, fieldnames=fields, extrasaction="ignore", lineterminator="\n")
     writer.writeheader()
-    writer.writerows(rows)
+    metadata = {
+        "collection_status": result["status"],
+        "termination_reason": result["termination_reason"],
+        "requested_duration_seconds": result["requested_duration_seconds"],
+    }
+    writer.writerows({**row, **metadata} for row in result["samples"])
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -149,21 +189,30 @@ def main(argv: list[str] | None = None) -> int:
     validate_args(args, parser)
     if sys.platform != "darwin":
         parser.error("this collector requires macOS ps")
-    # Validate identity and liveness before opening the destination or starting the timer.
+    # Reject invalid initial PIDs before creating any output. Later loss is a partial result.
     try:
-        sample_process(args.pid)
-        rows = collect(args.pid, args.interval, args.duration)
+        first_sample = sample_process(args.pid)
     except (RuntimeError, OSError) as exc:
         parser.error(str(exc))
+    result = collect(args.pid, args.interval, args.duration, first_sample)
     if args.output:
         destination = pathlib.Path(args.output)
         with destination.open("w", newline="", encoding="utf-8") as stream:
-            write_output(rows, args.format, stream)
+            write_output(result, args.format, stream)
     else:
-        write_output(rows, args.format, sys.stdout)
+        write_output(result, args.format, sys.stdout)
     if args.format == "csv":
         print("Limits: " + json.dumps(limits_report(), ensure_ascii=False), file=sys.stderr)
-    return 0
+    print(
+        f"Collection {result['status']}: {result['termination_reason']} "
+        f"({len(result['samples'])} sample(s))",
+        file=sys.stderr,
+    )
+    if result["status"] == "completed":
+        return EXIT_COMPLETED
+    if result["status"] == "interrupted":
+        return EXIT_INTERRUPTED
+    return EXIT_EARLY
 
 
 if __name__ == "__main__":
