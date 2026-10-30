@@ -496,7 +496,7 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertNil(model.errorMessage)
     }
 
-    func testPanoramaRejectsVideoWithoutSavingAndRestoresIndependentAssignments() throws {
+    func testPanoramaStartsEmptyFromVideoStillRejectsVideoApplyAndRestoresIndependentAssignments() throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = LibraryStore(rootURL: directory)
@@ -508,11 +508,13 @@ final class LibraryModelTests: XCTestCase {
                                  connectedDisplays: { [Display(id: "one", name: "One"), Display(id: "two", name: "Two")] })
         defer { model.stop() }
         model.refreshPlayback(force: false)
-        let bytes = try Data(contentsOf: store.stateURL)
         model.setDisplayMode(.spanned, sourceDisplayID: "one")
-        XCTAssertEqual(model.state, initial)
-        XCTAssertEqual(try Data(contentsOf: store.stateURL), bytes)
-        XCTAssertTrue(model.errorMessage?.contains("foto") == true)
+        XCTAssertEqual(model.state.displayMode, .spanned)
+        XCTAssertNil(model.state.mirroredWallpaperID)
+        XCTAssertNil(model.errorMessage)
+        XCTAssertEqual(model.state.assignments, initial.assignments)
+        XCTAssertEqual(try store.load(), model.state)
+        model.setDisplayMode(.independent, sourceDisplayID: "two")
         model.setDisplayMode(.spanned, sourceDisplayID: "two")
         XCTAssertEqual(model.activeWallpaperID(on: "one"), photo.id)
         model.setMediaFit(.stretch, on: "one")
@@ -527,6 +529,30 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(model.state.assignments, initial.assignments)
         XCTAssertEqual(model.activeWallpaperID(on: "one"), video.id)
         XCTAssertEqual(model.activeWallpaperID(on: "two"), photo.id)
+    }
+
+    func testPanoramaStartsEmptyFromGIFAndOfficialWebWithoutDiscardingIndependentSelection() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let items = [Wallpaper(title: "GIF", kind: .gif, source: .local(filename: "animation.gif")),
+                     try Wallpaper.web("https://youtu.be/M7lc1UVf-VE")]
+        for item in items {
+            let store = LibraryStore(rootURL: directory.appendingPathComponent(item.id.uuidString))
+            let initial = LibraryState(wallpapers: [item], assignments: ["one": item.id])
+            try store.save(initial)
+            let model = LibraryModel(thermalState: { .nominal }, memoryMonitor: TestMemoryPressureMonitor(),
+                store: store, engine: DesktopCoordinator(targets: { [] }),
+                connectedDisplays: { [Display(id: "one", name: "One")] })
+            defer { model.stop() }
+            model.refreshPlayback(force: false)
+            model.setDisplayMode(.spanned, sourceDisplayID: "one")
+            XCTAssertEqual(model.state.displayMode, .spanned)
+            XCTAssertNil(model.state.mirroredWallpaperID)
+            XCTAssertNil(model.errorMessage)
+            XCTAssertEqual(try store.load(), model.state)
+            model.setDisplayMode(.independent, sourceDisplayID: "one")
+            XCTAssertEqual(model.activeWallpaperID(on: "one"), item.id)
+        }
     }
 
     func testMirrorSeedUsesSelectedEmptyDisplayRatherThanOtherAssignment() throws {

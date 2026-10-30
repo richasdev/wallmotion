@@ -426,8 +426,8 @@ final class DesktopCoordinator {
     private func validatePanorama(state: LibraryState, targets: [DesktopTarget]) throws {
         guard state.displayMode == .spanned else { return }
         if let id = state.mirroredWallpaperID {
-            guard let item = state.wallpapers.first(where: { $0.id == id }), item.kind == .image,
-                  case .local = item.source else { throw PanoramaError.photoRequired }
+            guard let item = state.wallpapers.first(where: { $0.id == id }),
+                  item.supportsPanorama else { throw PanoramaError.photoRequired }
         }
         if !targets.isEmpty, panorama(state: state, targets: targets) == nil { throw PanoramaError.invalidGeometry }
     }

@@ -303,7 +303,9 @@ final class LibraryModel {
         guard canEdit, mode != state.displayMode else { return }
         var next = state
         if mode.isShared {
-            next.mirroredWallpaperID = activeWallpaperID(on: sourceDisplayID)
+            let sourceID = activeWallpaperID(on: sourceDisplayID)
+            let source = state.wallpapers.first { $0.id == sourceID }
+            next.mirroredWallpaperID = mode == .spanned && source?.supportsPanorama != true ? nil : sourceID
             next.mirroredMediaFit = mediaFit(on: sourceDisplayID)
         }
         next.displayMode = mode
