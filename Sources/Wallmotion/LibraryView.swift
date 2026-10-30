@@ -15,8 +15,9 @@ struct LibraryView: View {
     @State private var isDropTargeted = false
     @State private var dropMessage = ""
 
-    init(model: LibraryModel, initialQuery: LibraryQuery = .init()) {
+    init(model: LibraryModel, initialQuery: LibraryQuery = .init(), initialRename: Wallpaper? = nil) {
         self.model = model
+        _pendingRename = State(initialValue: initialRename)
         _search = State(initialValue: initialQuery.text)
         _mediaFilter = State(initialValue: initialQuery.filter)
         _sortOrder = State(initialValue: initialQuery.sort)
@@ -24,6 +25,11 @@ struct LibraryView: View {
 
     private var filteredItems: [Wallpaper] {
         catalog.items(from: model.state.wallpapers, query: LibraryQuery(text: search, filter: mediaFilter, sort: sortOrder))
+    }
+
+    private var renameTargetExists: Bool {
+        guard let pendingRename else { return true }
+        return model.state.wallpapers.contains { $0.id == pendingRename.id }
     }
 
     private var targetDisplayName: String {
@@ -65,9 +71,16 @@ struct LibraryView: View {
         }
         .onAppear { selectAvailableDisplay() }
         .onChange(of: model.displays) { _, _ in selectAvailableDisplay() }
+        .onChange(of: renameTargetExists, initial: true) { _, exists in
+            if !exists { pendingRename = nil }
+        }
         .sheet(item: $pendingURLDraft) { draft in urlSheet(draft: draft) }
         .sheet(item: $pendingRename) { item in
-            RenameMediaSheet(title: item.title, canSave: model.canEdit) { title in
+            RenameMediaSheet(title: item.title, canSave: model.canEdit && renameTargetExists) { title in
+                guard model.state.wallpapers.contains(where: { $0.id == item.id }) else {
+                    pendingRename = nil
+                    return nil
+                }
                 if model.rename(id: item.id, title: title) {
                     pendingRename = nil
                     return nil
