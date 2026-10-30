@@ -11,6 +11,9 @@ struct WallmotionApp: App {
                 .frame(minWidth: 820, minHeight: 560)
         }
         .defaultSize(width: 1040, height: 700)
+        Settings {
+            SettingsView()
+        }
         .commands {
             CommandGroup(replacing: .newItem) {
                 Button("Importar mídia…") { delegate.model.chooseFiles() }
