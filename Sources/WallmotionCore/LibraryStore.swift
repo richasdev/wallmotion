@@ -19,9 +19,7 @@ public struct LibraryStore: Sendable {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(state)
-        guard data.count <= LibraryStateFile.maximumBytes else { throw LibraryError.libraryTooLarge }
-        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
-        try data.write(to: stateURL, options: .atomic)
+        try LibraryStateFile.write(data, at: stateURL)
     }
 
     public func importFile(at url: URL) throws -> Wallpaper {
