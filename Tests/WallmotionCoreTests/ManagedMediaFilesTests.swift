@@ -103,4 +103,98 @@ struct ManagedMediaFilesTests {
             #expect(!FileManager.default.fileExists(atPath: store.mediaDirectory.path))
         }
     }
+    @Test func emptyMediaRejectedBeforeCreatingManagedDirectory() throws {
+        try fixture { store, root in
+            for ext in ["jpg", "gif", "mp4"] {
+                let source = root.appendingPathComponent("empty.\(ext)")
+                try Data().write(to: source)
+                #expect(throws: LibraryError.emptyMedia) { try store.importFile(at: source) }
+                #expect(!FileManager.default.fileExists(atPath: store.mediaDirectory.path))
+            }
+        }
+    }
+
+    @Test func sourceTruncatedBeforeRealCopyRollsBackDestination() throws {
+        try fixture { store, root in
+            let source = root.appendingPathComponent("source.mp4")
+            try Data([1, 2, 3, 4]).write(to: source)
+            #expect(throws: LibraryError.mediaChanged) {
+                try ManagedMediaFiles.copy(from: source, filename: "copy.mp4", kind: .video, root: store.rootURL) { input, output in
+                    let writable = open(source.path, O_WRONLY | O_CLOEXEC)
+                    guard writable >= 0 else { throw POSIXError(.EIO) }
+                    defer { close(writable) }
+                    #expect(ftruncate(writable, 0) == 0)
+                    guard fcopyfile(input, output, nil, copyfile_flags_t(COPYFILE_DATA | COPYFILE_XATTR)) == 0 else { throw POSIXError(.EIO) }
+                }
+            }
+            #expect(try FileManager.default.contentsOfDirectory(atPath: store.mediaDirectory.path).isEmpty)
+        }
+    }
+
+    @Test func shortSuccessfulCopyIsRejectedAndOriginalPreserved() throws {
+        try fixture { store, root in
+            let source = root.appendingPathComponent("source.mp4")
+            let bytes = Data([1, 2, 3, 4])
+            try bytes.write(to: source)
+            #expect(throws: LibraryError.mediaChanged) {
+                try ManagedMediaFiles.copy(from: source, filename: "copy.mp4", kind: .video, root: store.rootURL) { _, output in
+                    let short = Data([1, 2])
+                    #expect(short.withUnsafeBytes { Darwin.write(output, $0.baseAddress, $0.count) } == 2)
+                }
+            }
+            #expect(try Data(contentsOf: source) == bytes)
+            #expect(try FileManager.default.contentsOfDirectory(atPath: store.mediaDirectory.path).isEmpty)
+        }
+    }
+
+    @Test func sourceGrowthAfterRealCopyIsRejectedEvenWhenOutputHasExpectedLength() throws {
+        try fixture { store, root in
+            let source = root.appendingPathComponent("source.mp4")
+            try Data([1, 2, 3, 4]).write(to: source)
+            #expect(throws: LibraryError.mediaChanged) {
+                try ManagedMediaFiles.copy(from: source, filename: "copy.mp4", kind: .video, root: store.rootURL) { input, output in
+                    guard fcopyfile(input, output, nil, copyfile_flags_t(COPYFILE_DATA | COPYFILE_XATTR)) == 0 else { throw POSIXError(.EIO) }
+                    let handle = try FileHandle(forWritingTo: source)
+                    defer { try? handle.close() }
+                    try handle.seekToEnd()
+                    try handle.write(contentsOf: Data([5]))
+                }
+            }
+            #expect(try FileManager.default.contentsOfDirectory(atPath: store.mediaDirectory.path).isEmpty)
+        }
+    }
+
+    @Test func sourceTimestampChangeAfterRealCopyIsRejected() throws {
+        try fixture { store, root in
+            let source = root.appendingPathComponent("source.mp4")
+            try Data([1, 2, 3, 4]).write(to: source)
+            #expect(throws: LibraryError.mediaChanged) {
+                try ManagedMediaFiles.copy(from: source, filename: "copy.mp4", kind: .video, root: store.rootURL) { input, output in
+                    guard fcopyfile(input, output, nil, copyfile_flags_t(COPYFILE_DATA | COPYFILE_XATTR)) == 0 else { throw POSIXError(.EIO) }
+                    var info = stat()
+                    #expect(fstat(input, &info) == 0)
+                    var times = [timeval(tv_sec: info.st_atimespec.tv_sec, tv_usec: 0),
+                                 timeval(tv_sec: info.st_mtimespec.tv_sec + 2, tv_usec: 0)]
+                    #expect(futimes(input, &times) == 0)
+                }
+            }
+            #expect(try FileManager.default.contentsOfDirectory(atPath: store.mediaDirectory.path).isEmpty)
+        }
+    }
+
+    @Test func copyErrorAfterPartialWriteRemovesIncompleteEntry() throws {
+        try fixture { store, root in
+            let source = root.appendingPathComponent("source.mp4")
+            let original = Data([1, 2, 3, 4])
+            try original.write(to: source)
+            #expect(throws: POSIXError(.ENOSPC)) {
+                try ManagedMediaFiles.copy(from: source, filename: "copy.mp4", kind: .video, root: store.rootURL) { _, output in
+                    #expect(original.withUnsafeBytes { Darwin.write(output, $0.baseAddress, 2) } == 2)
+                    throw POSIXError(.ENOSPC)
+                }
+            }
+            #expect(try Data(contentsOf: source) == original)
+            #expect(try FileManager.default.contentsOfDirectory(atPath: store.mediaDirectory.path).isEmpty)
+        }
+    }
 }
