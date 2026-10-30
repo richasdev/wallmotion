@@ -269,7 +269,7 @@ struct LibraryView: View {
             Text("Adicionar vídeo por URL").font(.title2.weight(.semibold))
             Toggle("Fonte web (YouTube ou Vimeo)", isOn: $isWebSource)
                 .onChange(of: isWebSource) { _, _ in urlError = nil }
-            Text(isWebSource ? "Cole a URL de um vídeo individual público. Autoplay e incorporação dependem do provedor; login e DRM não são suportados." : "Cole um link HTTPS direto de vídeo ou HLS (.m3u8).")
+            Text(isWebSource ? "Cole a URL de um vídeo individual público. Links YouTube com tempo inicial são preservados. Autoplay e incorporação dependem do provedor; login e DRM não são suportados." : "Cole um link HTTPS direto de vídeo ou HLS (.m3u8).")
                 .foregroundStyle(.secondary)
             TextField(isWebSource ? "https://www.youtube.com/watch?v=…" : "https://exemplo.com/video.mp4", text: $urlText)
                 .textFieldStyle(.roundedBorder)

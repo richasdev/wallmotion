@@ -374,6 +374,15 @@ final class WebWallpaperRendererTests: XCTestCase {
         XCTAssertEqual(restoredVolume as? Double, 0.4)
     }
 
+    func testYouTubeDocumentOnlyInterpolatesValidatedStartSeconds() throws {
+        let embed = try WebEmbed.parse("https://youtu.be/M7lc1UVf-VE?t=1m30s")
+        let document = WebWallpaperRenderer.document(embed: embed, origin: "https://dev.richas.wallmotion")
+        XCTAssertTrue(document.contains("&start=90"))
+        XCTAssertFalse(document.contains("1m30s"))
+        let old = try WebEmbed.parse("https://youtu.be/M7lc1UVf-VE")
+        XCTAssertFalse(WebWallpaperRenderer.document(embed: old, origin: "https://dev.richas.wallmotion").contains("&start="))
+    }
+
     func testProviderDocumentsUseOfficialAPIsAndIdentity() throws {
         let youtube = WebWallpaperRenderer.document(embed: try WebEmbed.parse("https://youtu.be/M7lc1UVf-VE"), origin: "https://dev.richas.wallmotion")
         XCTAssertTrue(youtube.contains("origin=https://dev.richas.wallmotion"))
@@ -435,6 +444,16 @@ final class WebWallpaperRendererTests: XCTestCase {
         while !renderer.isPlaying && failure == nil && ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(100)) }
         XCTAssertNil(failure)
         guard renderer.isPlaying else { XCTFail("O player oficial não confirmou reprodução: \(renderer.lastEvent)"); return }
+        if embed.provider == .youtube, embed.startSeconds > 0 {
+            let deadline = ContinuousClock.now + .seconds(5)
+            var position = 0.0
+            while ContinuousClock.now < deadline {
+                position = (try await renderer.webView?.evaluateJavaScript("player.getCurrentTime()") as? NSNumber)?.doubleValue ?? 0
+                if position >= Double(embed.startSeconds) - 2 { break }
+                try await Task.sleep(for: .milliseconds(50))
+            }
+            XCTAssertGreaterThanOrEqual(position, Double(embed.startSeconds) - 2, "Provider may select the nearest preceding keyframe")
+        }
         let script = embed.provider == .youtube ? "player.isMuted()" : "player.getMuted()"
         let muted: Any?
         if embed.provider == .youtube { muted = try await renderer.webView?.evaluateJavaScript(script) }

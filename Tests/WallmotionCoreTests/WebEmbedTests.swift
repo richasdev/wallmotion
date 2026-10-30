@@ -4,7 +4,7 @@ import Testing
 
 struct WebEmbedTests {
     @Test(arguments: [
-        "https://www.youtube.com/watch?v=M7lc1UVf-VE&t=30&list=ignored",
+        "https://www.youtube.com/watch?v=M7lc1UVf-VE&list=ignored",
         " https://youtu.be/M7lc1UVf-VE?si=tracking\n",
         "https://m.youtube.com/shorts/M7lc1UVf-VE",
         "https://www.youtube-nocookie.com/embed/M7lc1UVf-VE",
@@ -88,10 +88,7 @@ struct WebEmbedTests {
 
     @Test func decodedInvalidEmbedCannotReachRendererOrSave() throws {
         let malformed = Data(#"{"provider":"youtube","videoID":"<script>"}"#.utf8)
-        let embed = try JSONDecoder().decode(WebEmbed.self, from: malformed)
-        let item = Wallpaper(title: "Invalid", kind: .video, source: .web(embed: embed))
-        #expect(throws: LibraryError.unsupportedEmbed) { try LibraryState(wallpapers: [item]).validated() }
-        #expect(throws: LibraryError.unsupportedEmbed) { try LibraryStore().resolvedURL(for: item) }
+        #expect(throws: LibraryError.unsupportedEmbed) { try JSONDecoder().decode(WebEmbed.self, from: malformed) }
         let valid = try Wallpaper.web("https://youtu.be/M7lc1UVf-VE")
         #expect(throws: LibraryError.invalidState) { try LibraryState(version: 1, wallpapers: [valid]).validated() }
     }
