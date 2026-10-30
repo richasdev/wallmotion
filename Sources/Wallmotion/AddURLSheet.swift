@@ -83,9 +83,10 @@ struct AddURLSheet: View {
             VStack(alignment: .leading, spacing: 10) {
                 Text("URL do vídeo").font(.callout.weight(.medium))
                 TextField(web ? "https://www.youtube.com/watch?v=…" : "https://exemplo.com/video.mp4", text: Binding(get: { draft.text }, set: {
-                        guard $0 != draft.text else { return }
+                        var next = draft
+                        guard next.replace(with: $0) else { return }
                         saveError = nil
-                        draft.replace(with: $0)
+                        draft = next
                     }))
                     .textFieldStyle(.roundedBorder)
                     .accessibilityLabel("URL do vídeo")

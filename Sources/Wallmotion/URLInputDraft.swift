@@ -17,13 +17,15 @@ struct URLInputDraft: Sendable {
         text.utf8.prefix(maximumBytes + 1).count <= maximumBytes
     }
 
-    mutating func replace(with value: String) {
-        guard value != text else { return } // Text-field reconciliation is not a new edit.
+    /// Returns true for an edit attempt (including rejection), false for an exact writeback.
+    @discardableResult mutating func replace(with value: String) -> Bool {
         guard Self.accepts(value) else {
             inputError = "O link ultrapassa 4096 bytes e não foi inserido. Edite o campo ou cole uma URL menor."
-            return
+            return true
         }
+        guard !value.utf8.elementsEqual(text.utf8) else { return false }
         text = value
         inputError = nil
+        return true
     }
 }

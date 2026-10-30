@@ -23,14 +23,16 @@ struct RenameDraft: Sendable {
         return text.prefix(maximumDraftCharacters + 1).count <= maximumDraftCharacters
     }
 
-    mutating func replace(with value: String) {
-        guard value != text else { return } // Reconciliation must not acknowledge a rejected edit.
+    /// Returns true for an edit attempt (including rejection), false for an exact writeback.
+    @discardableResult mutating func replace(with value: String) -> Bool {
         guard Self.accepts(value) else {
             inputError = "O texto é grande demais para este campo. Ele não foi inserido; digite ou cole um nome menor."
-            return
+            return true
         }
+        guard !value.utf8.elementsEqual(text.utf8) else { return false }
         text = value
         inputError = nil
+        return true
     }
 
     var characterCount: Int { text.trimmingCharacters(in: .whitespacesAndNewlines).count }
