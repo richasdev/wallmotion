@@ -12,3 +12,9 @@ A suíte padrão é offline. Fixtures de persistência/JS/WebKit verificam norma
 - [ ] Rejeitar HTTP, credenciais, páginas arbitrárias e formatos não suportados; não contornar login/DRM/restrições.
 
 Os testes com visibilidade injetada não substituem QA físico de oclusão/Spaces, memória/energia sustentadas, macOS 14 e múltiplos monitores. CI remoto bloqueado por billing #11.
+
+## Validação após integrar PRs #38 e #24
+
+Integrados por merges normais: main em `a1c3ece` (#38) e depois `35a9885` (#24). Preservados rótulos localizados, MediaThumbnail, contexto por monitor e acessibilidade; fonte web mantém a identificação do provedor. Oclusão central e compatibilidade legada não foram alteradas nesta rodada. `docs/QA.md` foi mantido idêntico ao de main, com este roteiro separado.
+
+`CARGO_INCREMENTAL=0 sh scripts/build-native.sh` aprovado antes do Swift. `swift test -j 2`: 54 Swift Testing e 36 XCTest, 3 skips opt-in (snapshot/HLS/embed), sem falhas/warnings. Snapshot opcional da biblioteca executado separadamente com `-j 2` e inspecionado: rótulos FOTO/VÍDEO, thumbnails e contexto preservados. Testes de login usam serviço fake, sem registrar o app no login real. `git diff --cached --check` aprovado. Não houve teste real de YouTube/Vimeo ou benchmark nesta rodada; os fixtures não certificam reprodução dos provedores. CI continua bloqueado por billing #11.
