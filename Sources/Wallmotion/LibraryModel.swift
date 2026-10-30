@@ -10,6 +10,7 @@ final class LibraryModel {
     private(set) var canEdit = true
     private(set) var isImporting = false
     private(set) var playbackErrors: [String: String] = [:]
+    private(set) var remotePlaybackStates: [String: RemotePlaybackState] = [:]
     var errorMessage: String?
     private let store: LibraryStore
     private let engine: DesktopCoordinator
@@ -86,6 +87,8 @@ final class LibraryModel {
         observers.forEach { $0.0.removeObserver($0.1) }
         observers.removeAll()
         engine.stop()
+        remotePlaybackStates = [:]
+        playbackErrors = [:]
         started = false
     }
 
@@ -196,6 +199,8 @@ final class LibraryModel {
         next.assignments[displayID] = item.id
         if update(next) {
             playbackErrors[displayID] = nil
+            remotePlaybackStates[displayID] = nil
+            engine.invalidate(displayID: displayID)
             refreshPlayback(force: false)
         }
     }
@@ -238,17 +243,37 @@ final class LibraryModel {
         if update(next) { engine.setPaused(isPaused) }
     }
 
+    func retryPlayback(displayID: String) {
+        guard state.assignments[displayID] != nil else { return }
+        engine.invalidate(displayID: displayID)
+        playbackErrors[displayID] = nil
+        remotePlaybackStates[displayID] = nil
+        refreshPlayback(force: false)
+    }
+
     func refreshPlayback(force: Bool = true) {
         displays = NSScreen.screens.compactMap { screen in
             Display.identify(screen).map { Display(id: $0, name: screen.localizedName) }
         }
         if force {
             playbackErrors = [:]
+            remotePlaybackStates = [:]
         } else {
             let connected = Set(displays.map(\.id))
+            let remoteIDs = Set(state.wallpapers.compactMap { item -> UUID? in
+                if case .remote = item.source { return item.id }
+                return nil
+            })
+            remotePlaybackStates = remotePlaybackStates.filter {
+                connected.contains($0.key) && state.assignments[$0.key].map(remoteIDs.contains) == true
+            }
             playbackErrors = playbackErrors.filter { connected.contains($0.key) && state.assignments[$0.key] != nil }
         }
-        engine.rebuild(state: state, store: store, paused: isPaused, force: force) { [weak self] id, message in
+        engine.rebuild(state: state, store: store, paused: isPaused, force: force, onState: { [weak self] id, state in
+            self?.remotePlaybackStates[id] = state
+            if case .error(let message) = state { self?.playbackErrors[id] = message }
+            else { self?.playbackErrors[id] = nil }
+        }) { [weak self] id, message in
             self?.playbackErrors[id] = message
         }
     }

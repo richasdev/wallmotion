@@ -176,6 +176,9 @@ struct LibraryView: View {
                             Text(display.name).font(.callout.weight(.medium)).lineLimit(2)
                             Text(appliedWallpaper(on: display.id)?.title ?? "Fundo do sistema")
                                 .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            if let state = model.remotePlaybackStates[display.id] {
+                                Text(state.description).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+                            }
                         }
                         Spacer(minLength: 0)
                         if selectedDisplay == display.id {
@@ -235,7 +238,7 @@ struct LibraryView: View {
                 HStack {
                     Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
                     Spacer()
-                    Button("Tentar novamente") { model.refreshPlayback() }
+                    Button("Tentar novamente") { model.retryPlayback(displayID: selectedDisplay) }
                 }
                 .font(.callout).padding(12)
                 .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))

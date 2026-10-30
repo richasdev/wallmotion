@@ -108,7 +108,8 @@ final class WallpaperRenderer {
     private var statusObserver: NSKeyValueObservation?
     private var currentItemObserver: NSKeyValueObservation?
     private var loopObserver: NSKeyValueObservation?
-    private var endObserver: NSObjectProtocol?
+    private var remotePlayback: RemoteVideoPlayback?
+    var remotePlaybackState: RemotePlaybackState? { remotePlayback?.state }
     private var failureObserver: NSObjectProtocol?
     private var occlusionObserver: NSObjectProtocol?
     private(set) var playbackState = RendererPlaybackState()
@@ -125,6 +126,8 @@ final class WallpaperRenderer {
                  Task { @MainActor in completion(finished) }
              }
          },
+         recoveryScheduler: any RecoveryScheduling = RecoveryScheduler(),
+         onState: @escaping @MainActor (RemotePlaybackState) -> Void = { _ in },
          onError: @escaping @MainActor (String) -> Void) throws {
         self.isWindowVisible = isWindowVisible
         self.seekToStart = seekToStart
@@ -191,18 +194,19 @@ final class WallpaperRenderer {
                     let message = looper.error?.localizedDescription ?? "Não foi possível repetir o vídeo."
                     Task { @MainActor in onError(message) }
                 }
+                // Looper copies have their own decoder status.
+                currentItemObserver = mediaPlayer.observe(\.currentItem, options: [.initial, .new]) { [weak self] _, _ in
+                    Task { @MainActor [weak self] in self?.observeCurrentItem(onError: onError) }
+                }
             } else {
                 mediaPlayer.actionAtItemEnd = .pause
-                endObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
-                    MainActor.assumeIsolated {
-                        self?.restartRemotePlayback(onError: onError)
-                    }
-                }
-            }
-            // The looper plays copies of its template; observe the current item,
-            // rather than the template, to receive errors from the actual decoder.
-            currentItemObserver = mediaPlayer.observe(\.currentItem, options: [.initial, .new]) { [weak self] _, _ in
-                Task { @MainActor [weak self] in self?.observeCurrentItem(onError: onError) }
+                remotePlayback = RemoteVideoPlayback(player: mediaPlayer, url: url, scheduler: recoveryScheduler,
+                    onPlaybackRequested: { [weak self] in self?.applyPlaybackState() },
+                    onRestart: { [weak self] in self?.restartRemotePlayback(onError: onError) },
+                    onState: { state in
+                        onState(state)
+                        if case .error(let message) = state { onError(message) }
+                    })
             }
         }
 
@@ -236,7 +240,9 @@ final class WallpaperRenderer {
         playbackState.setVisible(isWindowVisible(window))
         webRenderer?.setPaused(!playbackState.shouldPlay)
         imageView?.animates = playbackState.shouldPlay
-        if playbackState.shouldPlay { player?.play() } else { player?.pause() }
+        remotePlayback?.setPaused(!playbackState.shouldPlay)
+        if playbackState.shouldPlay && (remotePlayback?.canPlay ?? true) { player?.play() }
+        else { player?.pause() }
     }
 
     private func observeCurrentItem(onError: @escaping @MainActor (String) -> Void) {
@@ -274,8 +280,8 @@ final class WallpaperRenderer {
         currentItemObserver = nil
         loopObserver?.invalidate()
         loopObserver = nil
-        if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
-        endObserver = nil
+        remotePlayback?.stop()
+        remotePlayback = nil
         if let failureObserver { NotificationCenter.default.removeObserver(failureObserver) }
         failureObserver = nil
         if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
@@ -315,6 +321,7 @@ final class DesktopCoordinator {
         let renderer: WallpaperRenderer
     }
     private var renderers: [String: Entry] = [:]
+    private var pendingReloads: Set<String> = []
     private(set) var gifBudget: GIFPlaybackBudget
     private let targets: @MainActor () -> [DesktopTarget]
     private let isWindowVisible: @MainActor (NSWindow) -> Bool
@@ -345,11 +352,12 @@ final class DesktopCoordinator {
         return try budget.replacing(displayID: displayID, decodedBytes: bytes)
     }
 
-    func rebuild(state: LibraryState, store: LibraryStore, paused: Bool, force: Bool = false, onError: @escaping @MainActor (String, String) -> Void) {
+    func rebuild(state: LibraryState, store: LibraryStore, paused: Bool, force: Bool = false, onState: @escaping @MainActor (String, RemotePlaybackState) -> Void = { _, _ in }, onError: @escaping @MainActor (String, String) -> Void) {
         let currentTargets = targets()
         let connected = Set(currentTargets.map(\.id))
         let available = Set(state.wallpapers.map(\.id))
         let assigned = Set(state.assignments.filter { available.contains($0.value) }.keys)
+        pendingReloads.formIntersection(connected.intersection(assigned))
         for id in Array(renderers.keys) where !connected.contains(id) || !assigned.contains(id) {
             renderers.removeValue(forKey: id)?.renderer.stop()
         }
@@ -359,8 +367,9 @@ final class DesktopCoordinator {
             let displayID = target.id
             guard let wallpaperID = state.assignments[displayID],
                   let wallpaper = state.wallpapers.first(where: { $0.id == wallpaperID }) else { continue }
+            let reloadRequested = pendingReloads.remove(displayID) != nil
             let mediaFit = state.mediaFit(for: wallpaperID, on: displayID)
-            if !force, let entry = renderers[displayID], entry.wallpaperID == wallpaperID, entry.frame == screen.frame,
+            if !force, !reloadRequested, let entry = renderers[displayID], entry.wallpaperID == wallpaperID, entry.frame == screen.frame,
                entry.mediaFit == mediaFit, entry.backingScale == screen.backingScaleFactor {
                 entry.renderer.setPaused(paused)
                 continue
@@ -369,7 +378,10 @@ final class DesktopCoordinator {
             do {
                 let nextBudget = try proposal(for: wallpaper, displayID: displayID, store: store, budget: gifBudget)
                 let renderer = try WallpaperRenderer(wallpaper: wallpaper, url: store.resolvedURL(for: wallpaper), screen: screen, mediaFit: mediaFit, webDocument: webDocument,
-                                                     isWindowVisible: isWindowVisible) { [weak self] message in
+                                                     isWindowVisible: isWindowVisible, onState: { [weak self] state in
+                    guard self?.renderers[displayID]?.token == token else { return }
+                    onState(displayID, state)
+                }) { [weak self] message in
                     guard self?.renderers[displayID]?.token == token else { return }
                     onError(displayID, message)
                 }
@@ -378,18 +390,27 @@ final class DesktopCoordinator {
                 gifBudget = nextBudget
                 renderers[displayID] = Entry(wallpaperID: wallpaperID, frame: screen.frame, mediaFit: mediaFit, backingScale: screen.backingScaleFactor, token: token, renderer: renderer)
                 renderer.setPaused(paused)
+                if let state = renderer.remotePlaybackState { onState(displayID, state) }
             } catch {
                 renderers[displayID]?.renderer.setPaused(paused)
+                if let state = renderers[displayID]?.renderer.remotePlaybackState { onState(displayID, state) }
                 onError(displayID, error.localizedDescription)
             }
         }
     }
 
+    func invalidate(displayID: String) {
+        // Preserve the previous renderer and GIF charge until replacement succeeds.
+        pendingReloads.insert(displayID)
+    }
+
     func setPaused(_ value: Bool) { renderers.values.forEach { $0.renderer.setPaused(value) } }
 
     func stop() {
-        renderers.values.forEach { $0.renderer.stop() }
+        let previous = Array(renderers.values)
         renderers.removeAll()
         gifBudget = GIFPlaybackBudget(limit: gifBudget.limit)
+        pendingReloads.removeAll()
+        previous.forEach { $0.renderer.stop() }
     }
 }

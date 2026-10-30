@@ -118,6 +118,52 @@ final class WebWallpaperRendererTests: XCTestCase {
         }
     }
 
+    func testTargetedRetryKeepsCoveredWebDiscardedAndPreservesOtherDisplay() throws {
+        guard let screen = NSScreen.screens.first else { throw XCTSkip("Sem display") }
+        let youtube = try Wallpaper.web("https://youtu.be/M7lc1UVf-VE")
+        let vimeo = try Wallpaper.web("https://vimeo.com/76979871")
+        let state = LibraryState(wallpapers: [youtube, vimeo], assignments: ["left": youtube.id, "right": vimeo.id])
+        var windows: [NSWindow] = []
+        var leftCovered = false
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = LibraryStore(rootURL: root)
+        let engine = DesktopCoordinator(targets: {
+            [DesktopTarget(id: "left", screen: screen), DesktopTarget(id: "right", screen: screen)]
+        }, isWindowVisible: { window in
+            if !windows.contains(where: { $0 === window }) { windows.append(window) }
+            return (windows.count >= 2 && window === windows[1]) || !leftCovered
+        }, webDocument: "<html><body>Offline targeted retry fixture</body></html>")
+        defer { engine.stop(); try? FileManager.default.removeItem(at: root) }
+        func rebuild() {
+            engine.rebuild(state: state, store: store, paused: false, onState: { _, _ in
+                XCTFail("Fonte web não deve criar estado/recuperação de vídeo direto")
+            }) { _, error in XCTFail(error) }
+        }
+        rebuild()
+        XCTAssertEqual(windows.count, 2)
+        let left = try XCTUnwrap(windows.first)
+        let right = windows[1]
+        let rightSurface = try XCTUnwrap(right.contentView)
+        let rightView = try XCTUnwrap(rightSurface.subviews.first as? WKWebView)
+        leftCovered = true
+        NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: left)
+        XCTAssertTrue(try XCTUnwrap(left.contentView).subviews.isEmpty)
+        engine.invalidate(displayID: "left")
+        rebuild()
+        XCTAssertEqual(windows.count, 3)
+        XCTAssertFalse(left.isVisible)
+        XCTAssertTrue(rightSurface.subviews.first === rightView, "Retry do outro monitor preserva player web")
+        let replacement = try XCTUnwrap(windows.last)
+        let replacementSurface = try XCTUnwrap(replacement.contentView)
+        XCTAssertTrue(replacementSurface.subviews.isEmpty, "Retry ainda coberto não cria WKWebView")
+        leftCovered = false
+        NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: replacement)
+        XCTAssertNotNil(replacementSurface.subviews.first as? WKWebView)
+        XCTAssertTrue(rightSurface.subviews.first === rightView)
+        engine.stop()
+        XCTAssertTrue(rightSurface.subviews.isEmpty)
+    }
+
     func testPauseDiscardsViewResumeRecreatesAndStopIsTerminalWithoutNetwork() throws {
         let renderer = try WebWallpaperRenderer(embed: WebEmbed(provider: .youtube, videoID: "M7lc1UVf-VE"), onError: { XCTFail($0) }, document: "<html><body>Offline lifecycle fixture</body></html>")
         XCTAssertNil(renderer.webView)
