@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 22" width="22" height="22">
+  <!-- macOS Menu Bar Template Icon (Black with alpha for native system tinting) -->
+  <g fill="none" stroke="#000000" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Desktop Monitor / Screen Frame -->
+    <rect x="2" y="3.5" width="18" height="13" rx="2.5" ry="2.5" stroke-width="1.5" />
+    
+    <!-- Monitor Stand Base -->
+    <line x1="8" y1="19" x2="14" y2="19" stroke-width="1.5" />
+    <line x1="11" y1="16.5" x2="11" y2="19" stroke-width="1.5" />
+    
+    <!-- Dynamic Kinetic Wave Inside Desktop -->
+    <path d="M 4.5 11.5 C 6.5 8.5, 8.5 14, 11 10.5 C 13.5 7, 15.5 12.5, 17.5 9" stroke-width="1.4" />
+  </g>
+</svg>
