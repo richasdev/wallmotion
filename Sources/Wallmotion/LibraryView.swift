@@ -382,4 +382,3 @@ struct LibraryView: View {
         if !model.displays.contains(where: { $0.id == selectedDisplay }) { selectedDisplay = model.displays.first?.id ?? "" }
     }
 }
-
