@@ -175,8 +175,9 @@ final class WebWallpaperRenderer: NSObject, WKNavigationDelegate {
         </script>
         """
         if embed.provider == .youtube {
+            let start = embed.startSeconds > 0 ? "&start=\(embed.startSeconds)" : ""
             return common + """
-            <iframe id="player" src="https://www.youtube-nocookie.com/embed/\(embed.videoID)?enablejsapi=1&origin=\(origin)&playsinline=1&mute=1&loop=1&playlist=\(embed.videoID)" allow="autoplay" referrerpolicy="strict-origin-when-cross-origin"></iframe>
+            <iframe id="player" src="https://www.youtube-nocookie.com/embed/\(embed.videoID)?enablejsapi=1&origin=\(origin)&playsinline=1&mute=1&loop=1&playlist=\(embed.videoID)\(start)" allow="autoplay" referrerpolicy="strict-origin-when-cross-origin"></iframe>
             <script>
             window.setAudioEnabled=function(enabled){if(window.player){if(enabled===true)player.unMute();else player.mute()}};
             window.setAudioPolicy=function(enabled,volume){
