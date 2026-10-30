@@ -70,6 +70,7 @@ final class WallpaperRenderer {
     private var loopObserver: NSKeyValueObservation?
     private var endObserver: NSObjectProtocol?
     private var failureObserver: NSObjectProtocol?
+    private var occlusionObserver: NSObjectProtocol?
     private var paused = true
     private var stopped = false
 
@@ -144,6 +145,24 @@ final class WallpaperRenderer {
                 Task { @MainActor [weak self] in self?.observeCurrentItem(onError: onError) }
             }
         }
+
+        occlusionObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didChangeOcclusionStateNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, !self.stopped else { return }
+                let isOccluded = !self.window.occlusionState.contains(.visible)
+                if isOccluded {
+                    self.player?.pause()
+                    self.imageView?.animates = false
+                } else if !self.paused {
+                    self.player?.play()
+                    self.imageView?.animates = true
+                }
+            }
+        }
     }
 
     private func observeCurrentItem(onError: @escaping @MainActor (String) -> Void) {
@@ -183,6 +202,8 @@ final class WallpaperRenderer {
         endObserver = nil
         if let failureObserver { NotificationCenter.default.removeObserver(failureObserver) }
         failureObserver = nil
+        if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
+        occlusionObserver = nil
         looper?.disableLooping()
         looper = nil
         player?.pause()
@@ -217,31 +238,63 @@ final class DesktopCoordinator {
         let renderer: WallpaperRenderer
     }
     private var renderers: [String: Entry] = [:]
+    private(set) var gifBudget: GIFPlaybackBudget
+    private let screens: @MainActor () -> [NSScreen]
+
+    init(gifBudgetLimit: UInt64 = GIFPlaybackBudget.defaultLimit,
+         screens: @escaping @MainActor () -> [NSScreen] = { NSScreen.screens }) {
+        gifBudget = GIFPlaybackBudget(limit: gifBudgetLimit)
+        self.screens = screens
+    }
+
+    // Check before persisting a user selection. Rebuild also checks restored and
+    // reconnected assignments before opening any AppKit GIF decoder.
+    func validateAssignment(_ wallpaper: Wallpaper, to displayID: String, store: LibraryStore) throws {
+        let connected = Set(screens().compactMap(Display.identify))
+        _ = try proposal(for: wallpaper, displayID: displayID, store: store,
+                         budget: gifBudget.retaining(displays: connected))
+    }
+
+    private func proposal(for wallpaper: Wallpaper, displayID: String, store: LibraryStore,
+                          budget: GIFPlaybackBudget) throws -> GIFPlaybackBudget {
+        let bytes = wallpaper.kind == .gif
+            ? try GIFPreflight.inspect(url: store.resolvedURL(for: wallpaper)).decodedBytes : nil
+        return try budget.replacing(displayID: displayID, decodedBytes: bytes)
+    }
 
     func rebuild(state: LibraryState, store: LibraryStore, paused: Bool, force: Bool = false, onError: @escaping @MainActor (String, String) -> Void) {
-        if force { stop() }
-        let connected = Set(NSScreen.screens.compactMap(Display.identify))
-        for id in Array(renderers.keys) where !connected.contains(id) || state.assignments[id] == nil {
+        let currentScreens = screens()
+        let connected = Set(currentScreens.compactMap(Display.identify))
+        let available = Set(state.wallpapers.map(\.id))
+        let assigned = Set(state.assignments.filter { available.contains($0.value) }.keys)
+        for id in Array(renderers.keys) where !connected.contains(id) || !assigned.contains(id) {
             renderers.removeValue(forKey: id)?.renderer.stop()
         }
-        for screen in NSScreen.screens {
+        gifBudget = gifBudget.retaining(displays: Set(renderers.keys))
+        for screen in currentScreens {
             guard let displayID = Display.identify(screen),
                   let wallpaperID = state.assignments[displayID],
                   let wallpaper = state.wallpapers.first(where: { $0.id == wallpaperID }) else { continue }
-            if let entry = renderers[displayID], entry.wallpaperID == wallpaperID, entry.frame == screen.frame {
+            if !force, let entry = renderers[displayID], entry.wallpaperID == wallpaperID, entry.frame == screen.frame {
                 entry.renderer.setPaused(paused)
                 continue
             }
-            renderers.removeValue(forKey: displayID)?.renderer.stop()
             let token = UUID()
             do {
+                let nextBudget = try proposal(for: wallpaper, displayID: displayID, store: store, budget: gifBudget)
                 let renderer = try WallpaperRenderer(wallpaper: wallpaper, url: store.resolvedURL(for: wallpaper), screen: screen) { [weak self] message in
                     guard self?.renderers[displayID]?.token == token else { return }
                     onError(displayID, message)
                 }
+                // Keep the previous renderer and charge intact on any failure.
+                renderers.removeValue(forKey: displayID)?.renderer.stop()
+                gifBudget = nextBudget
                 renderers[displayID] = Entry(wallpaperID: wallpaperID, frame: screen.frame, token: token, renderer: renderer)
                 renderer.setPaused(paused)
-            } catch { onError(displayID, error.localizedDescription) }
+            } catch {
+                renderers[displayID]?.renderer.setPaused(paused)
+                onError(displayID, error.localizedDescription)
+            }
         }
     }
 
@@ -250,5 +303,6 @@ final class DesktopCoordinator {
     func stop() {
         renderers.values.forEach { $0.renderer.stop() }
         renderers.removeAll()
+        gifBudget = GIFPlaybackBudget(limit: gifBudget.limit)
     }
 }

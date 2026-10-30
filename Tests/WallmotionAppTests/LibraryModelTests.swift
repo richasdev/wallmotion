@@ -100,6 +100,69 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertNil(model.errorMessage)
     }
 
+    func testRejectedGIFSelectionPreservesPersistedAssignmentAndOtherMonitors() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        guard let screen = NSScreen.screens.first, let displayID = Display.identify(screen) else {
+            throw XCTSkip("É necessário um display para validar a seleção.")
+        }
+        let store = LibraryStore(rootURL: directory.appendingPathComponent("Library"))
+        let photoURL = directory.appendingPathComponent("photo.png")
+        _ = try writePhoto(to: photoURL)
+        let photo = try store.importFile(at: photoURL)
+        let gifURL = directory.appendingPathComponent("animation.gif")
+        let gif = Data([
+            0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 1, 0, 1, 0, 0x80, 0, 0,
+            0, 0, 0, 0xff, 0xff, 0xff,
+            0x2c, 0, 0, 0, 0, 1, 0, 1, 0, 0, 2, 2, 0x44, 1, 0, 0x3b
+        ])
+        try gif.write(to: gifURL)
+        let animation = try store.importFile(at: gifURL)
+        let initial = LibraryState(wallpapers: [photo, animation],
+                                   assignments: [displayID: photo.id, "disconnected": animation.id])
+        try store.save(initial)
+        let savedBytes = try Data(contentsOf: store.stateURL)
+        let engine = DesktopCoordinator(gifBudgetLimit: 0)
+        let model = LibraryModel(store: store, engine: engine)
+        defer { model.stop() }
+        model.refreshPlayback(force: false)
+        model.apply(animation, to: displayID)
+        XCTAssertTrue(model.errorMessage?.contains("limite global") == true)
+        XCTAssertEqual(model.state, initial)
+        XCTAssertEqual(try Data(contentsOf: store.stateURL), savedBytes)
+        XCTAssertEqual(engine.gifBudget.totalBytes, 0)
+        model.apply(animation, to: "unknown")
+        XCTAssertEqual(model.state, initial)
+    }
+
+    func testSaveFailureDoesNotReserveGIFQuotaOrChangeSelection() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        guard let screen = NSScreen.screens.first, let displayID = Display.identify(screen) else {
+            throw XCTSkip("É necessário um display para validar a seleção.")
+        }
+        let store = LibraryStore(rootURL: directory.appendingPathComponent("Library"))
+        let url = directory.appendingPathComponent("one.gif")
+        try Data([
+            0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 1, 0, 1, 0, 0x80, 0, 0,
+            0, 0, 0, 0xff, 0xff, 0xff,
+            0x2c, 0, 0, 0, 0, 1, 0, 1, 0, 0, 2, 2, 0x44, 1, 0, 0x3b
+        ]).write(to: url)
+        let item = try store.importFile(at: url)
+        let state = LibraryState(wallpapers: [item])
+        try store.save(state)
+        let engine = DesktopCoordinator(gifBudgetLimit: 4)
+        let model = LibraryModel(store: store, engine: engine)
+        defer { model.stop() }
+        model.refreshPlayback(force: false)
+        try FileManager.default.removeItem(at: store.stateURL)
+        try FileManager.default.createDirectory(at: store.stateURL, withIntermediateDirectories: false)
+        model.apply(item, to: displayID)
+        XCTAssertTrue(model.errorMessage?.contains("salvar") == true)
+        XCTAssertEqual(model.state, state)
+        XCTAssertEqual(engine.gifBudget.totalBytes, 0)
+    }
+
     func testOptionalLibraryViewSnapshotUsesOnlyTemporaryFixtures() async throws {
         guard let path = ProcessInfo.processInfo.environment["WALLMOTION_SNAPSHOT_PATH"], !path.isEmpty else {
             throw XCTSkip("Defina WALLMOTION_SNAPSHOT_PATH para exportar o snapshot de QA.")
