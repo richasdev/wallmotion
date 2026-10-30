@@ -555,6 +555,38 @@ final class LibraryModelTests: XCTestCase {
         }
     }
 
+    func testApplyAvailabilityDistinguishesPanoramaMediaAndDisconnectedTargetsUsingCurrentRecord() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let photo = Wallpaper(title: "Photo", kind: .image, source: .local(filename: "photo.png"))
+        let gif = Wallpaper(title: "GIF", kind: .gif, source: .local(filename: "animation.gif"))
+        let video = try Wallpaper.remote("https://example.com/video.mp4")
+        let web = try Wallpaper.web("https://youtu.be/M7lc1UVf-VE")
+        let items = [photo, gif, video, web]
+        let store = LibraryStore(rootURL: directory)
+        try store.save(LibraryState(wallpapers: items))
+        let model = LibraryModel(thermalState: { .nominal }, memoryMonitor: TestMemoryPressureMonitor(),
+            store: store, engine: DesktopCoordinator(targets: { [] }),
+            connectedDisplays: { [Display(id: "one", name: "One")] })
+        defer { model.stop() }
+        model.refreshPlayback(force: false)
+        for mode in [DisplayMode.independent, .mirrored, .spanned] {
+            model.setDisplayMode(mode, sourceDisplayID: "one")
+            for item in items {
+                XCTAssertEqual(model.applicationRestriction(for: item, on: "one") == nil,
+                    mode != .spanned || item.id == photo.id)
+                XCTAssertNotNil(model.applicationRestriction(for: item, on: "missing"))
+            }
+        }
+        var stalePhoto = photo
+        stalePhoto.kind = .video
+        stalePhoto.source = video.source
+        XCTAssertNil(model.applicationRestriction(for: stalePhoto, on: "one"), "Current stored record controls compatibility")
+        let missing = Wallpaper(title: "Missing", kind: .image, source: photo.source)
+        XCTAssertNotNil(model.applicationRestriction(for: missing, on: "one"))
+        XCTAssertNil(model.errorMessage, "Availability must not mutate state or emit an alert")
+    }
+
     func testMirrorSeedUsesSelectedEmptyDisplayRatherThanOtherAssignment() throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

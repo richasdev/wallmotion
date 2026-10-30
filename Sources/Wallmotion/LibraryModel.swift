@@ -335,6 +335,20 @@ final class LibraryModel {
         if update(next) { refreshPlayback(force: false) }
     }
 
+    func applicationRestriction(for item: Wallpaper, on displayID: String) -> String? {
+        guard canEdit else { return "A biblioteca está indisponível para edição." }
+        guard let current = state.wallpapers.first(where: { $0.id == item.id }) else {
+            return "Esta mídia não está mais na biblioteca."
+        }
+        guard displays.contains(where: { $0.id == displayID }) else {
+            return "Selecione um monitor conectado para aplicar o fundo."
+        }
+        if state.displayMode == .spanned, !current.supportsPanorama {
+            return "O modo panorâmico aceita apenas fotos locais."
+        }
+        return nil
+    }
+
     func apply(_ item: Wallpaper, to displayID: String) {
         guard canEdit, state.wallpapers.contains(where: { $0.id == item.id }),
               displays.contains(where: { $0.id == displayID }) else { return }

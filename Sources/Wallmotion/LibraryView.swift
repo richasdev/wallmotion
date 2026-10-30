@@ -214,7 +214,8 @@ struct LibraryView: View {
 
     private func card(for item: Wallpaper) -> some View {
         let applied = model.activeWallpaperID(on: selectedDisplay) == item.id
-        return WallpaperCard(item: item, localURL: model.localMediaURL(for: item), isApplied: applied, appliesToAll: model.state.displayMode.isShared, canApply: !selectedDisplay.isEmpty, onRename: { pendingRename = item }, onApply: {
+        let restriction = model.applicationRestriction(for: item, on: selectedDisplay)
+        return WallpaperCard(item: item, localURL: model.localMediaURL(for: item), isApplied: applied, appliesToAll: model.state.displayMode.isShared, canApply: restriction == nil, applyDisabledReason: restriction, onRename: { pendingRename = item }, onApply: {
             model.apply(item, to: selectedDisplay)
         }, onRemove: {
             pendingRemoval = item

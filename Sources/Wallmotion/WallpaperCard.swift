@@ -10,6 +10,7 @@ struct WallpaperCard: View {
     let isApplied: Bool
     var appliesToAll: Bool = false
     var canApply = true
+    var applyDisabledReason: String?
     let onRename: () -> Void
     let onApply: () -> Void
     let onRemove: () -> Void
@@ -48,6 +49,8 @@ struct WallpaperCard: View {
                 Label(isApplied ? "Aplicado · reaplicar" : (appliesToAll ? "Aplicar em todos" : "Aplicar neste monitor"), systemImage: isApplied ? "checkmark.circle.fill" : "display")
                     .frame(maxWidth: .infinity)
             }.buttonStyle(.bordered).disabled(!canApply)
+                .help(applyDisabledReason ?? "Aplicar este fundo com a organização de monitores selecionada")
+                .accessibilityHint(Text(applyDisabledReason ?? "Aplica o fundo com a organização de monitores selecionada"))
         }
         .padding(16)
         .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 14))
