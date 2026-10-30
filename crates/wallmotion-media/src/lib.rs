@@ -3,6 +3,7 @@
 //! RGBA canvas per frame. The animation module separately decodes owned pixels.
 
 pub mod animation;
+mod animation_ffi;
 pub mod compositor;
 
 #[cfg(unix)]
