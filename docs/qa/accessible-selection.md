@@ -1,0 +1,9 @@
+# Contraste e seleção acessível (#47)
+
+A identidade aurora/W permanece. Contornos de seleção usam ciano no tema escuro e violeta #6B38CC no claro. O texto Aplicado e o check continuam redundantes com a cor; com contraste aumentado o contorno fica mais espesso. O painel de opções recebe delimitação leve, sem alterar controles nativos.
+
+VoiceOver recebe valor de seleção do card, monitor numerado, fundo aplicado e estado remoto. O seletor de enquadramento informa a descrição do modo e usa menu se os segmentos não couberem. O seletor de organização também tem fallback para menu. A marca vetorial decorativa fica oculta do leitor, pois o nome Wallmotion já está adjacente.
+
+Verificação local: capturas claro/escuro e janela mínima. O contraste calculado contra branco/preto serve como cheque dos tokens de cor; não certifica todos os fundos, preferências de sistema ou estados. Não houve homologação com VoiceOver real, Increase Contrast real nem texto aumentado em todos os idiomas. A issue #47 permanece aberta para esse QA manual.
+
+QA manual: navegar só com teclado; percorrer cabeçalhos, monitores e cards com VoiceOver; conferir nomes e valores sem repetição da marca; selecionar quatro enquadramentos e ouvir as dicas; ativar contraste aumentado e ampliar texto; redimensionar barra lateral e janela até mínimo820x560. Confirmar que aplicar/remover e controles nativos seguem alcançáveis e legíveis.
