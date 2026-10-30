@@ -304,6 +304,118 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: store.stateURL), bytes)
     }
 
+    func testMirrorApplyClearAndSwitchBackRestoreIndependentState() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = LibraryStore(rootURL: directory)
+        let first = try Wallpaper.remote("https://example.com/first.mp4")
+        let second = try Wallpaper.remote("https://example.com/second.mp4")
+        var initial = LibraryState(wallpapers: [first, second], assignments: ["one": first.id, "two": second.id])
+        initial.setMediaFit(.fill, for: first.id, on: "one")
+        try store.save(initial)
+        let model = LibraryModel(store: store, engine: DesktopCoordinator(targets: { [] }),
+                                 connectedDisplays: { [Display(id: "one", name: "One"), Display(id: "two", name: "Two")] })
+        defer { model.stop() }
+        model.refreshPlayback(force: false)
+        model.setDisplayMode(.mirrored, sourceDisplayID: "one")
+        XCTAssertEqual(model.activeWallpaperID(on: "two"), first.id)
+        XCTAssertEqual(model.mediaFit(on: "two"), .fill)
+        model.apply(second, to: "two")
+        model.setMediaFit(.fit, on: "two")
+        XCTAssertEqual(model.activeWallpaperID(on: "one"), second.id)
+        XCTAssertEqual(model.mediaFit(on: "one"), .fit)
+        XCTAssertEqual(model.state.assignments, initial.assignments)
+        XCTAssertEqual(model.state.mediaFits, initial.mediaFits)
+        XCTAssertEqual(try store.load(), model.state)
+        model.clear(displayID: "one")
+        XCTAssertNil(model.activeWallpaperID(on: "two"))
+        model.setDisplayMode(.independent, sourceDisplayID: "two")
+        XCTAssertEqual(model.activeWallpaperID(on: "one"), first.id)
+        XCTAssertEqual(model.activeWallpaperID(on: "two"), second.id)
+        XCTAssertEqual(model.mediaFit(on: "one"), .fill)
+        XCTAssertNil(model.errorMessage)
+    }
+
+    func testMirrorSeedUsesSelectedEmptyDisplayRatherThanOtherAssignment() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = LibraryStore(rootURL: directory)
+        let item = try Wallpaper.remote("https://example.com/first.mp4")
+        try store.save(LibraryState(wallpapers: [item], assignments: ["one": item.id]))
+        let model = LibraryModel(store: store, engine: DesktopCoordinator(targets: { [] }),
+                                 connectedDisplays: { [Display(id: "one", name: "One"), Display(id: "two", name: "Two")] })
+        defer { model.stop() }
+        model.refreshPlayback(force: false)
+        model.setDisplayMode(.mirrored, sourceDisplayID: "two")
+        XCTAssertNil(model.state.mirroredWallpaperID)
+        XCTAssertNil(model.activeWallpaperID(on: "one"))
+        XCTAssertEqual(model.state.assignments, ["one": item.id])
+    }
+
+    func testAudioSelectionRejectsDisconnectedAndSurvivesUnplugWithoutFallback() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = LibraryStore(rootURL: directory)
+        var connected = [Display(id: "one", name: "One"), Display(id: "two", name: "Two")]
+        let model = LibraryModel(store: store, engine: DesktopCoordinator(targets: { [] }), connectedDisplays: { connected })
+        defer { model.stop() }
+        model.refreshPlayback(force: false)
+        XCTAssertNil(model.state.settings.audioDisplayID)
+        model.setAudioDisplayID("unknown")
+        XCTAssertNil(model.state.settings.audioDisplayID)
+        model.setAudioDisplayID("two")
+        XCTAssertEqual(model.state.settings.audioDisplayID, "two")
+        connected.removeLast()
+        model.refreshPlayback(force: false)
+        XCTAssertEqual(model.state.settings.audioDisplayID, "two")
+        model.setAudioDisplayID("unknown")
+        XCTAssertEqual(model.state.settings.audioDisplayID, "two")
+        let restored = LibraryModel(store: store, engine: DesktopCoordinator(targets: { [] }), connectedDisplays: { connected })
+        defer { restored.stop() }
+        restored.refreshPlayback(force: false)
+        XCTAssertEqual(restored.state.settings.audioDisplayID, "two")
+        connected.append(Display(id: "two", name: "Two"))
+        restored.refreshPlayback(force: false)
+        XCTAssertEqual(restored.state.settings.audioDisplayID, "two")
+        restored.setAudioDisplayID(nil)
+        XCTAssertNil(try store.load().settings.audioDisplayID)
+    }
+
+    func testModeSwitchPreflightFailurePreservesLibraryBytesAndIndependentState() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        guard let screen = NSScreen.screens.first, let displayID = Display.identify(screen) else {
+            throw XCTSkip("A connected screen is required for renderer preflight.")
+        }
+        let store = LibraryStore(rootURL: directory)
+        // A restored assignment can reference media that disappeared on disk.
+        let missing = Wallpaper(title: "Missing GIF", kind: .gif, source: .local(filename: "missing.gif"))
+        let initial = LibraryState(wallpapers: [missing], assignments: [displayID: missing.id])
+        try store.save(initial)
+        let bytes = try Data(contentsOf: store.stateURL)
+        let model = LibraryModel(store: store)
+        defer { model.stop() }
+        model.refreshPlayback(force: false)
+        model.setDisplayMode(.mirrored, sourceDisplayID: displayID)
+        XCTAssertNotNil(model.errorMessage)
+        XCTAssertEqual(model.state, initial)
+        XCTAssertEqual(try Data(contentsOf: store.stateURL), bytes)
+    }
+
+    func testAudioSaveFailurePreservesSelection() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = LibraryStore(rootURL: directory)
+        let model = LibraryModel(store: store, engine: DesktopCoordinator(targets: { [] }),
+                                 connectedDisplays: { [Display(id: "one", name: "One")] })
+        defer { model.stop() }
+        model.refreshPlayback(force: false)
+        try FileManager.default.createDirectory(at: store.stateURL, withIntermediateDirectories: false)
+        model.setAudioDisplayID("one")
+        XCTAssertNil(model.state.settings.audioDisplayID)
+        XCTAssertTrue(model.errorMessage?.contains("salvar") == true)
+    }
+
     func testOptionalLibraryViewSnapshotUsesOnlyTemporaryFixtures() async throws {
         guard let path = ProcessInfo.processInfo.environment["WALLMOTION_SNAPSHOT_PATH"], !path.isEmpty else {
             throw XCTSkip("Defina WALLMOTION_SNAPSHOT_PATH para exportar o snapshot de QA.")
