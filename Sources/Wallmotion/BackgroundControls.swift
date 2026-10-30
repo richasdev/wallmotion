@@ -6,7 +6,7 @@ struct BackgroundControls: View {
     let model: LibraryModel
     let selectedDisplay: String
     let supportsMediaFit: Bool
-    @State private var showingDetails = true
+    @State private var showingDetails = false
 
     private var audioSelection: String {
         guard let id = model.state.settings.audioDisplayID,
@@ -38,15 +38,10 @@ struct BackgroundControls: View {
                     if supportsMediaFit {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Enquadramento").font(.callout.weight(.medium))
-                            Picker("Enquadramento", selection: Binding(
-                                get: { model.mediaFit(on: selectedDisplay) },
-                                set: { model.setMediaFit($0, on: selectedDisplay) }
-                            )) {
-                                ForEach(MediaFit.allCases, id: \.self) { fit in
-                                    Text(fitTitle(fit)).tag(fit)
-                                }
-                            }.pickerStyle(.segmented).labelsHidden()
-                                .accessibilityLabel("Enquadramento do fundo")
+                            ViewThatFits(in: .horizontal) {
+                                mediaFitPicker.pickerStyle(.segmented).fixedSize(horizontal: true, vertical: false)
+                                mediaFitPicker.pickerStyle(.menu)
+                            }
                             Text(fitDescription(model.mediaFit(on: selectedDisplay)))
                                 .font(.caption).foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -84,6 +79,17 @@ struct BackgroundControls: View {
                 .frame(height: 2).padding(.horizontal, 16).accessibilityHidden(true)
         }
         .disabled(!model.canEdit || selectedDisplay.isEmpty)
+    }
+
+    private var mediaFitPicker: some View {
+        Picker("Enquadramento", selection: Binding(
+            get: { model.mediaFit(on: selectedDisplay) },
+            set: { model.setMediaFit($0, on: selectedDisplay) }
+        )) {
+            ForEach(MediaFit.allCases, id: \.self) { fit in
+                Text(fitTitle(fit)).tag(fit)
+            }
+        }.labelsHidden().accessibilityLabel("Enquadramento do fundo")
     }
 
     private var displayModePicker: some View {
