@@ -18,7 +18,7 @@ struct StartupStatusView: View {
                 ProgressView().controlSize(.small)
             } else {
                 Button("Tentar novamente", action: onRetry)
-                if events.waitingForInitialFiles {
+                if events.waitingForInitialFiles || events.hasRejectedURLs {
                     Button("Exibir Wallmotion e encerrar esta instância") { events.activateAndClose() }
                 }
             }
