@@ -162,3 +162,7 @@ Avaliou-se a hipótese de migrar 100% do backend para Rust, mantendo apenas a in
 
 ---
 *Relatório registrado em `docs/PERFORMANCE.md` para apreciação da equipe de engenharia.*
+
+## Asserções de repouso
+
+`python3 scripts/audit-power-assertions.py --pid 12345` consulta apenas as asserções do processo host validado. Retorno 0 significa nenhuma `PreventUserIdleDisplaySleep` observada naquela consulta; 3 indica presença e 2 indica falha/inconclusivo. Não mede energia nem certifica repouso real ou processos auxiliares WebKit. Consulte [escopo e limitações](qa/power-assertions.md).
