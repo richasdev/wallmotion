@@ -1,0 +1,9 @@
+# Link drag-and-drop review
+
+The library classifies URL drops locally before taking action. All-file batches retain original order/duplicates and use the existing bounded import path. A single supported HTTPS provider link opens a fresh AddURLSheet draft in provider mode; a validated direct HTTPS URL opens direct mode. Original query parameters and YouTube timestamps remain in that draft. No connection, provider thumbnail, clipboard read, playback or library write occurs until the existing explicit actions are used. Saving a link adds to the library; applying it separately starts playback.
+
+Mixed file/link batches, multiple links, insecure/credential-bearing or unsupported links and serialized URL drafts above 4096 UTF-8 bytes are rejected with a fixed validation message, without partial import or retaining the rejected input. The drop classifier also refuses batches above the existing 256-file policy before classification. It does not impose a byte budget on the OS's already-created incoming array.
+
+A drop cannot replace an open URL/rename/remove sheet or overwrite an existing model alert. The existing draft/alert is preserved and the drop is refused with a short status hint. The toolbar Add URL action starts an empty draft. Cancel/dismiss clears the sheet item, releasing the draft. Read-only state refuses all drops; import-busy state still admits bounded file queuing, while the URL sheet's Add action waits for imports to finish.
+
+Unit fixtures classify nonexistent local paths without reading them, preserve ordered duplicate files, detect YouTube/HLS drafts, retain signed query text only in the editable field, reject mixed/multiple links and reject HTTP/credentials/oversized drafts without echoing tokens in error messages. These validate intent routing and syntax; they do not certify native Safari/drag interactions, remote availability or provider playback. Physical drag, focus and VoiceOver QA remain manual.

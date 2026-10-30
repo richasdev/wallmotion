@@ -9,7 +9,7 @@ struct LibraryView: View {
     @State private var mediaFilter = LibraryMediaFilter.all
     @State private var sortOrder = LibrarySortOrder.recent
     @State private var catalog = LibraryCatalogProjection()
-    @State private var showingURL = false
+    @State private var pendingURLDraft: MediaURLDraft?
     @State private var pendingRename: Wallpaper?
     @State private var pendingRemoval: Wallpaper?
     @State private var isDropTargeted = false
@@ -53,7 +53,7 @@ struct LibraryView: View {
             detail
             .toolbar {
                 ToolbarItemGroup {
-                    Button { showingURL = true } label: { Label("Adicionar URL", systemImage: "link.badge.plus") }
+                    Button { pendingURLDraft = MediaURLDraft() } label: { Label("Adicionar URL", systemImage: "link.badge.plus") }
                         .disabled(!model.canEdit || model.isImporting)
                         .help("Adicionar um link de vídeo à biblioteca")
                     Button { model.chooseFiles() } label: { Label("Importar", systemImage: "plus") }
@@ -65,7 +65,7 @@ struct LibraryView: View {
         }
         .onAppear { selectAvailableDisplay() }
         .onChange(of: model.displays) { _, _ in selectAvailableDisplay() }
-        .sheet(isPresented: $showingURL) { urlSheet }
+        .sheet(item: $pendingURLDraft) { draft in urlSheet(draft: draft) }
         .sheet(item: $pendingRename) { item in
             RenameMediaSheet(title: item.title, canSave: model.canEdit) { title in
                 if model.rename(id: item.id, title: title) {
@@ -106,19 +106,9 @@ struct LibraryView: View {
                 .padding(6)
                 .allowsHitTesting(false)
         }
-        .dropDestination(for: URL.self, action: { urls, _ in
-            guard !urls.isEmpty, model.canEdit else { return false }
-            dropMessage = "Arquivos recebidos. Importando mídia."
-            Task { @MainActor in
-                await model.importFiles(urls)
-                dropMessage = model.errorMessage == nil
-                    ? "Importação concluída."
-                    : "Importação concluída com arquivos que não puderam ser adicionados."
-            }
-            return true
-        }, isTargeted: { isDropTargeted = $0 })
+        .dropDestination(for: URL.self, action: { urls, _ in handleDrop(urls) }, isTargeted: { isDropTargeted = $0 })
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Biblioteca de mídia. Solte fotos, GIFs ou vídeos para importar.")
+        .accessibilityLabel("Biblioteca de mídia. Solte fotos, GIFs ou vídeos para importar, ou um link HTTPS para revisar.")
         .overlay(alignment: .bottomLeading) {
             if !dropMessage.isEmpty {
                 Text(dropMessage)
@@ -366,16 +356,43 @@ struct LibraryView: View {
         .help(model.state.displayMode.isShared ? "Revelar o fundo do macOS em todos os monitores" : "Revelar o fundo do macOS neste monitor")
     }
 
-    private var urlSheet: some View {
-        AddURLSheet(canAdd: model.canEdit && !model.isImporting) { text, web in
+    private func handleDrop(_ urls: [URL]) -> Bool {
+        guard !urls.isEmpty, model.canEdit else { return false }
+        guard pendingURLDraft == nil, pendingRename == nil, pendingRemoval == nil, model.errorMessage == nil else {
+            dropMessage = "Conclua a edição ou o aviso aberto antes de soltar outro item."
+            return false
+        }
+        switch MediaDropIntent.classify(urls) {
+        case .files(let files):
+            dropMessage = "Arquivos recebidos. Importando mídia."
+            Task { @MainActor in
+                await model.importFiles(files)
+                dropMessage = model.errorMessage == nil
+                    ? "Importação concluída."
+                    : "Importação concluída com arquivos que não puderam ser adicionados."
+            }
+            return true
+        case .link(let draft):
+            pendingURLDraft = draft
+            dropMessage = "Link recebido. Revise a fonte antes de adicionar."
+            return true
+        case .rejected(let message):
+            dropMessage = message
+            model.errorMessage = message
+            return false
+        }
+    }
+
+    private func urlSheet(draft: MediaURLDraft) -> some View {
+        AddURLSheet(text: draft.text, web: draft.web, canAdd: model.canEdit && !model.isImporting) { text, web in
             if model.addURL(text, web: web) {
-                showingURL = false
+                pendingURLDraft = nil
                 return nil
             }
             let error = model.errorMessage ?? "Não foi possível adicionar o link."
             model.errorMessage = nil
             return error
-        } onCancel: { showingURL = false }
+        } onCancel: { pendingURLDraft = nil }
     }
 
     private func selectAvailableDisplay() {
