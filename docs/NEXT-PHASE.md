@@ -90,7 +90,7 @@ O utilitário `powermetrics` exige privilégios de superusuário (`sudo`), invia
 
 > [!NOTE]
 > **Correção Metodológica sobre Métricas:**
-> 1. A coluna `power` **não é uma chave válida** do comando `/usr/bin/top` no macOS (conforme verificado empiricamente no help da ferramenta). O `top` expõe métricas confiáveis via `-stats pid,command,cpu,mem,time,csw,cycles,instrs`.
+> 1. A disponibilidade das colunas do `top` depende da versão do macOS. O coordenador confirmou que `top -l 1 -pid <PID> -stats pid,command,power` é aceito no macOS 27.0.1 e exibe `POWER`. Esse valor não deve ser interpretado como watts nem comparado entre versões sem validar sua definição. CPU, memória e tempo continuam sendo métricas de base; confirme as chaves no host de cada ensaio.
 > 2. O comando `IOPMCopyScheduledPowerEvents` destina-se ao agendamento de eventos futuros de despertar/repouso (ex.: alarmes RTC do sistema), e não à inspeção de assertions ativas. Para consultar assertions em runtime, utilizam-se as APIs de `IOPMLib.h` ou a ferramenta `pmset -g assertions`.
 > 3. A CPU consumida pelo processo `WindowServer` reflete o custo de composição e mistura de camadas na tela pelo Quartz Compositor, atuando como um indicador indireto (*proxy*), mas não mede diretamente o consumo de energia ou a ocupação dos núcleos da GPU no silício da Apple.
 
