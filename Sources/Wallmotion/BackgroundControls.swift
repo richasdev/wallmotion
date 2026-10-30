@@ -7,6 +7,15 @@ struct BackgroundControls: View {
     let selectedDisplay: String
     let supportsMediaFit: Bool
     @State private var showingDetails = false
+    @State private var draftVolume: Double = 1
+    @State private var isEditingVolume = false
+    @State private var volumeDirty = false
+
+    private struct VolumeEdit: Hashable {
+        let value: Double
+        let editing: Bool
+        let dirty: Bool
+    }
 
     private var audioSelection: String {
         guard let id = model.state.settings.audioDisplayID,
@@ -65,6 +74,19 @@ struct BackgroundControls: View {
                         } label: {
                             Label("Som do fundo", systemImage: audioSelection.isEmpty ? "speaker.slash" : "speaker.wave.2")
                         }.frame(maxWidth: 420, alignment: .leading)
+                        HStack(spacing: 12) {
+                            Slider(value: Binding(get: { draftVolume }, set: {
+                                draftVolume = $0
+                                volumeDirty = true
+                            }), in: 0...1, step: 0.01, onEditingChanged: { isEditingVolume = $0 }) {
+                                Text("Volume do fundo")
+                            }
+                            .accessibilityValue("\(Int((draftVolume * 100).rounded())) por cento")
+                            Text("\(Int((draftVolume * 100).rounded()))%")
+                                .font(.caption.monospacedDigit()).frame(minWidth: 34, alignment: .trailing)
+                        }
+                        .frame(maxWidth: 420)
+                        .disabled(audioSelection.isEmpty)
                         Text(audioHelp)
                             .font(.caption).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -79,6 +101,24 @@ struct BackgroundControls: View {
                 .frame(height: 2).padding(.horizontal, 16).accessibilityHidden(true)
         }
         .disabled(!model.canEdit || selectedDisplay.isEmpty)
+        .onAppear { draftVolume = model.state.settings.audioVolume }
+        .onChange(of: model.state.settings.audioVolume) { _, value in
+            if !volumeDirty { draftVolume = value }
+        }
+        .task(id: VolumeEdit(value: draftVolume, editing: isEditingVolume, dirty: volumeDirty)) {
+            guard volumeDirty, !isEditingVolume else { return }
+            do { try await Task.sleep(for: .milliseconds(200)) } catch { return }
+            guard !Task.isCancelled else { return }
+            saveVolume()
+        }
+        .onDisappear { saveVolume() }
+    }
+
+    private func saveVolume() {
+        guard volumeDirty else { return }
+        volumeDirty = false
+        model.setAudioVolume(draftVolume)
+        draftVolume = model.state.settings.audioVolume
     }
 
     private var mediaFitPicker: some View {

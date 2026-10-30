@@ -68,6 +68,11 @@ struct WallpaperMenu: View {
         }
         Button(model.state.settings.isManuallyPaused ? "Retomar wallpapers" : "Pausar wallpapers") { model.togglePause() }
             .disabled(!model.canEdit)
+        Menu("Volume · \(Int((model.state.settings.audioVolume * 100).rounded()))%") {
+            ForEach([0, 25, 50, 75, 100], id: \.self) { percent in
+                Button("\(percent)%") { model.setAudioVolume(Double(percent) / 100) }
+            }
+        }.disabled(!model.canEdit || model.state.settings.audioDisplayID == nil)
         Button("Recarregar reprodução") { model.refreshPlayback() }
         Divider()
         Button("Encerrar Wallmotion") { NSApp.terminate(nil) }
