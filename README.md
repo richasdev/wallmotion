@@ -30,7 +30,7 @@ URLs de páginas (YouTube, Vimeo etc.) e conteúdo com DRM não são fontes de v
 
 ## Performance
 
-Vídeos usam AVFoundation; fotos são decodificadas com ImageIO até a resolução do monitor. O scanner Rust inspeciona a estrutura dos GIFs sem decodificar pixels e calcula um orçamento conservador de frames antes da importação e exibição. GIFs acima de 256 MiB estimados são rejeitados; prefira MP4 para animações longas. Importação/cópia roda fora da thread da interface, e mudar um monitor preserva os players dos demais.
+Vídeos usam AVFoundation; fotos são decodificadas com ImageIO até a resolução do monitor. O scanner Rust inspeciona a estrutura dos GIFs sem decodificar pixels e calcula um orçamento conservador de frames antes da importação e exibição. GIFs acima de 256 MiB estimados por arquivo são rejeitados. A reprodução soma até 512 MiB estimados entre monitores conectados, contando cada view separadamente (inclusive pausada); uma seleção que exceda o teto é rejeitada com mensagem e mantém os wallpapers atuais; prefira MP4 para animações longas. Importação/cópia roda fora da thread da interface, e mudar um monitor preserva os players dos demais.
 
 O app pausa em repouso de tela/sistema, troca de sessão e, opcionalmente, modo de baixo consumo, preservando a pausa manual. Sinais de bloqueio de tela complementam essa política em melhor esforço. Veja [medições e limites](docs/PERFORMANCE.md) e o [roteiro de QA](docs/QA.md).
 

@@ -12,7 +12,7 @@ final class LibraryModel {
     private(set) var playbackErrors: [String: String] = [:]
     var errorMessage: String?
     private let store: LibraryStore
-    private let engine = DesktopCoordinator()
+    private let engine: DesktopCoordinator
     private var started = false
     private var policy = PlaybackPolicy()
     private var screenLocked = false
@@ -22,8 +22,13 @@ final class LibraryModel {
     private var importWaiters: [CheckedContinuation<Void, Never>] = []
     @ObservationIgnored private let beforeRollbackCleanup: (@MainActor () async -> Void)?
 
-    init(store: LibraryStore = LibraryStore(), beforeRollbackCleanup: (@MainActor () async -> Void)? = nil) {
+    init(
+        store: LibraryStore = LibraryStore(),
+        engine: DesktopCoordinator = DesktopCoordinator(),
+        beforeRollbackCleanup: (@MainActor () async -> Void)? = nil
+    ) {
         self.store = store
+        self.engine = engine
         self.beforeRollbackCleanup = beforeRollbackCleanup
         load()
     }
@@ -176,6 +181,12 @@ final class LibraryModel {
 
     func apply(_ item: Wallpaper, to displayID: String) {
         guard state.wallpapers.contains(where: { $0.id == item.id }), displays.contains(where: { $0.id == displayID }) else { return }
+        do {
+            try engine.validateAssignment(item, to: displayID, store: store)
+        } catch {
+            errorMessage = error.localizedDescription
+            return
+        }
         var next = state
         next.assignments[displayID] = item.id
         if update(next) {
