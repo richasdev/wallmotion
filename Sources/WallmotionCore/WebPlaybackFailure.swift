@@ -6,7 +6,7 @@ public enum WebPlaybackFailure {
     public static func identifier(from code: String) -> String {
         let bounded = String(decoding: code.utf8.prefix(96), as: UTF8.self)
         let token = String(bounded.split(separator: ":", maxSplits: 1).first ?? "")
-        switch token {
+        return switch token {
         case "2", "5", "100", "101", "150", "153", "sdk-load", "autoplay-blocked",
              "PrivacyError", "PasswordError", "PlaybackError": token
         default: "unknown"
