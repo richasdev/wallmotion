@@ -40,6 +40,36 @@ final class DesktopPhotoPreparationTests: XCTestCase {
         return (root, store, try store.importFile(at: firstURL), try store.importFile(at: nextURL))
     }
 
+    func testBatchBudgetFailureKeepsPreviousWallpaperOnAffectedDisplay() async throws {
+        guard let screen = NSScreen.screens.first else { throw XCTSkip("Sem sessão gráfica") }
+        let (root, store, first, next) = try temporaryStore()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let decoded = try PhotoDecodeWorker.decodeImage(PhotoDecodeRequest(url: store.resolvedURL(for: first),
+            mediaFit: .fit, viewportWidth: 100, viewportHeight: 100))
+        let bytes = decoded.image.bytesPerRow * decoded.image.height
+        let windows = Windows()
+        let engine = DesktopCoordinator(photoBatchBudgetLimit: bytes, targets: {
+            [DesktopTarget(id: "left", screen: screen), DesktopTarget(id: "right", screen: screen)]
+        }, isWindowVisible: { windows.visible($0) })
+        defer { engine.stop() }
+        var state = LibraryState(wallpapers: [first, next], assignments: ["left": first.id, "right": next.id])
+        engine.rebuild(state: state, store: store, paused: true) { _, error in XCTFail(error) }
+        XCTAssertEqual(windows.values.count, 2)
+        let originals = windows.values
+        state.assignments = ["left": next.id, "right": first.id]
+        let rejected = expectation(description: "right exceeds retained batch allowance")
+        engine.scheduleRebuild(state: state, store: store, paused: true) { id, error in
+            XCTAssertEqual(id, "right")
+            XCTAssertTrue(error.contains("lote"))
+            rejected.fulfill()
+        }
+        await fulfillment(of: [rejected], timeout: 3)
+        XCTAssertEqual(windows.values.count, 3, "Only the accepted replacement creates a window")
+        XCTAssertEqual(originals.filter(\.isVisible).count, 1, "The rejected display keeps its old wallpaper")
+        XCTAssertTrue(windows.values.last?.isVisible == true)
+        XCTAssertEqual(engine.gifBudget.totalBytes, 0)
+    }
+
     func testWarningDefersNewRenderersAndCancelsLatePhotoPublicationUntilRecovery() async throws {
         guard let screen = NSScreen.screens.first else { throw XCTSkip("Sem sessão gráfica") }
         let (root, store, first, next) = try temporaryStore()
