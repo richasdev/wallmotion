@@ -30,6 +30,8 @@ enum MediaDropIntent {
         do {
             _ = try MediaURL.validate(text)
             return .link(MediaURLDraft(text: text))
+        } catch LibraryError.webPageURL {
+            return .rejected("Arraste um vídeo individual do YouTube/Vimeo ou um link HTTPS direto de vídeo/HLS.")
         } catch { return .rejected(error.localizedDescription) }
     }
 }

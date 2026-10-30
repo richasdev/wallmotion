@@ -31,7 +31,7 @@ final class MediaDropIntentTests: XCTestCase {
     }
 
     func testUnsafeAndOversizeLinksNeverCreateDraftOrEchoInputInError() throws {
-        for text in ["http://example.com/PRIVATE_TOKEN.mp4", "https://user:PRIVATE_TOKEN@example.com/video.mp4", "https://example.com/" + String(repeating: "a", count: 4096)] {
+        for text in ["http://example.com/PRIVATE_TOKEN.mp4", "https://user:PRIVATE_TOKEN@example.com/video.mp4", "https://www.youtube.com/playlist?list=PRIVATE_TOKEN", "https://example.com/" + String(repeating: "a", count: 4096)] {
             let url = try XCTUnwrap(URL(string: text))
             guard case .rejected(let message) = MediaDropIntent.classify([url]) else { return XCTFail("Unsafe URL became a draft") }
             XCTAssertFalse(message.contains("PRIVATE_TOKEN"))
