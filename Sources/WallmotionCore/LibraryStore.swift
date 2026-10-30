@@ -10,8 +10,8 @@ public struct LibraryStore: Sendable {
     }
 
     public func load() throws -> LibraryState {
-        guard FileManager.default.fileExists(atPath: stateURL.path) else { return LibraryState() }
-        return try JSONDecoder().decode(LibraryState.self, from: Data(contentsOf: stateURL)).validated()
+        guard let data = try LibraryStateFile.read(at: stateURL) else { return LibraryState() }
+        return try JSONDecoder().decode(LibraryState.self, from: data).validated()
     }
 
     public func save(_ state: LibraryState) throws {
@@ -19,6 +19,7 @@ public struct LibraryStore: Sendable {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(state)
+        guard data.count <= LibraryStateFile.maximumBytes else { throw LibraryError.libraryTooLarge }
         try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
         try data.write(to: stateURL, options: .atomic)
     }

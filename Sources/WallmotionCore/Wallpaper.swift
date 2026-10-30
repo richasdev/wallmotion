@@ -74,10 +74,13 @@ public enum MediaURL {
 }
 
 public enum LibraryError: LocalizedError, Equatable {
+    case notRegularLibrary, libraryTooLarge
     case unsupportedFile, invalidURL, webPageURL, invalidLocalPath, notRegularFile, unsupportedVersion, invalidState, invalidGIF, gifTooLarge, unsupportedEmbed
 
     public var errorDescription: String? {
         switch self {
+        case .notRegularLibrary: "A biblioteca precisa ser um arquivo JSON comum, sem link simbólico. O arquivo foi preservado."
+        case .libraryTooLarge: "O JSON da biblioteca excede o limite de 16 MiB. O arquivo foi preservado."
         case .unsupportedFile: "Formato não suportado. Use uma foto, GIF ou vídeo MP4, MOV ou M4V."
         case .invalidURL: "Informe uma URL HTTPS válida, sem espaços ou credenciais."
         case .webPageURL: "Use um link direto de vídeo/HLS ou adicione YouTube/Vimeo como fonte web."
