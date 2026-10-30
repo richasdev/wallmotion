@@ -100,6 +100,33 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertNil(model.errorMessage)
     }
 
+    func testImportQueuesConcurrentSelectionsAndKeepsValidDuplicatesAndOriginals() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = LibraryStore(rootURL: directory.appendingPathComponent("Library", isDirectory: true))
+        let source = directory.appendingPathComponent("Selecionada.png")
+        let originalBytes = try writePhoto(to: source)
+        let folder = directory.appendingPathComponent("Pasta", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let unsupported = directory.appendingPathComponent("notas.txt")
+        try Data("texto".utf8).write(to: unsupported)
+        let model = LibraryModel(store: store)
+        defer { model.stop() }
+
+        let firstSelection = Task { await model.importFiles([source]) }
+        await Task.yield()
+        await model.importFiles([folder, source, unsupported])
+        await firstSelection.value
+
+        XCTAssertFalse(model.isImporting)
+        XCTAssertEqual(model.state.wallpapers.count, 2)
+        XCTAssertNotNil(model.errorMessage)
+        XCTAssertEqual(try Data(contentsOf: source), originalBytes)
+        let copies = try model.state.wallpapers.map { try store.resolvedURL(for: $0) }
+        XCTAssertEqual(Set(copies).count, 2)
+        for copy in copies { XCTAssertEqual(try Data(contentsOf: copy), originalBytes) }
+    }
+
     func testOptionalLibraryViewSnapshotUsesOnlyTemporaryFixtures() async throws {
         guard let path = ProcessInfo.processInfo.environment["WALLMOTION_SNAPSHOT_PATH"], !path.isEmpty else {
             throw XCTSkip("Defina WALLMOTION_SNAPSHOT_PATH para exportar o snapshot de QA.")

@@ -18,6 +18,8 @@ final class LibraryModel {
     private var screenLocked = false
     private var lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
     private var observers: [(NotificationCenter, NSObjectProtocol)] = []
+    private var pendingImportURLs: [URL] = []
+    private var importWaiters: [CheckedContinuation<Void, Never>] = []
 
     init(store: LibraryStore = LibraryStore()) {
         self.store = store
@@ -111,19 +113,33 @@ final class LibraryModel {
     }
 
     func importFiles(_ urls: [URL]) async {
-        guard canEdit, !isImporting else { return }
+        guard canEdit, !urls.isEmpty else { return }
+        pendingImportURLs.append(contentsOf: urls)
+        if isImporting {
+            await withCheckedContinuation { importWaiters.append($0) }
+            return
+        }
         isImporting = true
-        defer { isImporting = false }
+        defer {
+            isImporting = false
+            let waiters = importWaiters
+            importWaiters.removeAll(keepingCapacity: true)
+            waiters.forEach { $0.resume() }
+        }
         var failures: [String] = []
         var imported: [Wallpaper] = []
-        for url in urls {
-            let scoped = url.startAccessingSecurityScopedResource()
-            do {
-                let store = store
-                let item = try await Task.detached(priority: .userInitiated) { try store.importFile(at: url) }.value
-                imported.append(item)
-            } catch { failures.append("\(url.lastPathComponent): \(error.localizedDescription)") }
-            if scoped { url.stopAccessingSecurityScopedResource() }
+        while !pendingImportURLs.isEmpty {
+            let batch = pendingImportURLs
+            pendingImportURLs.removeAll(keepingCapacity: true)
+            for url in batch {
+                let scoped = url.startAccessingSecurityScopedResource()
+                do {
+                    let store = store
+                    let item = try await Task.detached(priority: .userInitiated) { try store.importFile(at: url) }.value
+                    imported.append(item)
+                } catch { failures.append("\(url.lastPathComponent): \(error.localizedDescription)") }
+                if scoped { url.stopAccessingSecurityScopedResource() }
+            }
         }
         if !imported.isEmpty {
             var next = state
