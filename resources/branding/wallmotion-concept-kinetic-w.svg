@@ -1,0 +1,184 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <!-- Drop Shadow for Base Squircle -->
+    <filter id="mac-drop-shadow" x="-10%" y="-10%" width="130%" height="135%" filterUnits="userSpaceOnUse">
+      <feGaussianBlur stdDeviation="30" in="SourceAlpha" result="blur1" />
+      <feOffset dx="0" dy="28" in="blur1" result="offset1" />
+      <feComponentTransfer in="offset1" result="shadow1">
+        <feFuncA type="linear" slope="0.32" />
+      </feComponentTransfer>
+      <feGaussianBlur stdDeviation="12" in="SourceAlpha" result="blur2" />
+      <feOffset dx="0" dy="12" in="blur2" result="offset2" />
+      <feComponentTransfer in="offset2" result="shadow2">
+        <feFuncA type="linear" slope="0.22" />
+      </feComponentTransfer>
+      <feMerge>
+        <feMergeNode in="shadow1" />
+        <feMergeNode in="shadow2" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+
+    <!-- Fold Ribbon Drop Shadow (Ambient Occlusion between layers) -->
+    <filter id="ribbon-shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="16" in="SourceAlpha" result="blur" />
+      <feOffset dx="-8" dy="16" in="blur" result="offset" />
+      <feComponentTransfer in="offset" result="shadow">
+        <feFuncA type="linear" slope="0.45" />
+      </feComponentTransfer>
+      <feMerge>
+        <feMergeNode in="shadow" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+
+    <filter id="glow-ambient" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="60" />
+    </filter>
+
+    <!-- Gradients -->
+    <linearGradient id="bg-slate-dark" x1="0.5" y1="0" x2="0.5" y2="1">
+      <stop offset="0%" stop-color="#1A1C29" />
+      <stop offset="50%" stop-color="#10121C" />
+      <stop offset="100%" stop-color="#080910" />
+    </linearGradient>
+
+    <radialGradient id="symbol-backglow" cx="0.5" cy="0.5" r="0.45">
+      <stop offset="0%" stop-color="#5856D6" stop-opacity="0.35" />
+      <stop offset="50%" stop-color="#007AFF" stop-opacity="0.2" />
+      <stop offset="100%" stop-color="#080910" stop-opacity="0" />
+    </radialGradient>
+
+    <!-- Ribbon 1: Left Wing (Deep Cyan to Royal Blue) -->
+    <linearGradient id="ribbon-grad-1" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#00F2FE" />
+      <stop offset="50%" stop-color="#007AFF" />
+      <stop offset="100%" stop-color="#3A1C71" />
+    </linearGradient>
+
+    <!-- Ribbon 2: Left-Center Upward Fold (Royal Blue to Vibrant Violet) -->
+    <linearGradient id="ribbon-grad-2" x1="0" y1="1" x2="0.8" y2="0">
+      <stop offset="0%" stop-color="#0066FF" />
+      <stop offset="50%" stop-color="#5856D6" />
+      <stop offset="100%" stop-color="#7928CA" />
+    </linearGradient>
+
+    <!-- Ribbon 3: Center-Right Downward Fold (Vibrant Purple to Magenta) -->
+    <linearGradient id="ribbon-grad-3" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#8E2DE2" />
+      <stop offset="60%" stop-color="#D91B5C" />
+      <stop offset="100%" stop-color="#FF2D55" />
+    </linearGradient>
+
+    <!-- Ribbon 4: Right Wing Upward (Neon Pink to Sunset Orange) -->
+    <linearGradient id="ribbon-grad-4" x1="0.2" y1="1" x2="0.8" y2="0">
+      <stop offset="0%" stop-color="#FF2D55" />
+      <stop offset="50%" stop-color="#FF6B00" />
+      <stop offset="100%" stop-color="#FFBE0B" />
+    </linearGradient>
+
+    <linearGradient id="tile-rim" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.4" />
+      <stop offset="15%" stop-color="#FFFFFF" stop-opacity="0.12" />
+      <stop offset="85%" stop-color="#FFFFFF" stop-opacity="0.02" />
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.12" />
+    </linearGradient>
+
+    <clipPath id="squircle-clip-c">
+      <rect x="100" y="100" width="824" height="824" rx="185" ry="185" />
+    </clipPath>
+  </defs>
+
+  <!-- Drop Shadow + Squircle Base -->
+  <g filter="url(#mac-drop-shadow)">
+    <rect x="100" y="100" width="824" height="824" rx="185" ry="185" fill="url(#bg-slate-dark)" />
+  </g>
+
+  <!-- Contents Clipped to Squircle -->
+  <g clip-path="url(#squircle-clip-c)">
+    <!-- Ambient Radial Glow -->
+    <circle cx="512" cy="512" r="380" fill="url(#symbol-backglow)" />
+
+    <!-- Soft accent ambient light pools -->
+    <circle cx="320" cy="580" r="180" fill="#007AFF" opacity="0.18" filter="url(#glow-ambient)" />
+    <circle cx="700" cy="460" r="180" fill="#FF2D55" opacity="0.18" filter="url(#glow-ambient)" />
+
+    <!--
+      Kinetic W / Dual-M Geometric Monogram:
+      Composed of 4 overlapping dynamic faceted ribbon polygons.
+      Coordinates centered around (512, 512).
+      W starts top left (260, 340) -> down to (380, 690) -> peak at (512, 420) -> down to (644, 690) -> up to (764, 340).
+      Ribbon thickness ~85px with elegant tapered bevel ends.
+    -->
+
+    <!-- Segment 1: Left Outer Descent (260,340) to (380, 690) -->
+    <path d="M 270 340
+             C 285 330, 310 336, 324 355
+             L 444 645
+             C 454 668, 442 696, 418 706
+             C 396 716, 372 708, 360 686
+             L 242 386
+             C 230 364, 246 348, 270 340 Z"
+          fill="url(#ribbon-grad-1)" />
+
+    <!-- Segment 2: Left Inner Ascent (380, 690) to (512, 420) with Shadow onto Segment 1 -->
+    <g filter="url(#ribbon-shadow)">
+      <path d="M 374 700
+               C 356 690, 350 668, 362 648
+               L 486 426
+               C 498 404, 526 404, 538 426
+               L 436 678
+               C 424 702, 396 712, 374 700 Z"
+            fill="url(#ribbon-grad-2)" />
+    </g>
+
+    <!-- Specular highlight edge on Left Peak -->
+    <line x1="365" y1="675" x2="512" y2="420" stroke="#FFFFFF" stroke-width="2.5" opacity="0.4" />
+
+    <!-- Segment 3: Right Inner Descent (512, 420) to (644, 690) with Shadow -->
+    <g filter="url(#ribbon-shadow)">
+      <path d="M 486 426
+               C 498 404, 526 404, 538 426
+               L 662 648
+               C 674 668, 668 690, 650 700
+               C 628 712, 600 702, 588 678
+               L 486 426 Z"
+            fill="url(#ribbon-grad-3)" />
+    </g>
+
+    <!-- Specular highlight edge on Center Peak -->
+    <line x1="512" y1="420" x2="635" y2="675" stroke="#FFFFFF" stroke-width="2.5" opacity="0.4" />
+
+    <!-- Segment 4: Right Outer Ascent (644, 690) to (764, 340) with Shadow onto Segment 3 -->
+    <g filter="url(#ribbon-shadow)">
+      <path d="M 640 686
+               C 628 708, 604 716, 582 706
+               C 558 696, 546 668, 556 645
+               L 676 355
+               C 690 336, 715 330, 730 340
+               C 754 348, 770 364, 758 386
+               L 640 686 Z"
+            fill="url(#ribbon-grad-4)" />
+    </g>
+
+    <!-- Kinetic Light Particles indicating active wallpaper motion -->
+    <circle cx="288" cy="350" r="5" fill="#00F2FE" opacity="0.9" />
+    <circle cx="512" cy="418" r="6" fill="#FFFFFF" opacity="0.95" />
+    <circle cx="736" cy="350" r="5" fill="#FFD000" opacity="0.9" />
+
+    <!-- Motion trail rings in the upper quadrants -->
+    <ellipse cx="512" cy="512" rx="320" ry="120" fill="none" stroke="#FFFFFF" stroke-width="1" stroke-dasharray="8 16" opacity="0.12" />
+    <ellipse cx="512" cy="512" rx="380" ry="160" fill="none" stroke="#FFFFFF" stroke-width="1" stroke-dasharray="4 24" opacity="0.08" />
+
+    <!-- Subtle Glass Surface Sheen -->
+    <linearGradient id="gloss" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.12" />
+      <stop offset="40%" stop-color="#FFFFFF" stop-opacity="0.02" />
+      <stop offset="100%" stop-color="#000000" stop-opacity="0.30" />
+    </linearGradient>
+    <rect x="100" y="100" width="824" height="824" fill="url(#gloss)" pointer-events="none" />
+  </g>
+
+  <!-- Precise Outer macOS Squircle Bevel Rim -->
+  <rect x="100.5" y="100.5" width="823" height="823" rx="184.5" ry="184.5" fill="none" stroke="url(#tile-rim)" stroke-width="2" pointer-events="none" />
+</svg>

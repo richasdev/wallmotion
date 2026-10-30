@@ -58,3 +58,14 @@ A integração seguinte preservou o visual nativo do #38 e o login item do #24. 
 Rodada final: `WALLMOTION_REMOTE_TEST_URL=https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_adv_example_hevc/master.m3u8 WALLMOTION_SNAPSHOT_PATH=/tmp/wallmotion-issue21-main39-library.png swift test -j 2` — **41 XCTest e 46 Swift Testing aprovados, zero falhas/ignorados**, incluindo regressões do #39, HLS real, fixtures de recuperação, importação concorrente, login item com abstração de teste, thumbnails e snapshot inspecionado. Rust permanece com 7 testes e Clippy aprovados conforme a rodada acima (fontes Rust sem alterações adicionais).
 
 `git diff --check` aprovado. `docs/QA.md` foi comparado byte a byte com `origin/main` em 35a9885 e é idêntico. Os demais documentos de recursos foram preservados.
+
+## Integração final com fit/fill #29 e branding #37
+
+Main composto até `35c198005201f49df6845f0def76e7022f14586a`. O merge do #29 preserva seleção/reconciliação por `MediaFit` e escala Retina, limite de pixels na decodificação, orçamento GIF e política central de oclusão/seek do #39. O merge do #37 mantém branding/ícone/tema sem alterar a recuperação. Sem novas funcionalidades nem mudanças fora do recurso.
+
+- `CARGO_INCREMENTAL=0 sh scripts/build-native.sh`: aprovado antes do Swift.
+- `WALLMOTION_REMOTE_TEST_URL=https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_adv_example_hevc/master.m3u8 WALLMOTION_SNAPSHOT_PATH=/tmp/wallmotion-issue21-final-library.png swift test -j 2`: **44 XCTest + 56 Swift Testing aprovados, zero falhas/ignorados**. Inclui fit/fill/cap de decodificação, política de playback/oclusão/seek, scheduler/callbacks de recuperação, HLS real, importação, login item com abstração e thumbnails. Snapshot final de branding gerado e inspecionado.
+- `CARGO_INCREMENTAL=0 cargo test --locked --manifest-path crates/wallmotion-media/Cargo.toml --target-dir .build/native`: 7 aprovados; Clippy no mesmo target com `--all-targets -- -D warnings`: aprovado.
+- `git diff --check` e `git diff --cached --check`: aprovados. `docs/QA.md`, `MediaFit` e `RendererPlaybackState` comparados com main sem diferenças próprias do recurso.
+
+As limitações físicas/de rede/expiração e de medição prolongada registradas acima permanecem; CI remoto continua bloqueado por billing (#11). A rodada foi executada localmente e não certifica economia de energia ou reconexão real. Após testes e commits, limpar com `sh scripts/clean-builds.sh --all` neste worktree, preservando `dist`.

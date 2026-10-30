@@ -1,0 +1,163 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <!-- macOS Drop Shadows -->
+    <filter id="tile-shadow" x="-10%" y="-10%" width="130%" height="135%" filterUnits="userSpaceOnUse">
+      <feGaussianBlur stdDeviation="30" in="SourceAlpha" result="blur1" />
+      <feOffset dx="0" dy="28" in="blur1" result="offset1" />
+      <feComponentTransfer in="offset1" result="shadow1">
+        <feFuncA type="linear" slope="0.30" />
+      </feComponentTransfer>
+      <feGaussianBlur stdDeviation="12" in="SourceAlpha" result="blur2" />
+      <feOffset dx="0" dy="12" in="blur2" result="offset2" />
+      <feComponentTransfer in="offset2" result="shadow2">
+        <feFuncA type="linear" slope="0.20" />
+      </feComponentTransfer>
+      <feMerge>
+        <feMergeNode in="shadow1" />
+        <feMergeNode in="shadow2" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+
+    <filter id="sun-glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="35" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+
+    <filter id="frame-inner-shadow" x="-5%" y="-5%" width="110%" height="110%">
+      <feGaussianBlur stdDeviation="8" result="blur" />
+      <feComposite operator="out" in="SourceGraphic" in2="blur" result="inverse" />
+    </filter>
+
+    <!-- Gradients -->
+    <linearGradient id="base-slate" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#242632" />
+      <stop offset="50%" stop-color="#181A24" />
+      <stop offset="100%" stop-color="#0F1017" />
+    </linearGradient>
+
+    <linearGradient id="aperture-sky" x1="0.5" y1="0" x2="0.5" y2="1">
+      <stop offset="0%" stop-color="#0A091A" />
+      <stop offset="30%" stop-color="#23103A" />
+      <stop offset="60%" stop-color="#5B144E" />
+      <stop offset="85%" stop-color="#A2224B" />
+      <stop offset="100%" stop-color="#F96332" />
+    </linearGradient>
+
+    <linearGradient id="sun-gradient" x1="0.5" y1="0" x2="0.5" y2="1">
+      <stop offset="0%" stop-color="#FFF275" />
+      <stop offset="45%" stop-color="#FF5E62" />
+      <stop offset="100%" stop-color="#D13B7E" />
+    </linearGradient>
+
+    <linearGradient id="horizon-grid-grad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FF758C" stop-opacity="0.9" />
+      <stop offset="50%" stop-color="#7928CA" stop-opacity="0.7" />
+      <stop offset="100%" stop-color="#00F2FE" stop-opacity="0.4" />
+    </linearGradient>
+
+    <linearGradient id="display-bezel-stroke" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.30" />
+      <stop offset="50%" stop-color="#FFFFFF" stop-opacity="0.08" />
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.18" />
+    </linearGradient>
+
+    <linearGradient id="glass-glare" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.18" />
+      <stop offset="35%" stop-color="#FFFFFF" stop-opacity="0.03" />
+      <stop offset="65%" stop-color="#FFFFFF" stop-opacity="0" />
+      <stop offset="100%" stop-color="#000000" stop-opacity="0.25" />
+    </linearGradient>
+
+    <linearGradient id="rim-specular" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.5" />
+      <stop offset="12%" stop-color="#FFFFFF" stop-opacity="0.12" />
+      <stop offset="85%" stop-color="#000000" stop-opacity="0.3" />
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.1" />
+    </linearGradient>
+
+    <clipPath id="squircle-clip-b">
+      <rect x="100" y="100" width="824" height="824" rx="185" ry="185" />
+    </clipPath>
+
+    <clipPath id="aperture-screen-clip">
+      <!-- Inner aperture window: 624x500 at (200, 260) with rounded corners -->
+      <rect x="180" y="210" width="664" height="580" rx="44" ry="44" />
+    </clipPath>
+  </defs>
+
+  <!-- Drop Shadow + Base Squircle -->
+  <g filter="url(#tile-shadow)">
+    <rect x="100" y="100" width="824" height="824" rx="185" ry="185" fill="url(#base-slate)" />
+  </g>
+
+  <!-- Squircle Interior Content -->
+  <g clip-path="url(#squircle-clip-b)">
+
+    <!-- Micro-texture / Top subtle aluminum ambient light -->
+    <rect x="100" y="100" width="824" height="824" fill="url(#glass-glare)" />
+
+    <!-- Window / Desktop Frame Shell (Physical Bezel) -->
+    <rect x="174" y="204" width="676" height="592" rx="50" ry="50" fill="#0D0E14" stroke="url(#display-bezel-stroke)" stroke-width="2" />
+
+    <!-- Desktop Window Header / Traffic Light Dots (Subtle Native Cue) -->
+    <circle cx="218" cy="236" r="7" fill="#FF5F56" opacity="0.85" />
+    <circle cx="240" cy="236" r="7" fill="#FFBD2E" opacity="0.85" />
+    <circle cx="262" cy="236" r="7" fill="#27C93F" opacity="0.85" />
+
+    <!-- Motion Indicator / Status Line in Header -->
+    <rect x="460" y="233" width="104" height="6" rx="3" fill="#FFFFFF" opacity="0.25" />
+
+    <!-- Living Desktop Aperture / Screen Content -->
+    <g clip-path="url(#aperture-screen-clip)">
+      <!-- Aperture Sky Gradient -->
+      <rect x="180" y="260" width="664" height="530" fill="url(#aperture-sky)" />
+
+      <!-- Glowing Horizon Kinetic Sun / Aperture Source -->
+      <circle cx="512" cy="510" r="110" fill="url(#sun-gradient)" filter="url(#sun-glow)" />
+
+      <!-- Radiating Motion Vectors / Sun Light Rays -->
+      <line x1="512" y1="510" x2="200" y2="300" stroke="#FFF" stroke-width="1.5" opacity="0.15" />
+      <line x1="512" y1="510" x2="320" y2="270" stroke="#FFF" stroke-width="1.5" opacity="0.18" />
+      <line x1="512" y1="510" x2="512" y2="260" stroke="#FFF" stroke-width="2" opacity="0.25" />
+      <line x1="512" y1="510" x2="704" y2="270" stroke="#FFF" stroke-width="1.5" opacity="0.18" />
+      <line x1="512" y1="510" x2="824" y2="300" stroke="#FFF" stroke-width="1.5" opacity="0.15" />
+
+      <!-- Horizon Line -->
+      <line x1="180" y1="540" x2="844" y2="540" stroke="#FFF" stroke-width="2" opacity="0.6" />
+
+      <!-- Ground Plane / Kinetic Perspective Lines (Synthesizer / Horizon Motion) -->
+      <polygon points="180,540 844,540 844,790 180,790" fill="#0C071C" />
+
+      <!-- Perspective Ray Flow Lines -->
+      <line x1="512" y1="540" x2="512" y2="790" stroke="url(#horizon-grid-grad)" stroke-width="2" opacity="0.8" />
+      <line x1="512" y1="540" x2="380" y2="790" stroke="url(#horizon-grid-grad)" stroke-width="2" opacity="0.75" />
+      <line x1="512" y1="540" x2="644" y2="790" stroke="url(#horizon-grid-grad)" stroke-width="2" opacity="0.75" />
+      <line x1="512" y1="540" x2="240" y2="790" stroke="url(#horizon-grid-grad)" stroke-width="2.5" opacity="0.7" />
+      <line x1="512" y1="540" x2="784" y2="790" stroke="url(#horizon-grid-grad)" stroke-width="2.5" opacity="0.7" />
+      <line x1="512" y1="540" x2="140" y2="750" stroke="url(#horizon-grid-grad)" stroke-width="3" opacity="0.6" />
+      <line x1="512" y1="540" x2="884" y2="750" stroke="url(#horizon-grid-grad)" stroke-width="3" opacity="0.6" />
+
+      <!-- Horizontal Speed / Elevation Rings in Perspective -->
+      <line x1="432" y1="570" x2="592" y2="570" stroke="url(#horizon-grid-grad)" stroke-width="1.5" opacity="0.4" />
+      <line x1="360" y1="615" x2="664" y2="615" stroke="url(#horizon-grid-grad)" stroke-width="2" opacity="0.5" />
+      <line x1="280" y1="680" x2="744" y2="680" stroke="url(#horizon-grid-grad)" stroke-width="2.5" opacity="0.65" />
+      <line x1="180" y1="765" x2="844" y2="765" stroke="url(#horizon-grid-grad)" stroke-width="3" opacity="0.8" />
+
+      <!-- Diagonal Screen Glare (Authentic Glass Display Reflection) -->
+      <polygon points="180,260 480,260 280,790 180,790" fill="#FFFFFF" opacity="0.07" />
+    </g>
+
+    <!-- Aperture Inset Bezel Border Highlight -->
+    <rect x="180" y="210" width="664" height="580" rx="44" ry="44" fill="none" stroke="url(#display-bezel-stroke)" stroke-width="2.5" />
+
+    <!-- Ambient Base Bottom Reflection -->
+    <ellipse cx="512" cy="860" rx="280" ry="40" fill="#FF5E62" opacity="0.12" />
+  </g>
+
+  <!-- Precise Outer macOS Squircle Bevel Rim -->
+  <rect x="100.5" y="100.5" width="823" height="823" rx="184.5" ry="184.5" fill="none" stroke="url(#rim-specular)" stroke-width="2" />
+</svg>
