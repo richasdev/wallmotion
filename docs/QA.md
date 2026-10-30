@@ -31,6 +31,8 @@ Esse teste passou localmente: estado pronto, tempo de reprodução avançando, �
 - [ ] Alternar Spaces, Mission Control, Stage Manager e apps fullscreen.
 - [ ] Pausar manualmente; bloquear, dormir e acordar. Manter pausa manual.
 - [ ] Ativar modo de baixo consumo com preferência ligada/desligada.
+- [ ] Cobrir completamente um GIF/vídeo e retomar pausa manual, wake ou baixo consumo; continuar sem reproduzir enquanto coberto. Trocar mídia em outro monitor deve preservar essa condição. Descobrir a janela deve respeitar a pausa manual.
+- [ ] Durante o loop remoto, cobrir a janela/pausar/encerrar antes da conclusão do seek; não retomar o transporte após stop. Verificar Spaces/Stage Manager e medir CPU/GPU/energia separadamente em Instruments; os testes não certificam economia medida.
 - [ ] Fechar biblioteca, abrir pela barra de menu e encerrar o app.
 - [ ] Reabrir e verificar seleção por monitor e preferências restauradas.
 - [ ] Corromper uma cópia da biblioteca de teste; erro deve preservar os bytes originais.
@@ -50,3 +52,11 @@ Build local usa assinatura ad-hoc de desenvolvimento e arquitetura do host. Dist
 - Execução final `swift test -j 2`: 40 testes do núcleo aprovados; 15 testes AppKit, sendo 12 aprovados e 3 ignorados (snapshot opt-in, stream remoto opt-in e segundo monitor indisponível). Sem falhas ou avisos de compilação na execução final.
 - `git diff --check`: aprovado. CI remoto bloqueado por billing (#11); estes resultados são locais.
 - Desconexão/reconexão foi simulada no coordenador; QA físico com dois monitores e medição de RSS/energia continuam pendentes. O teto estima frames, não a memória residente total nem o pico temporário da troca.
+
+## Regressão de oclusão da issue #36
+
+`RendererPlaybackStateTests` testa a tabela pausa/visibilidade/stop, retomadas enquanto coberto, seek pendente, falha, conclusão antiga/duplicada e stop terminal. Os testes AppKit injetam visibilidade e conclusões de seek, verificando `NSImageView.animates` e `AVPlayer.rate` com GIF e H.264 locais. O caminho remoto usa AVPlayer simples com fixture local e seek controlado, sem rede. Dois displays lógicos sobre uma tela física criam renderers independentes e comprovam que trocar o segundo preserva a pausa por oclusão do primeiro. O teste físico de dois monitores permanece separado e pode ser ignorado.
+
+Essas verificações não comprovam cobertura real pelo WindowServer, compatibilidade com todos os Spaces/Stage Manager, streaming remoto nem redução medida de consumo; essas medições precisam de hardware e profiler.
+
+Checks locais da correção em 2026-10-30: `CARGO_INCREMENTAL=0 sh scripts/build-native.sh`, `CARGO_INCREMENTAL=0 cargo test --locked --manifest-path crates/wallmotion-media/Cargo.toml --target-dir .build/native` (7 aprovados), Clippy no mesmo target com `--all-targets -- -D warnings` aprovado; `swift test -j 2` (46 testes core aprovados, 18 AppKit executados: 15 aprovados e 3 ignorados por snapshot/rede opt-in e segundo monitor físico indisponível), sem falhas ou avisos na execução final; `git diff --check` aprovado. CI remoto bloqueado por billing (#11).
