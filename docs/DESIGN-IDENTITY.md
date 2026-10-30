@@ -7,9 +7,9 @@
 
 Wallmotion is engineered as a state-of-the-art, high-performance native macOS dynamic desktop wallpaper platform. Its design identity reflects three core brand pillars:
 
-1. **Fluid Kinetic Motion:** Desktop backgrounds are living, breathing art pieces—smooth 60/120 FPS playback powered by Metal and native AVFoundation without stutter.
+1. **Fluid Kinetic Motion:** Desktop backgrounds designed as living art pieces—almejando reprodução fluida a 60/120 FPS suportada por Metal e AVFoundation nativo (meta de projeto e arquitetura, não uma métrica certificada sob todas as cargas de hardware).
 2. **Native macOS Craftsmanship:** Wallmotion feels like it was designed in Cupertino. It adheres strictly to Apple's Human Interface Guidelines (HIG), utilizing native glassmorphism, continuous curvature squircles, system vibrant materials, and natural diffuse lighting.
-3. **Invisible Lightweight Footprint:** The brand mark radiates precision and energy without visual noise, representing near-zero CPU/GPU utilization during idle and battery-conscious operation.
+3. **Invisible Lightweight Footprint:** O design visual expressa precisão sem ruído, alinhando-se à meta de projeto de manter utilização mínima e conservação de bateria em repouso e oclusão (meta de engenharia, dependente do tipo de mídia e do compositor do sistema, sem promessa de consumo zero invariante).
 
 > [!NOTE]
 > All brand assets, iconography, and documentation adhere strictly to the **Wallmotion** identity. No foreign, legacy, or cross-platform competitor names are ever referenced.
@@ -131,7 +131,8 @@ Four distinct visual identities were created, mathematically specified, and gene
 
 ## 4. Color Palette & Display P3 Specification
 
-Wallmotion utilizes macOS wide-gamut Display P3 colors for maximum vibrancy on Apple Liquid Retina and XDR displays, paired with sRGB fallbacks:
+> [!NOTE]
+> A implementação atual em `BrandTheme.swift` utiliza componentes `Color(red:green:blue:)` em espaço sRGB padrão. A tabela abaixo em wide-gamut Display P3 representa uma intenção de design e especificação teórica para expansão futura com suporte nativo a color spaces avançados no SwiftUI, não estando ativa no código runtime atual.
 
 ```
 +---------------------------------------------------------------------------------------+
@@ -214,17 +215,16 @@ INPUT_SVG="resources/branding/wallmotion-concept-aurora.svg"
 
 ---
 
-## 8. Comparative Analysis & Architect Recommendation
+## 8. Comparative Analysis & Adopted Design Direction
 
-| Evaluation Criteria | Concept A (Aurora Wave) | Concept B (Horizon Aperture) | Concept C (Dual-M Fold) | Concept D (Minimal Orbital) |
+| Evaluation Criteria | Aurora Minimalista + W (Adotado) | Concept B (Horizon Aperture) | Concept C (Dual-M Fold) | Concept D (Minimal Orbital) |
 |---|:---:|:---:|:---:|:---:|
 | **Dock Prominence & Vibrancy** | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐☆ | ⭐⭐⭐⭐☆ | ⭐⭐⭐⭐☆ |
-| **Small-Scale Clarity (16–32px)** | ⭐⭐⭐⭐☆ | ⭐⭐⭐☆☆ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
+| **Small-Scale Clarity (16–32px)** | ⭐⭐⭐⭐⭐ | ⭐⭐⭐☆☆ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
 | **macOS HIG Alignment** | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
 | **Brand Storytelling** | ⭐⭐⭐⭐⭐ (Fluid Motion) | ⭐⭐⭐⭐⭐ (Desktop Portal) | ⭐⭐⭐⭐☆ (Monogram) | ⭐⭐⭐⭐☆ (Zero-Lag Engine) |
 | **Uniqueness & Memorability**| ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐☆ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐☆ |
 
-### Final Recommendation:
-- **Primary App Icon:** **Concept A ("Kinetic Wave / Aurora")** is recommended as the default app icon for Wallmotion. Its luminous, flowing aurora captures the emotional wonder of an animated desktop wallpaper in full motion, while its obsidian glass squircle and specular rim feel 100% native in the macOS Dock.
-- **Alternative / Pro Edition Icon:** **Concept C ("Dual-M Fold")** provides an exceptional geometric monogram for App Store badges, developer documentation, and social media branding.
-- **Menu Bar Companion:** `wallmotion-menubar-template.svg` pairs harmoniously with Concept A, providing immediate recognition on the macOS menu bar.
+### Escolha Final Adotada pelo Projeto:
+- **Ícone Oficial do Aplicativo:** A direção consolidada e adotada para o Wallmotion é a **Aurora Minimalista com monograma 'W'** (`resources/branding/wallmotion-concept-aurora-minimal.svg`, empacotado como `resources/AppIcon.icns`). Essa versão aplica estritamente a paleta de 4 tons essenciais (Preto Espacial `#0A0B10`, Branco Puro `#FFFFFF`, Ciano Aurora `#00F2FE` e Violeta Aurora `#7F00FF`), sem sombras artificiais ou degradês forçados, com o monograma 'W' ocupando o quadrante superior esquerdo (~25% da área) e com pernas inferiores submersas atrás das duas linhas de fluxo harmônico em S.
+- **Menu Bar Companion:** `wallmotion-menubar-template.svg` em harmonia direta com as linhas cinéticas, oferecendo contraste e adaptação nativa aos modos Claro e Escuro do macOS.
