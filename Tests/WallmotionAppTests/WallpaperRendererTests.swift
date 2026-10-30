@@ -145,7 +145,7 @@ final class WallpaperRendererTests: XCTestCase {
             XCTAssertEqual(window.frame, screen.frame)
             XCTAssertTrue(window.collectionBehavior.contains(.canJoinAllSpaces))
             XCTAssertFalse(window.hasShadow)
-            let imageView = try XCTUnwrap(window.contentView as? NSImageView)
+            let imageView = try XCTUnwrap(window.contentView as? ImageSurface).imageView
             XCTAssertTrue(try XCTUnwrap(imageView.image).isValid)
 
             renderer.setPaused(false)
@@ -165,11 +165,11 @@ final class WallpaperRendererTests: XCTestCase {
             let source = try XCTUnwrap(CGImageSourceCreateWithURL(url as CFURL, nil))
             XCTAssertEqual(CGImageSourceGetCount(source), 2)
             let wallpaper = Wallpaper(title: "Animation", kind: .gif, source: .local(filename: "animation.gif"))
-            let renderer = try WallpaperRenderer(wallpaper: wallpaper, url: url, screen: screen) {
+            let renderer = try WallpaperRenderer(wallpaper: wallpaper, url: url, screen: screen, mediaFit: .fill) {
                 XCTFail("Um GIF válido não deve gerar erro: \($0)")
             }
             defer { renderer.stop() }
-            let view = try XCTUnwrap(renderer.window.contentView as? NSImageView)
+            let view = try XCTUnwrap(renderer.window.contentView as? ImageSurface).imageView
             XCTAssertFalse(view.animates)
             renderer.setPaused(false)
             XCTAssertTrue(view.animates)
@@ -181,6 +181,25 @@ final class WallpaperRendererTests: XCTestCase {
             XCTAssertFalse(view.animates)
             XCTAssertFalse(renderer.window.isVisible)
         }
+    }
+
+    func testImageSurfaceUsesProportionalFramesAndClipsFill() throws {
+        _ = NSApplication.shared
+        for fit in MediaFit.allCases {
+            let image = NSImage(size: NSSize(width: 400, height: 200))
+            let surface = ImageSurface(image: image, mediaFit: fit)
+            surface.frame = NSRect(x: 0, y: 0, width: 100, height: 100)
+            surface.layout()
+            XCTAssertEqual(surface.imageView.frame, fit.frame(for: image.size, in: surface.bounds))
+            XCTAssertEqual(surface.layer?.masksToBounds, true)
+            XCTAssertEqual(surface.imageView.frame.width / surface.imageView.frame.height, 2)
+        }
+    }
+
+    func testVideoSurfaceUsesNativeProportionalGravity() {
+        let player = AVPlayer()
+        XCTAssertEqual(VideoSurface(player: player, mediaFit: .fit).playerLayer.videoGravity, .resizeAspect)
+        XCTAssertEqual(VideoSurface(player: player, mediaFit: .fill).playerLayer.videoGravity, .resizeAspectFill)
     }
 
     func testInvalidImageThrowsBeforeCreatingWallpaperWindow() throws {
@@ -313,6 +332,15 @@ final class WallpaperRendererTests: XCTestCase {
                 .filter { !existing.contains(ObjectIdentifier($0)) && $0.isVisible }
             XCTAssertEqual(refreshed.count, 1)
             XCTAssertTrue(refreshed.first === original)
+            var changed = state
+            changed.setMediaFit(.fill, for: item.id, on: displayID)
+            engine.rebuild(state: changed, store: store, paused: true, force: false) { _, message in XCTFail(message) }
+            XCTAssertFalse(original.isVisible)
+            let replacement = NSApplication.shared.windows.compactMap { $0 as? DesktopWindow }
+                .first { !existing.contains(ObjectIdentifier($0)) && $0.isVisible }
+            let surface = try XCTUnwrap(replacement?.contentView as? ImageSurface)
+            XCTAssertEqual(surface.mediaFit, .fill)
+            XCTAssertFalse(surface.imageView.animates)
         }
     }
 
@@ -340,6 +368,7 @@ final class WallpaperRendererTests: XCTestCase {
             let unaffected = try XCTUnwrap(initial.first { $0.frame == firstScreen.frame })
             let replaced = try XCTUnwrap(initial.first { $0.frame == secondScreen.frame })
             state.assignments[secondID] = secondItem.id
+            state.setMediaFit(.fill, for: secondItem.id, on: secondID)
             engine.rebuild(state: state, store: store, paused: false, force: false) { _, message in XCTFail(message) }
             let refreshed = NSApplication.shared.windows.compactMap { $0 as? DesktopWindow }
                 .filter { !existing.contains(ObjectIdentifier($0)) && $0.isVisible }

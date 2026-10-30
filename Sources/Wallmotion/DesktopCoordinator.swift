@@ -37,14 +37,40 @@ final class DesktopWindow: NSWindow {
 }
 
 @MainActor
+final class ImageSurface: NSView {
+    let imageView: NSImageView
+    let mediaFit: MediaFit
+
+    init(image: NSImage, mediaFit: MediaFit) {
+        imageView = NSImageView(image: image)
+        self.mediaFit = mediaFit
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.black.cgColor
+        layer?.masksToBounds = true
+        imageView.imageScaling = .scaleProportionallyUpOrDown
+        imageView.animates = false
+        addSubview(imageView)
+    }
+
+    required init?(coder: NSCoder) { fatalError("Not supported") }
+
+    override func layout() {
+        super.layout()
+        imageView.frame = mediaFit.frame(for: imageView.image?.size ?? .zero, in: bounds)
+    }
+}
+
+@MainActor
 final class VideoSurface: NSView {
     let playerLayer = AVPlayerLayer()
 
-    init(player: AVPlayer) {
+    init(player: AVPlayer, mediaFit: MediaFit = .fit) {
         super.init(frame: .zero)
         wantsLayer = true
         playerLayer.player = player
-        playerLayer.videoGravity = .resizeAspect
+        playerLayer.videoGravity = mediaFit == .fill ? .resizeAspectFill : .resizeAspect
+        layer?.masksToBounds = true
         layer?.addSublayer(playerLayer)
     }
 
@@ -73,7 +99,7 @@ final class WallpaperRenderer {
     private var paused = true
     private var stopped = false
 
-    init(wallpaper: Wallpaper, url: URL, screen: NSScreen, onError: @escaping @MainActor (String) -> Void) throws {
+    init(wallpaper: Wallpaper, url: URL, screen: NSScreen, mediaFit: MediaFit = .fit, onError: @escaping @MainActor (String) -> Void) throws {
         if wallpaper.kind == .image || wallpaper.kind == .gif {
             let image: NSImage
             if wallpaper.kind == .gif {
@@ -81,11 +107,20 @@ final class WallpaperRenderer {
                 guard let animated = NSImage(contentsOf: url), animated.isValid else { throw RendererError.unreadableImage }
                 image = animated
             } else {
-                // Decode only enough pixels for this display; never retain the full
-                // resolution bitmap of a large imported photo.
-                let maxPixels = Int(ceil(max(screen.frame.width, screen.frame.height) * screen.backingScaleFactor))
+                // Decode only the pixels required by this display and crop mode,
+                // accounting for orientation and Retina backing scale.
                 guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
-                      let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                      let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+                      let width = properties[kCGImagePropertyPixelWidth] as? NSNumber,
+                      let height = properties[kCGImagePropertyPixelHeight] as? NSNumber else { throw RendererError.unreadableImage }
+                let orientation = (properties[kCGImagePropertyOrientation] as? NSNumber)?.intValue ?? 1
+                let rotated = (5...8).contains(orientation)
+                let size = CGSize(width: rotated ? height.doubleValue : width.doubleValue,
+                                  height: rotated ? width.doubleValue : height.doubleValue)
+                let viewport = CGSize(width: screen.frame.width * screen.backingScaleFactor,
+                                      height: screen.frame.height * screen.backingScaleFactor)
+                let maxPixels = mediaFit.decodePixelLimit(for: size, viewport: viewport)
+                guard let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, [
                         kCGImageSourceCreateThumbnailFromImageAlways: true,
                         kCGImageSourceCreateThumbnailWithTransform: true,
                         kCGImageSourceThumbnailMaxPixelSize: maxPixels,
@@ -93,11 +128,8 @@ final class WallpaperRenderer {
                       ] as CFDictionary) else { throw RendererError.unreadableImage }
                 image = NSImage(cgImage: thumbnail, size: NSSize(width: thumbnail.width, height: thumbnail.height))
             }
-            let view = NSImageView(image: image)
-            view.imageScaling = .scaleProportionallyUpOrDown
-            view.animates = false
-            view.canDrawSubviewsIntoLayer = true
-            imageView = view
+            let view = ImageSurface(image: image, mediaFit: mediaFit)
+            imageView = view.imageView
             player = nil
             window = DesktopWindow(screen: screen, view: view)
         } else {
@@ -114,7 +146,7 @@ final class WallpaperRenderer {
             mediaPlayer.automaticallyWaitsToMinimizeStalling = true
             player = mediaPlayer
             imageView = nil
-            window = DesktopWindow(screen: screen, view: VideoSurface(player: mediaPlayer))
+            window = DesktopWindow(screen: screen, view: VideoSurface(player: mediaPlayer, mediaFit: mediaFit))
             if let queue = mediaPlayer as? AVQueuePlayer {
                 looper = AVPlayerLooper(player: queue, templateItem: item)
                 loopObserver = looper?.observe(\.status, options: [.initial, .new]) { looper, _ in
@@ -213,6 +245,8 @@ final class DesktopCoordinator {
     private struct Entry {
         let wallpaperID: UUID
         let frame: CGRect
+        let mediaFit: MediaFit
+        let backingScale: CGFloat
         let token: UUID
         let renderer: WallpaperRenderer
     }
@@ -228,18 +262,20 @@ final class DesktopCoordinator {
             guard let displayID = Display.identify(screen),
                   let wallpaperID = state.assignments[displayID],
                   let wallpaper = state.wallpapers.first(where: { $0.id == wallpaperID }) else { continue }
-            if let entry = renderers[displayID], entry.wallpaperID == wallpaperID, entry.frame == screen.frame {
+            let mediaFit = state.mediaFit(for: wallpaperID, on: displayID)
+            if let entry = renderers[displayID], entry.wallpaperID == wallpaperID, entry.frame == screen.frame,
+               entry.mediaFit == mediaFit, entry.backingScale == screen.backingScaleFactor {
                 entry.renderer.setPaused(paused)
                 continue
             }
             renderers.removeValue(forKey: displayID)?.renderer.stop()
             let token = UUID()
             do {
-                let renderer = try WallpaperRenderer(wallpaper: wallpaper, url: store.resolvedURL(for: wallpaper), screen: screen) { [weak self] message in
+                let renderer = try WallpaperRenderer(wallpaper: wallpaper, url: store.resolvedURL(for: wallpaper), screen: screen, mediaFit: mediaFit) { [weak self] message in
                     guard self?.renderers[displayID]?.token == token else { return }
                     onError(displayID, message)
                 }
-                renderers[displayID] = Entry(wallpaperID: wallpaperID, frame: screen.frame, token: token, renderer: renderer)
+                renderers[displayID] = Entry(wallpaperID: wallpaperID, frame: screen.frame, mediaFit: mediaFit, backingScale: screen.backingScaleFactor, token: token, renderer: renderer)
                 renderer.setPaused(paused)
             } catch { onError(displayID, error.localizedDescription) }
         }

@@ -47,6 +47,24 @@ struct LibraryView: View {
     private var detail: some View {
         VStack(alignment: .leading, spacing: 24) {
             header
+            if let wallpaperID = model.state.assignments[selectedDisplay] {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Exibição neste monitor").font(.callout.weight(.semibold))
+                    Picker("Exibição neste monitor", selection: Binding(
+                        get: { model.state.mediaFit(for: wallpaperID, on: selectedDisplay) },
+                        set: { model.setMediaFit($0, on: selectedDisplay) }
+                    )) {
+                        Text("Ajustar").tag(MediaFit.fit)
+                        Text("Preencher").tag(MediaFit.fill)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(maxWidth: 320)
+                    .disabled(!model.canEdit)
+                    Text("Ajustar mostra toda a mídia. Preencher recorta as bordas, sem distorcer.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
             libraryContent
             if model.isImporting { ProgressView("Copiando mídia para a biblioteca…").controlSize(.small) }
         }
