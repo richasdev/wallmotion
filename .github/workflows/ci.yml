@@ -1,0 +1,31 @@
+name: macOS checks
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - name: Toolchains
+        run: |
+          swift --version
+          cargo --version
+      - name: Rust formatting
+        run: cargo fmt --manifest-path crates/wallmotion-media/Cargo.toml --check
+      - name: Rust and Swift tests
+        run: sh scripts/check.sh
+      - name: Package development app
+        run: sh scripts/build-app.sh
+      - name: Archive app
+        run: ditto -c -k --sequesterRsrc --keepParent dist/Wallmotion.app dist/Wallmotion-macos.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Wallmotion-macos-development
+          path: dist/Wallmotion-macos.zip
