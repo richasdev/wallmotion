@@ -4,6 +4,23 @@ import XCTest
 import WallmotionCore
 @testable import Wallmotion
 
+private actor TestAsyncGate {
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        guard !isOpen else { return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    func open() {
+        isOpen = true
+        let pending = waiters
+        waiters.removeAll(keepingCapacity: true)
+        pending.forEach { $0.resume() }
+    }
+}
+
 @MainActor
 final class LibraryModelTests: XCTestCase {
     private func temporaryDirectory() throws -> URL {
@@ -69,6 +86,7 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(restored.state, persisted)
         XCTAssertTrue(restored.isPaused)
         XCTAssertEqual(restored.state.wallpapers.first?.source, .remote(url: URL(string: "https://cdn.example.com/live.m3u8?token=a%2Fb")!))
+        XCTAssertNil(restored.localMediaURL(for: try XCTUnwrap(restored.state.wallpapers.first)))
     }
 
     func testAsyncImportAndRemovalOnlyDeleteTheLibraryCopy() async throws {
@@ -86,6 +104,7 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(model.state.wallpapers.count, 1)
         let imported = try XCTUnwrap(model.state.wallpapers.first)
         let copy = try store.resolvedURL(for: imported)
+        XCTAssertEqual(model.localMediaURL(for: imported), copy)
         XCTAssertNotEqual(copy, source)
         XCTAssertEqual(copy.deletingLastPathComponent(), store.mediaDirectory)
         XCTAssertEqual(try Data(contentsOf: copy), originalBytes)
@@ -98,6 +117,141 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: source), originalBytes)
         XCTAssertTrue(try store.load().wallpapers.isEmpty)
         XCTAssertNil(model.errorMessage)
+    }
+
+    func testImportQueuesConcurrentSelectionsAndKeepsValidDuplicatesAndOriginals() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = LibraryStore(rootURL: directory.appendingPathComponent("Library", isDirectory: true))
+        let source = directory.appendingPathComponent("Selecionada.png")
+        let originalBytes = try writePhoto(to: source)
+        let folder = directory.appendingPathComponent("Pasta", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let unsupported = directory.appendingPathComponent("notas.txt")
+        try Data("texto".utf8).write(to: unsupported)
+        let model = LibraryModel(store: store)
+        defer { model.stop() }
+
+        let firstSelection = Task { await model.importFiles([source]) }
+        await Task.yield()
+        await model.importFiles([folder, source, unsupported])
+        await firstSelection.value
+
+        XCTAssertFalse(model.isImporting)
+        XCTAssertEqual(model.state.wallpapers.count, 2)
+        XCTAssertNotNil(model.errorMessage)
+        XCTAssertEqual(try Data(contentsOf: source), originalBytes)
+        let copies = try model.state.wallpapers.map { try store.resolvedURL(for: $0) }
+        XCTAssertEqual(Set(copies).count, 2)
+        for copy in copies { XCTAssertEqual(try Data(contentsOf: copy), originalBytes) }
+    }
+
+    func testImportDrainsSelectionQueuedDuringFailedSaveRollback() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = LibraryStore(rootURL: directory.appendingPathComponent("Library", isDirectory: true))
+        let failedSource = directory.appendingPathComponent("Rollback.png")
+        let failedBytes = try writePhoto(to: failedSource)
+        let queuedSource = directory.appendingPathComponent("Queued.png")
+        let queuedBytes = try writePhoto(to: queuedSource)
+        let cleanupStarted = TestAsyncGate()
+        let finishCleanup = TestAsyncGate()
+        let model = LibraryModel(store: store, beforeRollbackCleanup: {
+            await cleanupStarted.open()
+            await finishCleanup.wait()
+        })
+        defer { model.stop() }
+
+        // Replacing the not-yet-created state file path with a directory makes save fail
+        // after the first media copy, forcing the asynchronous rollback path.
+        try FileManager.default.createDirectory(at: store.stateURL, withIntermediateDirectories: true)
+        let failedSelection = Task { await model.importFiles([failedSource]) }
+        await cleanupStarted.wait()
+
+        let queuedSelection = Task { await model.importFiles([queuedSource]) }
+        let deadline = ContinuousClock.now + .seconds(5)
+        while model.queuedImportCount == 0, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(1))
+        }
+        let selectionWasQueuedDuringCleanup = model.queuedImportCount == 1
+
+        try FileManager.default.removeItem(at: store.stateURL)
+        await finishCleanup.open()
+        await failedSelection.value
+        await queuedSelection.value
+
+        XCTAssertTrue(selectionWasQueuedDuringCleanup, "A second selection must reach the queue before rollback finishes.")
+        XCTAssertFalse(model.isImporting)
+        XCTAssertEqual(model.state.wallpapers.map(\.title), ["Queued"])
+        XCTAssertNotNil(model.errorMessage)
+        XCTAssertEqual(try Data(contentsOf: failedSource), failedBytes)
+        XCTAssertEqual(try Data(contentsOf: queuedSource), queuedBytes)
+        XCTAssertEqual(try store.load(), model.state)
+        let mediaFiles = try FileManager.default.contentsOfDirectory(at: store.mediaDirectory, includingPropertiesForKeys: nil)
+        XCTAssertEqual(mediaFiles.count, 1, "Rollback removes the failed copy while the queued import persists its own copy.")
+    }
+
+    func testRejectedGIFSelectionPreservesPersistedAssignmentAndOtherMonitors() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        guard let screen = NSScreen.screens.first, let displayID = Display.identify(screen) else {
+            throw XCTSkip("É necessário um display para validar a seleção.")
+        }
+        let store = LibraryStore(rootURL: directory.appendingPathComponent("Library"))
+        let photoURL = directory.appendingPathComponent("photo.png")
+        _ = try writePhoto(to: photoURL)
+        let photo = try store.importFile(at: photoURL)
+        let gifURL = directory.appendingPathComponent("animation.gif")
+        let gif = Data([
+            0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 1, 0, 1, 0, 0x80, 0, 0,
+            0, 0, 0, 0xff, 0xff, 0xff,
+            0x2c, 0, 0, 0, 0, 1, 0, 1, 0, 0, 2, 2, 0x44, 1, 0, 0x3b
+        ])
+        try gif.write(to: gifURL)
+        let animation = try store.importFile(at: gifURL)
+        let initial = LibraryState(wallpapers: [photo, animation],
+                                   assignments: [displayID: photo.id, "disconnected": animation.id])
+        try store.save(initial)
+        let savedBytes = try Data(contentsOf: store.stateURL)
+        let engine = DesktopCoordinator(gifBudgetLimit: 0)
+        let model = LibraryModel(store: store, engine: engine)
+        defer { model.stop() }
+        model.refreshPlayback(force: false)
+        model.apply(animation, to: displayID)
+        XCTAssertTrue(model.errorMessage?.contains("limite global") == true)
+        XCTAssertEqual(model.state, initial)
+        XCTAssertEqual(try Data(contentsOf: store.stateURL), savedBytes)
+        XCTAssertEqual(engine.gifBudget.totalBytes, 0)
+        model.apply(animation, to: "unknown")
+        XCTAssertEqual(model.state, initial)
+    }
+
+    func testSaveFailureDoesNotReserveGIFQuotaOrChangeSelection() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        guard let screen = NSScreen.screens.first, let displayID = Display.identify(screen) else {
+            throw XCTSkip("É necessário um display para validar a seleção.")
+        }
+        let store = LibraryStore(rootURL: directory.appendingPathComponent("Library"))
+        let url = directory.appendingPathComponent("one.gif")
+        try Data([
+            0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 1, 0, 1, 0, 0x80, 0, 0,
+            0, 0, 0, 0xff, 0xff, 0xff,
+            0x2c, 0, 0, 0, 0, 1, 0, 1, 0, 0, 2, 2, 0x44, 1, 0, 0x3b
+        ]).write(to: url)
+        let item = try store.importFile(at: url)
+        let state = LibraryState(wallpapers: [item])
+        try store.save(state)
+        let engine = DesktopCoordinator(gifBudgetLimit: 4)
+        let model = LibraryModel(store: store, engine: engine)
+        defer { model.stop() }
+        model.refreshPlayback(force: false)
+        try FileManager.default.removeItem(at: store.stateURL)
+        try FileManager.default.createDirectory(at: store.stateURL, withIntermediateDirectories: false)
+        model.apply(item, to: displayID)
+        XCTAssertTrue(model.errorMessage?.contains("salvar") == true)
+        XCTAssertEqual(model.state, state)
+        XCTAssertEqual(engine.gifBudget.totalBytes, 0)
     }
 
     func testOptionalLibraryViewSnapshotUsesOnlyTemporaryFixtures() async throws {

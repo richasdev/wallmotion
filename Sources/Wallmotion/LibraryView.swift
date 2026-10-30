@@ -9,6 +9,8 @@ struct LibraryView: View {
     @State private var urlText = ""
     @State private var urlError: String?
     @State private var pendingRemoval: Wallpaper?
+    @State private var isDropTargeted = false
+    @State private var dropMessage = ""
 
     private var filteredItems: [Wallpaper] {
         model.state.wallpapers.filter { search.isEmpty || $0.title.localizedCaseInsensitiveContains(search) }
@@ -52,6 +54,33 @@ struct LibraryView: View {
         }
         .padding(28)
         .background(Color(nsColor: .windowBackgroundColor))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(isDropTargeted ? Color.accentColor : .clear, lineWidth: 3)
+                .padding(6)
+                .allowsHitTesting(false)
+        }
+        .dropDestination(for: URL.self, action: { urls, _ in
+            guard !urls.isEmpty, model.canEdit else { return false }
+            dropMessage = "Arquivos recebidos. Importando mídia."
+            Task { @MainActor in
+                await model.importFiles(urls)
+                dropMessage = model.errorMessage == nil
+                    ? "Importação concluída."
+                    : "Importação concluída com arquivos que não puderam ser adicionados."
+            }
+            return true
+        }, isTargeted: { isDropTargeted = $0 })
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Biblioteca de mídia. Solte fotos, GIFs ou vídeos para importar.")
+        .overlay(alignment: .bottomLeading) {
+            if !dropMessage.isEmpty {
+                Text(dropMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .accessibilityAddTraits(.updatesFrequently)
+            }
+        }
     }
 
     @ViewBuilder private var libraryContent: some View {
@@ -79,7 +108,7 @@ struct LibraryView: View {
 
     private func card(for item: Wallpaper) -> some View {
         let applied = model.state.assignments[selectedDisplay] == item.id
-        return WallpaperCard(item: item, isApplied: applied, onApply: {
+        return WallpaperCard(item: item, localURL: model.localMediaURL(for: item), isApplied: applied, onApply: {
             model.apply(item, to: selectedDisplay)
         }, onRemove: {
             pendingRemoval = item
@@ -182,27 +211,17 @@ struct LibraryView: View {
     }
 }
 
-private struct WallpaperCard: View {
+struct WallpaperCard: View {
     let item: Wallpaper
+    let localURL: URL?
     let isApplied: Bool
     let onApply: () -> Void
     let onRemove: () -> Void
 
-    private var symbol: String {
-        switch item.kind {
-        case .image: "photo"
-        case .gif: "square.stack.3d.up"
-        case .video: "play.rectangle"
-        }
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            ZStack {
-                BrandTheme.cardBackground
-                Image(systemName: symbol).font(.system(size: 38, weight: .light)).foregroundStyle(BrandTheme.cyan)
-            }
-            .frame(height: 118).clipShape(RoundedRectangle(cornerRadius: 10))
+            MediaThumbnail(item: item, localURL: localURL)
+                .frame(height: 118).clipShape(RoundedRectangle(cornerRadius: 10))
             Text(item.title).font(.headline).lineLimit(1).help(item.title)
             HStack {
                 Text(item.kind.rawValue.uppercased()).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
