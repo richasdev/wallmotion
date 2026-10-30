@@ -5,6 +5,14 @@ import Testing
 
 @Suite("Proportional media presentation")
 struct MediaFitTests {
+    @Test func centerUsesOriginalPixelsAtBackingScaleAndStretchUsesBounds() {
+        let source = CGSize(width: 800, height: 400)
+        let bounds = CGRect(x: 10, y: 20, width: 100, height: 100)
+        #expect(MediaFit.center.frame(for: source, in: bounds, backingScale: 2) == CGRect(x: -140, y: -30, width: 400, height: 200))
+        #expect(MediaFit.stretch.frame(for: source, in: bounds) == bounds)
+        #expect(MediaFit.center.decodePixelLimit(for: source, viewport: CGSize(width: 100, height: 100)) == 800)
+    }
+
     @Test func landscapeFitAndFillAreCenteredWithoutStretching() {
         let media = CGSize(width: 400, height: 200)
         let bounds = CGRect(x: 10, y: 20, width: 100, height: 100)
@@ -23,7 +31,7 @@ struct MediaFitTests {
 
     @Test func equalAspectRatiosUseSameFrame() {
         let bounds = CGRect(x: 0, y: 0, width: 1920, height: 1080)
-        for fit in MediaFit.allCases {
+        for fit in [MediaFit.fit, .fill, .stretch] {
             #expect(fit.frame(for: CGSize(width: 3840, height: 2160), in: bounds) == bounds)
         }
     }
@@ -65,7 +73,7 @@ struct MediaFitTests {
     @Test func budgetBoundaryIsEnforcedAndRetinaQualitySurvivesWithinBudget() {
         let source = CGSize(width: 7680, height: 4320)
         let retina = CGSize(width: 3840, height: 2160)
-        for fit in MediaFit.allCases {
+        for fit in [MediaFit.fit, .fill, .stretch] {
             #expect(fit.decodePixelLimit(for: source, viewport: retina) == 3840)
         }
         let square = CGSize(width: 60000, height: 60000)

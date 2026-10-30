@@ -152,6 +152,95 @@ final class WallpaperRendererTests: XCTestCase {
         XCTAssertTrue(CGImageDestinationFinalize(destination), "A fixture precisa ser uma imagem real decodificável.")
     }
 
+    func testCenterPhotoRetainsOrientedOriginalDimensionsWhenDecodeIsDownsampled() throws {
+        let screen = try availableScreen()
+        try withTemporaryDirectory { directory in
+            let url = directory.appendingPathComponent("oriented.tiff")
+            let context = try XCTUnwrap(CGContext(data: nil, width: 20000, height: 100, bitsPerComponent: 8, bytesPerRow: 80000,
+                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            let image = try XCTUnwrap(context.makeImage())
+            let destination = try XCTUnwrap(CGImageDestinationCreateWithURL(url as CFURL, UTType.tiff.identifier as CFString, 1, nil))
+            CGImageDestinationAddImage(destination, image, [kCGImagePropertyOrientation: 6] as CFDictionary)
+            XCTAssertTrue(CGImageDestinationFinalize(destination))
+            let wallpaper = Wallpaper(title: "Oriented", kind: .image, source: .local(filename: "oriented.tiff"))
+            let renderer = try WallpaperRenderer(wallpaper: wallpaper, url: url, screen: screen, mediaFit: .center, onError: { XCTFail($0) })
+            defer { renderer.stop() }
+            let surface = try XCTUnwrap(renderer.window.contentView as? ImageSurface)
+            let decoded = try XCTUnwrap(surface.imageView.image)
+            XCTAssertEqual(decoded.size, NSSize(width: 100 / screen.backingScaleFactor, height: 20000 / screen.backingScaleFactor))
+            let rep = try XCTUnwrap(decoded.representations.first)
+            XCTAssertLessThanOrEqual(max(rep.pixelsWide, rep.pixelsHigh), PhotoDecodeBudget.maximumDimension)
+            XCTAssertLessThan(max(rep.pixelsWide, rep.pixelsHigh), 20000)
+            surface.layout()
+            XCTAssertEqual(surface.imageView.frame.size, decoded.size)
+        }
+    }
+
+    func testAudioPolicyChangesWithoutReplacingPlayerOrSeekingAndRespectsVisibility() throws {
+        let screen = try availableScreen()
+        let visibility = TestVisibility()
+        visibility.visible = true
+        let player = AVPlayer()
+        var seeks = 0
+        let wallpaper = try Wallpaper.remote("https://example.com/movie.mp4")
+        let renderer = try WallpaperRenderer(wallpaper: wallpaper, url: URL(string: "https://example.com/movie.mp4")!, screen: screen,
+            isWindowVisible: { _ in visibility.visible }, makePlayer: { _, _ in player },
+            seekToStart: { _, _ in seeks += 1 }, onError: { _ in })
+        defer { renderer.stop() }
+        XCTAssertTrue(player.isMuted)
+        renderer.setAudioEnabled(true)
+        XCTAssertTrue(player.isMuted, "Construction remains paused")
+        renderer.setPaused(false)
+        XCTAssertFalse(player.isMuted)
+        let surface = try XCTUnwrap(renderer.window.contentView as? VideoSurface)
+        renderer.setAudioEnabled(false)
+        XCTAssertTrue(player.isMuted)
+        renderer.setAudioEnabled(true)
+        XCTAssertFalse(player.isMuted)
+        XCTAssertTrue(surface.playerLayer.player === player)
+        XCTAssertEqual(seeks, 0)
+        renderer.setPaused(true)
+        XCTAssertTrue(player.isMuted)
+        renderer.setPaused(false)
+        XCTAssertFalse(player.isMuted)
+        visibility.visible = false
+        NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: renderer.window)
+        XCTAssertTrue(player.isMuted)
+        visibility.visible = true
+        NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: renderer.window)
+        XCTAssertFalse(player.isMuted)
+        renderer.stop()
+        XCTAssertTrue(player.isMuted)
+        renderer.setAudioEnabled(true)
+        XCTAssertTrue(player.isMuted)
+    }
+
+    func testWholeStateGIFPreflightAllowsTransferAndChargesEveryMirror() throws {
+        let screen = try availableScreen()
+        try withTemporaryDirectory { directory in
+            let store = LibraryStore(rootURL: directory.appendingPathComponent("Library"))
+            let url = directory.appendingPathComponent("animation.gif")
+            try writeImage(at: url, animated: true)
+            let item = try store.importFile(at: url)
+            let bytes = try GIFPreflight.inspect(url: url).decodedBytes
+            let engine = DesktopCoordinator(gifBudgetLimit: bytes, targets: {
+                [DesktopTarget(id: "left", screen: screen), DesktopTarget(id: "right", screen: screen)]
+            })
+            defer { engine.stop() }
+            var state = LibraryState(wallpapers: [item], assignments: ["right": item.id])
+            engine.rebuild(state: state, store: store, paused: true) { _, error in XCTFail(error) }
+            state.assignments = ["left": item.id]
+            XCTAssertNoThrow(try engine.validateAssignments(state: state, store: store))
+            XCTAssertEqual(engine.gifBudget.bytesByDisplay, ["right": bytes], "Validation must not mutate live charges")
+            engine.rebuild(state: state, store: store, paused: true) { _, error in XCTFail(error) }
+            XCTAssertEqual(engine.gifBudget.bytesByDisplay, ["left": bytes])
+            state.displayMode = .mirrored
+            state.mirroredWallpaperID = item.id
+            XCTAssertThrowsError(try engine.validateAssignments(state: state, store: store))
+            XCTAssertEqual(engine.gifBudget.bytesByDisplay, ["left": bytes])
+        }
+    }
+
     func testBudgetRejectionAndDecoderFailurePreserveRendererThenReleaseQuota() throws {
         let screen = try availableScreen()
         let displayID = try XCTUnwrap(Display.identify(screen))
@@ -308,7 +397,8 @@ final class WallpaperRendererTests: XCTestCase {
             surface.layout()
             XCTAssertEqual(surface.imageView.frame, fit.frame(for: image.size, in: surface.bounds))
             XCTAssertEqual(surface.layer?.masksToBounds, true)
-            XCTAssertEqual(surface.imageView.frame.width / surface.imageView.frame.height, 2)
+            XCTAssertEqual(surface.imageView.frame.width / surface.imageView.frame.height, fit == .stretch ? 1 : 2)
+            XCTAssertEqual(surface.imageView.imageScaling, .scaleAxesIndependently)
         }
     }
 
@@ -316,6 +406,7 @@ final class WallpaperRendererTests: XCTestCase {
         let player = AVPlayer()
         XCTAssertEqual(VideoSurface(player: player, mediaFit: .fit).playerLayer.videoGravity, .resizeAspect)
         XCTAssertEqual(VideoSurface(player: player, mediaFit: .fill).playerLayer.videoGravity, .resizeAspectFill)
+        XCTAssertEqual(VideoSurface(player: player, mediaFit: .stretch).playerLayer.videoGravity, .resize)
     }
 
     func testInvalidImageThrowsBeforeCreatingWallpaperWindow() throws {

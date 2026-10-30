@@ -18,6 +18,20 @@ final class WebWallpaperRenderer: NSObject, WKNavigationDelegate {
     private var bridge: WebPlaybackBridge?
     private var startupTimeout: Task<Void, Never>?
     private(set) var isPlaying = false
+    private(set) var audioEnabled = false
+    private var documentReady = false
+
+    func setAudioEnabled(_ enabled: Bool) {
+        guard !stopped else { return }
+        audioEnabled = enabled
+        applyAudioPolicy()
+    }
+
+    private func applyAudioPolicy() {
+        guard documentReady, let webView else { return }
+        // Only a Swift Bool enters JavaScript; no media/user strings are evaluated.
+        webView.evaluateJavaScript("window.setAudioEnabled(\(audioEnabled ? "true" : "false"))", completionHandler: nil)
+    }
     private(set) var lastEvent = "loading"
 
     init(embed: WebEmbed, onError: @escaping @MainActor (String) -> Void, document: String? = nil) throws {
@@ -67,6 +81,7 @@ final class WebWallpaperRenderer: NSObject, WKNavigationDelegate {
         startupTimeout?.cancel()
         startupTimeout = nil
         isPlaying = false
+        documentReady = false
         guard let view = webView else { return }
         // Public WebKit APIs suspend media even if the provider SDK has failed.
         view.setAllMediaPlaybackSuspended(true, completionHandler: nil)
@@ -84,6 +99,11 @@ final class WebWallpaperRenderer: NSObject, WKNavigationDelegate {
         guard message.webView === webView, message.frameInfo.isMainFrame,
               let value = message.body as? String else { return }
         lastEvent = String(value.prefix(80))
+        if value == "ready" {
+            documentReady = true
+            applyAudioPolicy()
+            return
+        }
         if value == "playing" {
             startupTimeout?.cancel()
             startupTimeout = nil
@@ -144,11 +164,12 @@ final class WebWallpaperRenderer: NSObject, WKNavigationDelegate {
         """
         if embed.provider == .youtube {
             return common + """
-            <iframe id="player" src="https://www.youtube-nocookie.com/embed/\(embed.videoID)?enablejsapi=1&origin=\(origin)&playsinline=1&loop=1&playlist=\(embed.videoID)" allow="autoplay" referrerpolicy="strict-origin-when-cross-origin"></iframe>
+            <iframe id="player" src="https://www.youtube-nocookie.com/embed/\(embed.videoID)?enablejsapi=1&origin=\(origin)&playsinline=1&mute=1&loop=1&playlist=\(embed.videoID)" allow="autoplay" referrerpolicy="strict-origin-when-cross-origin"></iframe>
             <script>
+            window.setAudioEnabled=function(enabled){if(window.player){if(enabled===true)player.unMute();else player.mute()}};
             function onYouTubeIframeAPIReady(){report("sdk-ready");
               window.player=new YT.Player("player",{events:{
-                onReady:function(e){report("ready");e.target.mute();e.target.playVideo()},
+                onReady:function(e){e.target.mute();e.target.playVideo();report("ready")},
                 onStateChange:function(e){report("state:"+e.data);if(e.data===1)report("playing")},
                 onError:function(e){report("error:"+e.data)},
                 onAutoplayBlocked:function(){report("error:autoplay-blocked")}
@@ -163,10 +184,11 @@ final class WebWallpaperRenderer: NSObject, WKNavigationDelegate {
         <script src="https://player.vimeo.com/api/player.js" onerror="report('error:sdk-load')"></script>
         <script>
         window.player=new Vimeo.Player(document.getElementById("player"));
+        window.setAudioEnabled=function(enabled){player.setMuted(enabled!==true).catch(vimeoError)};
         player.on("playing",function(){report("playing")});
         function vimeoError(e){report("error:"+e.name+": "+(e.message||""))}
         player.on("error",vimeoError);
-        player.ready().then(function(){return player.setMuted(true)}).then(function(){return player.play()}).catch(vimeoError);
+        player.ready().then(function(){return player.setMuted(true)}).then(function(){report("ready");return player.play()}).catch(vimeoError);
         </script></body></html>
         """
     }

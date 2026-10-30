@@ -61,7 +61,7 @@ final class ImageSurface: NSView {
         wantsLayer = true
         layer?.backgroundColor = NSColor.black.cgColor
         layer?.masksToBounds = true
-        imageView.imageScaling = .scaleProportionallyUpOrDown
+        imageView.imageScaling = .scaleAxesIndependently
         imageView.animates = false
         addSubview(imageView)
     }
@@ -77,12 +77,38 @@ final class ImageSurface: NSView {
 @MainActor
 final class VideoSurface: NSView {
     let playerLayer = AVPlayerLayer()
+    private let mediaFit: MediaFit
+    private var itemObserver: NSKeyValueObservation?
+    private var sizeObserver: NSKeyValueObservation?
+    private var presentationSize: CGSize = .zero
+
+    private func observeSize() {
+        sizeObserver?.invalidate()
+        presentationSize = playerLayer.player?.currentItem?.presentationSize ?? .zero
+        sizeObserver = playerLayer.player?.currentItem?.observe(\.presentationSize, options: [.initial, .new]) { [weak self] _, _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.presentationSize = self.playerLayer.player?.currentItem?.presentationSize ?? .zero
+                self.needsLayout = true
+            }
+        }
+        needsLayout = true
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        needsLayout = true
+    }
 
     init(player: AVPlayer, mediaFit: MediaFit = .fit) {
+        self.mediaFit = mediaFit
         super.init(frame: .zero)
         wantsLayer = true
         playerLayer.player = player
-        playerLayer.videoGravity = mediaFit == .fill ? .resizeAspectFill : .resizeAspect
+        playerLayer.videoGravity = mediaFit == .stretch ? .resize : (mediaFit == .fill ? .resizeAspectFill : .resizeAspect)
+        itemObserver = player.observe(\.currentItem, options: [.initial, .new]) { [weak self] _, _ in
+            Task { @MainActor [weak self] in self?.observeSize() }
+        }
         layer?.masksToBounds = true
         layer?.addSublayer(playerLayer)
     }
@@ -93,7 +119,9 @@ final class VideoSurface: NSView {
         super.layout()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        playerLayer.frame = bounds
+        playerLayer.frame = mediaFit == .center
+            ? mediaFit.frame(for: presentationSize, in: bounds, backingScale: window?.backingScaleFactor ?? 1)
+            : bounds
         CATransaction.commit()
     }
 }
@@ -113,6 +141,7 @@ final class WallpaperRenderer {
     private var failureObserver: NSObjectProtocol?
     private var occlusionObserver: NSObjectProtocol?
     private(set) var playbackState = RendererPlaybackState()
+    private(set) var audioEnabled = false
     private let isWindowVisible: @MainActor (NSWindow) -> Bool
     private let seekToStart: @MainActor (AVPlayer, @escaping @MainActor @Sendable (Bool) -> Void) -> Void
 
@@ -143,6 +172,13 @@ final class WallpaperRenderer {
                 _ = try GIFPreflight.inspect(url: url)
                 guard let animated = NSImage(contentsOf: url), animated.isValid else { throw RendererError.unreadableImage }
                 image = animated
+                if let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+                   let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+                   let width = properties[kCGImagePropertyPixelWidth] as? NSNumber,
+                   let height = properties[kCGImagePropertyPixelHeight] as? NSNumber {
+                    image.size = NSSize(width: width.doubleValue / screen.backingScaleFactor,
+                                        height: height.doubleValue / screen.backingScaleFactor)
+                }
             } else {
                 // Decode only the pixels required by this display and crop mode,
                 // accounting for orientation and Retina backing scale.
@@ -171,7 +207,7 @@ final class WallpaperRenderer {
                       thumbnail.bytesPerRow <= PhotoDecodeBudget.maximumBytes / thumbnail.height else {
                     throw RendererError.photoTooLarge
                 }
-                image = NSImage(cgImage: thumbnail, size: NSSize(width: thumbnail.width, height: thumbnail.height))
+                image = NSImage(cgImage: thumbnail, size: NSSize(width: size.width / screen.backingScaleFactor, height: size.height / screen.backingScaleFactor))
             }
             let view = ImageSurface(image: image, mediaFit: mediaFit)
             imageView = view.imageView
@@ -238,6 +274,8 @@ final class WallpaperRenderer {
     /// request, since policy/rebuild/seek may run without a new occlusion event.
     private func applyPlaybackState() {
         playbackState.setVisible(isWindowVisible(window))
+        player?.isMuted = !(audioEnabled && playbackState.shouldPlay)
+        webRenderer?.setAudioEnabled(audioEnabled && playbackState.shouldPlay)
         webRenderer?.setPaused(!playbackState.shouldPlay)
         imageView?.animates = playbackState.shouldPlay
         remotePlayback?.setPaused(!playbackState.shouldPlay)
@@ -259,6 +297,12 @@ final class WallpaperRenderer {
             failureObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemFailedToPlayToEndTime, object: item, queue: .main) { _ in
                 Task { @MainActor in onError("A reprodução falhou. Confira a rede e o formato do vídeo.") }
             }
+    }
+
+    func setAudioEnabled(_ enabled: Bool) {
+        guard !playbackState.isStopped else { return }
+        audioEnabled = enabled
+        applyPlaybackState()
     }
 
     func setPaused(_ value: Bool) {
@@ -345,6 +389,20 @@ final class DesktopCoordinator {
                          budget: gifBudget.retaining(displays: connected))
     }
 
+    func validateAssignments(state: LibraryState, store: LibraryStore) throws {
+        _ = try proposedBudget(state: state, store: store, connected: targets().map(\.id))
+    }
+
+    private func proposedBudget(state: LibraryState, store: LibraryStore, connected: [String]) throws -> GIFPlaybackBudget {
+        var budget = GIFPlaybackBudget(limit: gifBudget.limit)
+        let assignments = state.effectiveAssignments(for: connected)
+        for displayID in connected {
+            guard let id = assignments[displayID], let wallpaper = state.wallpapers.first(where: { $0.id == id }) else { continue }
+            budget = try proposal(for: wallpaper, displayID: displayID, store: store, budget: budget)
+        }
+        return budget
+    }
+
     private func proposal(for wallpaper: Wallpaper, displayID: String, store: LibraryStore,
                           budget: GIFPlaybackBudget) throws -> GIFPlaybackBudget {
         let bytes = wallpaper.kind == .gif
@@ -356,27 +414,46 @@ final class DesktopCoordinator {
         let currentTargets = targets()
         let connected = Set(currentTargets.map(\.id))
         let available = Set(state.wallpapers.map(\.id))
-        let assigned = Set(state.assignments.filter { available.contains($0.value) }.keys)
+        let assignments = state.effectiveAssignments(for: currentTargets.map(\.id))
+        let assigned = Set(assignments.filter { available.contains($0.value) }.keys)
+        // Silence every existing player before any display receives audio ownership.
+        renderers.values.forEach { $0.renderer.setAudioEnabled(false) }
+        let proposed: GIFPlaybackBudget
+        do { proposed = try proposedBudget(state: state, store: store, connected: currentTargets.map(\.id)) }
+        catch {
+            renderers.values.forEach { $0.renderer.setPaused(paused) }
+            for id in assigned { onError(id, error.localizedDescription) }
+            return
+        }
         pendingReloads.formIntersection(connected.intersection(assigned))
         for id in Array(renderers.keys) where !connected.contains(id) || !assigned.contains(id) {
             renderers.removeValue(forKey: id)?.renderer.stop()
         }
         gifBudget = gifBudget.retaining(displays: Set(renderers.keys))
-        for target in currentTargets {
+        // Release shrinking charges first so a valid whole-state transition is
+        // never rejected merely because a growing display was visited first.
+        let orderedTargets = currentTargets.sorted {
+            let left = Int64(proposed.bytesByDisplay[$0.id] ?? 0) - Int64(gifBudget.bytesByDisplay[$0.id] ?? 0)
+            let right = Int64(proposed.bytesByDisplay[$1.id] ?? 0) - Int64(gifBudget.bytesByDisplay[$1.id] ?? 0)
+            return left < right
+        }
+        for target in orderedTargets {
             let screen = target.screen
             let displayID = target.id
-            guard let wallpaperID = state.assignments[displayID],
+            guard let wallpaperID = assignments[displayID],
                   let wallpaper = state.wallpapers.first(where: { $0.id == wallpaperID }) else { continue }
             let reloadRequested = pendingReloads.remove(displayID) != nil
             let mediaFit = state.mediaFit(for: wallpaperID, on: displayID)
             if !force, !reloadRequested, let entry = renderers[displayID], entry.wallpaperID == wallpaperID, entry.frame == screen.frame,
                entry.mediaFit == mediaFit, entry.backingScale == screen.backingScaleFactor {
                 entry.renderer.setPaused(paused)
+                entry.renderer.setAudioEnabled(state.settings.audioDisplayID == displayID)
                 continue
             }
             let token = UUID()
             do {
-                let nextBudget = try proposal(for: wallpaper, displayID: displayID, store: store, budget: gifBudget)
+                let nextBudget = try proposal(for: wallpaper, displayID: displayID, store: store,
+                                              budget: gifBudget)
                 let renderer = try WallpaperRenderer(wallpaper: wallpaper, url: store.resolvedURL(for: wallpaper), screen: screen, mediaFit: mediaFit, webDocument: webDocument,
                                                      isWindowVisible: isWindowVisible, onState: { [weak self] state in
                     guard self?.renderers[displayID]?.token == token else { return }
@@ -390,6 +467,7 @@ final class DesktopCoordinator {
                 gifBudget = nextBudget
                 renderers[displayID] = Entry(wallpaperID: wallpaperID, frame: screen.frame, mediaFit: mediaFit, backingScale: screen.backingScaleFactor, token: token, renderer: renderer)
                 renderer.setPaused(paused)
+                renderer.setAudioEnabled(state.settings.audioDisplayID == displayID)
                 if let state = renderer.remotePlaybackState { onState(displayID, state) }
             } catch {
                 renderers[displayID]?.renderer.setPaused(paused)

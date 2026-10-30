@@ -2,16 +2,23 @@ import Foundation
 import CoreGraphics
 
 public enum MediaFit: String, Codable, CaseIterable, Sendable {
-    case fit, fill
+    case fit, fill, center, stretch
 
     /// Centered destination rectangle; fill extends beyond the clipping viewport.
-    public func frame(for media: CGSize, in bounds: CGRect) -> CGRect {
+    public func frame(for media: CGSize, in bounds: CGRect, backingScale: CGFloat = 1) -> CGRect {
         guard media.width > 0, media.height > 0, bounds.width > 0, bounds.height > 0,
               media.width.isFinite, media.height.isFinite,
               bounds.width.isFinite, bounds.height.isFinite else { return .zero }
+        if self == .stretch { return bounds }
         let horizontal = bounds.width / media.width
         let vertical = bounds.height / media.height
-        let scale = self == .fit ? min(horizontal, vertical) : max(horizontal, vertical)
+        let scale: CGFloat
+        switch self {
+        case .fit: scale = min(horizontal, vertical)
+        case .fill: scale = max(horizontal, vertical)
+        case .center: scale = 1 / (backingScale.isFinite && backingScale > 0 ? backingScale : 1)
+        case .stretch: scale = 1
+        }
         let size = CGSize(width: media.width * scale, height: media.height * scale)
         return CGRect(x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2,
                       width: size.width, height: size.height)
@@ -26,7 +33,7 @@ public enum MediaFit: String, Codable, CaseIterable, Sendable {
               viewport.width.isFinite, viewport.height.isFinite else { return 1 }
         let horizontal = viewport.width / media.width
         let vertical = viewport.height / media.height
-        let scale = min(1, self == .fit ? min(horizontal, vertical) : max(horizontal, vertical))
+        let scale = self == .center ? 1 : min(1, self == .fit ? min(horizontal, vertical) : max(horizontal, vertical))
         // Clamp while still floating point: even hostile metadata must never overflow Int.
         let requested = Int(ceil(min(CGFloat(PhotoDecodeBudget.maximumDimension), max(media.width, media.height) * scale)))
         var lower = 1
