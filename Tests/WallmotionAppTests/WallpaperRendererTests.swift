@@ -427,4 +427,25 @@ final class WallpaperRendererTests: XCTestCase {
             XCTAssertFalse(refreshed.contains { $0 === replaced })
         }
     }
+
+    func testWindowOcclusionNotificationDoesNotCrashOrCorruptWindow() throws {
+        let screen = try availableScreen()
+        let displayID = try XCTUnwrap(Display.identify(screen))
+        try withTemporaryDirectory { directory in
+            let store = LibraryStore(rootURL: directory.appendingPathComponent("Library"))
+            let url = directory.appendingPathComponent("photo.png")
+            try writeImage(at: url, animated: false)
+            let item = try store.importFile(at: url)
+            let state = LibraryState(wallpapers: [item], assignments: [displayID: item.id])
+            let engine = DesktopCoordinator()
+            defer { engine.stop() }
+            let existing = Set(NSApplication.shared.windows.map(ObjectIdentifier.init))
+            engine.rebuild(state: state, store: store, paused: false, force: false) { _, message in XCTFail(message) }
+            let windows = NSApplication.shared.windows.compactMap { $0 as? DesktopWindow }
+                .filter { !existing.contains(ObjectIdentifier($0)) && $0.isVisible }
+            let window = try XCTUnwrap(windows.first)
+            NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: window)
+            XCTAssertTrue(window.isVisible)
+        }
+    }
 }
