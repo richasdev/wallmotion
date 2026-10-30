@@ -22,8 +22,13 @@ pub enum GifError {
     NoFrames,
     Overflow,
     BudgetExceeded,
+    StructureBudgetExceeded,
     ReadFailure,
 }
+
+/// Maximum main-block plus subblock loop iterations in every public probe.
+/// This bounds parser work, not I/O latency, codec work, or total CPU time.
+pub const DEFAULT_MAX_STRUCTURE_STEPS: u64 = 1_000_000;
 
 trait Input {
     fn read(&mut self, output: &mut [u8]) -> Result<(), GifError>;
@@ -65,9 +70,18 @@ impl Input for SliceInput<'_> {
 
 struct Cursor<R> {
     input: R,
+    remaining_steps: u64,
 }
 
 impl<R: Input> Cursor<R> {
+    fn step(&mut self) -> Result<(), GifError> {
+        if self.remaining_steps == 0 {
+            return Err(GifError::StructureBudgetExceeded);
+        }
+        self.remaining_steps -= 1;
+        Ok(())
+    }
+
     fn read<const N: usize>(&mut self) -> Result<[u8; N], GifError> {
         let mut bytes = [0; N];
         self.input.read(&mut bytes)?;
@@ -102,6 +116,7 @@ impl<R: Input> Cursor<R> {
     fn subblocks(&mut self) -> Result<bool, GifError> {
         let mut present = false;
         loop {
+            self.step()?;
             let length = usize::from(self.byte()?);
             if length == 0 {
                 return Ok(present);
@@ -144,6 +159,7 @@ impl<R: Input> Cursor<R> {
 /// Validates GIF container structure without allocating or decoding LZW data.
 /// Requires a trailer and at least one image. Bytes after the trailer are ignored.
 /// This is a metadata probe, not validation of the compressed pixel stream.
+/// At most DEFAULT_MAX_STRUCTURE_STEPS structural iterations are permitted.
 pub fn probe_gif(bytes: &[u8]) -> Result<GifInfo, GifError> {
     probe_gif_with_budget(bytes, u64::MAX)
 }
@@ -155,7 +171,18 @@ pub fn probe_gif_with_budget(bytes: &[u8], max_decoded_bytes: u64) -> Result<Gif
 }
 
 fn probe_input(input: impl Input, max_decoded_bytes: u64) -> Result<GifInfo, GifError> {
-    let mut cursor = Cursor { input };
+    probe_input_with_steps(input, max_decoded_bytes, DEFAULT_MAX_STRUCTURE_STEPS)
+}
+
+fn probe_input_with_steps(
+    input: impl Input,
+    max_decoded_bytes: u64,
+    max_steps: u64,
+) -> Result<GifInfo, GifError> {
+    let mut cursor = Cursor {
+        input,
+        remaining_steps: max_steps,
+    };
     match &cursor.read::<6>()? {
         b"GIF87a" | b"GIF89a" => {}
         _ => return Err(GifError::InvalidHeader),
@@ -170,6 +197,7 @@ fn probe_input(input: impl Input, max_decoded_bytes: u64) -> Result<GifInfo, Gif
     cursor.color_table(packed)?;
     let mut frames = 0u32;
     loop {
+        cursor.step()?;
         match cursor.byte()? {
             0x21 => cursor.extension()?,
             0x2c => {
@@ -243,7 +271,8 @@ pub struct WMGifInfo {
     pub decoded_bytes: u64,
 }
 
-/// Returns 0 on success, 1 on invalid input. On failure, `out` is unchanged.
+/// Returns 0 on success, 1 on invalid input, 3 on structural work exhaustion.
+/// On failure, `out` is unchanged.
 ///
 /// # Safety
 /// `bytes` must point to `len` readable bytes in a single allocation, and `out`
@@ -255,7 +284,8 @@ pub unsafe extern "C" fn wm_gif_probe(bytes: *const u8, len: usize, out: *mut WM
     unsafe { wm_gif_probe_bounded(bytes, len, u64::MAX, out) }
 }
 
-/// Returns 0 on success, 1 for invalid input, 2 when the budget is exceeded.
+/// Returns 0 on success, 1 for invalid input, 2 for decoded-byte budget,
+/// 3 for structural loop-step budget exhaustion.
 /// All error paths leave `out` unchanged; rejection may skip the remaining input.
 ///
 /// # Safety
@@ -287,6 +317,7 @@ pub unsafe extern "C" fn wm_gif_probe_bounded(
             0
         }
         Err(GifError::BudgetExceeded) => 2,
+        Err(GifError::StructureBudgetExceeded) => 3,
         Err(_) => 1,
     }
 }
@@ -330,9 +361,13 @@ pub unsafe extern "C" fn wm_gif_probe_fd_bounded(
             0
         }
         Err(GifError::BudgetExceeded) => 2,
+        Err(GifError::StructureBudgetExceeded) => 3,
         Err(_) => 1,
     }
 }
+
+#[cfg(test)]
+mod work_budget_tests;
 
 #[cfg(test)]
 mod tests {

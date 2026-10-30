@@ -40,6 +40,7 @@ public enum GIFPreflight {
     }
 
     private static func metadata(_ info: WMGifInfo, status: Int32, maxDecodedBytes: UInt64) throws -> GIFMetadata {
+        guard status != 3 else { throw LibraryError.gifTooComplex }
         guard status != 2 else { throw LibraryError.gifTooLarge }
         guard status == 0 else { throw LibraryError.invalidGIF }
         guard info.decoded_bytes <= maxDecodedBytes else { throw LibraryError.gifTooLarge }
