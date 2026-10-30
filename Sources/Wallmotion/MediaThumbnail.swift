@@ -59,31 +59,9 @@ struct MediaThumbnail: View {
         image = nil
         guard let localURL, let cacheKey else { return }
         if let cached = ThumbnailCache.images.object(forKey: cacheKey) { image = cached; return }
-        let kind = item.kind
         do {
-            let generation = Task.detached(priority: .utility) {
-                try Task.checkCancellation()
-                switch kind {
-                case .image, .gif:
-                    guard let result = MediaThumbnailDecoding.imageThumbnail(url: localURL, targetWidth: width, targetHeight: height) else { throw ThumbnailError.unavailable }
-                    try Task.checkCancellation()
-                    return result
-                case .video:
-                    let worker = VideoThumbnailGenerator(url: localURL, targetWidth: width, targetHeight: height)
-                    let result = try await withTaskCancellationHandler {
-                        try await worker.generate()
-                    } onCancel: {
-                        worker.cancel()
-                    }
-                    try Task.checkCancellation()
-                    return result
-                }
-            }
-            let cgImage = try await withTaskCancellationHandler {
-                try await generation.value
-            } onCancel: {
-                generation.cancel()
-            }
+            let cgImage = try await ThumbnailScheduler.shared.image(for: ThumbnailRequest(
+                url: localURL, kind: item.kind.rawValue, width: width, height: height))
             try Task.checkCancellation()
             guard let cost = ThumbnailBudget.cost(of: cgImage) else { throw ThumbnailError.unavailable }
             let result = NSImage(cgImage: cgImage, size: .zero)
@@ -92,12 +70,12 @@ struct MediaThumbnail: View {
         } catch is CancellationError {
             // A recycled or resized card no longer needs this result.
         } catch {
-            image = nil
+            if !Task.isCancelled { image = nil }
         }
     }
 }
 
-private struct ThumbnailRequest: Hashable {
+struct ThumbnailRequest: Hashable, Sendable {
     let url: URL?
     let kind: String
     let width: Int
@@ -105,6 +83,23 @@ private struct ThumbnailRequest: Hashable {
 }
 
 enum MediaThumbnailDecoding {
+    static func generate(_ request: ThumbnailRequest) async throws -> CGImage {
+        try Task.checkCancellation()
+        guard let url = request.url, let kind = MediaKind(rawValue: request.kind) else { throw ThumbnailError.unavailable }
+        switch kind {
+        case .image, .gif:
+            return try autoreleasepool {
+                guard let image = imageThumbnail(url: url, targetWidth: request.width, targetHeight: request.height) else { throw ThumbnailError.unavailable }
+                return image
+            }
+        case .video:
+            let worker = VideoThumbnailGenerator(url: url, targetWidth: request.width, targetHeight: request.height)
+            return try await withTaskCancellationHandler {
+                try await worker.generate()
+            } onCancel: { worker.cancel() }
+        }
+    }
+
     static func imageThumbnail(url: URL, targetWidth: Int, targetHeight: Int) -> CGImage? {
         guard url.isFileURL, [nil, "", "localhost"].contains(url.host),
               let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
