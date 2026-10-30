@@ -182,7 +182,7 @@ final class WebWallpaperRenderer: NSObject, WKNavigationDelegate {
             window.setAudioPolicy=function(enabled,volume){
               if(!window.player)return;
               var level=typeof volume==="number" && Number.isFinite(volume)?Math.max(0,Math.min(1,volume)):0;
-              player.setVolume(level*100);
+              player.setVolume(Math.round(level*100));
               window.setAudioEnabled(enabled===true && level>0);
             };
             function onYouTubeIframeAPIReady(){report("sdk-ready");
@@ -208,7 +208,7 @@ final class WebWallpaperRenderer: NSObject, WKNavigationDelegate {
           var version=++audioVersion;
           var level=typeof volume==="number" && Number.isFinite(volume)?Math.max(0,Math.min(1,volume)):0;
           // Muting must not wait behind an unresolved gain change.
-          if(enabled!==true || level===0)player.setMuted(true).catch(vimeoError);
+          if(enabled!==true || level===0)player.setMuted(true).catch(function(error){if(version===audioVersion)vimeoError(error)});
           audioChain=audioChain.catch(function(){}).then(function(){
             if(version!==audioVersion)return;
             return player.setMuted(true).then(function(){
@@ -218,7 +218,7 @@ final class WebWallpaperRenderer: NSObject, WKNavigationDelegate {
               if(version!==audioVersion)return;
               return player.setMuted(enabled!==true || level===0);
             });
-          }).catch(vimeoError);
+          }).catch(function(error){if(version===audioVersion)vimeoError(error)});
         };
         player.on("playing",function(){report("playing")});
         function vimeoError(e){report("error:"+e.name+": "+(e.message||""))}

@@ -245,13 +245,13 @@ final class WebWallpaperRendererTests: XCTestCase {
         let html = WebWallpaperRenderer.document(embed: try WebEmbed.parse("https://vimeo.com/76979871"), origin: "https://dev.richas.wallmotion")
         let context = try XCTUnwrap(JSContext())
         context.evaluateScript("""
-        var window=this, muted=true, volume=1, plays=0, events=[], pendingVolumes=[];
+        var window=this, muted=true, volume=1, plays=0, events=[], errors=[], pendingVolumes=[];
         var document={getElementById:function(){return {}}};
-        window.webkit={messageHandlers:{playback:{postMessage:function(){}}}};
+        window.webkit={messageHandlers:{playback:{postMessage:function(value){if(String(value).indexOf('error:')===0)errors.push(value)}}}};
         var Vimeo={Player:function(){return {
           on:function(){},ready:function(){return Promise.resolve()},play:function(){plays++;return Promise.resolve()},
           setMuted:function(value){muted=value;events.push('mute:'+value);return Promise.resolve()},
-          setVolume:function(value){events.push('volume:'+value);return new Promise(function(resolve){pendingVolumes.push(function(){volume=value;resolve()})})}
+          setVolume:function(value){events.push('volume:'+value);return new Promise(function(resolve,reject){pendingVolumes.push(function(fail){if(fail)reject(new Error('injected failure'));else{volume=value;resolve()}})})}
         }}};
         """)
         let regex = try NSRegularExpression(pattern: "<script>([\\s\\S]*?)</script>")
@@ -288,10 +288,21 @@ final class WebWallpaperRendererTests: XCTestCase {
         try await waitUntil("pendingVolumes.length===1")
         context.evaluateScript("pendingVolumes.shift()()")
         try await waitUntil("muted===true && volume===0.2")
+        context.evaluateScript("window.setAudioPolicy(true,0.9)")
+        try await waitUntil("pendingVolumes.length===1")
+        context.evaluateScript("window.setAudioPolicy(false,0.1);pendingVolumes.shift()(true)")
+        try await waitUntil("pendingVolumes.length===1")
+        XCTAssertEqual(context.evaluateScript("errors.length")?.toInt32(), 0, "Obsolete gain failures must not tear down the current player")
+        context.evaluateScript("pendingVolumes.shift()()")
+        try await waitUntil("muted===true && volume===0.1")
         context.evaluateScript("window.setAudioPolicy(true,NaN)")
         try await waitUntil("pendingVolumes.length===1")
         context.evaluateScript("pendingVolumes.shift()()")
         try await waitUntil("muted===true && volume===0")
+        context.evaluateScript("window.setAudioPolicy(true,0.9)")
+        try await waitUntil("pendingVolumes.length===1")
+        context.evaluateScript("pendingVolumes.shift()(true)")
+        try await waitUntil("errors.length===1")
         XCTAssertNil(context.exception, context.exception?.toString() ?? "")
     }
 
@@ -311,6 +322,8 @@ final class WebWallpaperRendererTests: XCTestCase {
         }
         context.evaluateScript("onYouTubeIframeAPIReady();events=[];window.setAudioPolicy(true,0.25)")
         XCTAssertEqual(context.evaluateScript("events.join(',')")?.toString(), "volume:25,unmute")
+        context.evaluateScript("window.setAudioPolicy(true,0.3333333333)")
+        XCTAssertEqual(context.objectForKeyedSubscript("volume")?.toInt32(), 33)
         context.evaluateScript("window.setAudioPolicy(true,Infinity)")
         XCTAssertEqual(context.objectForKeyedSubscript("volume")?.toInt32(), 0)
         XCTAssertTrue(context.objectForKeyedSubscript("muted")?.toBool() == true)

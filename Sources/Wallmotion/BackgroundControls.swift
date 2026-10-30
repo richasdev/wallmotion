@@ -2,12 +2,13 @@ import SwiftUI
 import WallmotionCore
 
 /// Explicit, persistent controls; no previews that create additional media players.
+@MainActor
 struct BackgroundControls: View {
     let model: LibraryModel
     let selectedDisplay: String
     let supportsMediaFit: Bool
     @State private var showingDetails = false
-    @State private var draftVolume: Double = 1
+    @State private var draftVolume: Double
     @State private var isEditingVolume = false
     @State private var volumeDirty = false
 
@@ -15,6 +16,13 @@ struct BackgroundControls: View {
         let value: Double
         let editing: Bool
         let dirty: Bool
+    }
+
+    init(model: LibraryModel, selectedDisplay: String, supportsMediaFit: Bool) {
+        self.model = model
+        self.selectedDisplay = selectedDisplay
+        self.supportsMediaFit = supportsMediaFit
+        _draftVolume = State(initialValue: model.state.settings.audioVolume)
     }
 
     private var audioSelection: String {
@@ -102,9 +110,22 @@ struct BackgroundControls: View {
                 .frame(height: 2).padding(.horizontal, 16).accessibilityHidden(true)
         }
         .disabled(!model.canEdit || selectedDisplay.isEmpty)
-        .onAppear { draftVolume = model.state.settings.audioVolume }
         .onChange(of: model.state.settings.audioVolume) { _, value in
-            if !volumeDirty { draftVolume = value }
+            // A newer menu/external preference takes precedence over an older slider draft.
+            isEditingVolume = false
+            volumeDirty = false
+            draftVolume = value
+        }
+        .onChange(of: audioSelection) { _, _ in
+            isEditingVolume = false
+            saveVolume()
+        }
+        .onChange(of: model.canEdit) { _, editable in
+            if !editable {
+                isEditingVolume = false
+                volumeDirty = false
+                draftVolume = model.state.settings.audioVolume
+            }
         }
         .task(id: VolumeEdit(value: draftVolume, editing: isEditingVolume, dirty: volumeDirty)) {
             guard volumeDirty, !isEditingVolume else { return }
