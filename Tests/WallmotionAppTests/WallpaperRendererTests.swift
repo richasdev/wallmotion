@@ -45,20 +45,21 @@ final class WallpaperRendererTests: XCTestCase {
         return predicate()
     }
 
-    private func writeShortVideo(at url: URL) async throws {
+    private func writeShortVideo(at url: URL, rotated: Bool = false) async throws {
         let writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
         let settings: [String: Any] = [
             AVVideoCodecKey: AVVideoCodecType.h264,
-            AVVideoWidthKey: 16, AVVideoHeightKey: 16
+            AVVideoWidthKey: 32, AVVideoHeightKey: 16
         ]
         guard writer.canApply(outputSettings: settings, forMediaType: .video) else {
             throw XCTSkip("O encoder H.264 não está disponível nesta sessão.")
         }
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
         input.expectsMediaDataInRealTime = false
+        if rotated { input.transform = CGAffineTransform(rotationAngle: .pi / 2) }
         let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-            kCVPixelBufferWidthKey as String: 16,
+            kCVPixelBufferWidthKey as String: 32,
             kCVPixelBufferHeightKey as String: 16,
             kCVPixelBufferCGImageCompatibilityKey as String: true,
             kCVPixelBufferCGBitmapContextCompatibilityKey as String: true
@@ -76,7 +77,7 @@ final class WallpaperRendererTests: XCTestCase {
             }
             if let error = writer.error { throw error }
             var optionalBuffer: CVPixelBuffer?
-            let result = CVPixelBufferCreate(kCFAllocatorDefault, 16, 16, kCVPixelFormatType_32BGRA, [
+            let result = CVPixelBufferCreate(kCFAllocatorDefault, 32, 16, kCVPixelFormatType_32BGRA, [
                 kCVPixelBufferCGImageCompatibilityKey: true,
                 kCVPixelBufferCGBitmapContextCompatibilityKey: true
             ] as CFDictionary, &optionalBuffer)
@@ -86,13 +87,13 @@ final class WallpaperRendererTests: XCTestCase {
             do {
                 defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
                 let context = try XCTUnwrap(CGContext(
-                    data: CVPixelBufferGetBaseAddress(buffer), width: 16, height: 16,
+                    data: CVPixelBufferGetBaseAddress(buffer), width: 32, height: 16,
                     bitsPerComponent: 8, bytesPerRow: CVPixelBufferGetBytesPerRow(buffer),
                     space: CGColorSpaceCreateDeviceRGB(),
                     bitmapInfo: CGBitmapInfo.byteOrder32Little.rawValue | CGImageAlphaInfo.premultipliedFirst.rawValue
                 ))
                 context.setFillColor(CGColor(red: CGFloat(index) / 2, green: 0.5, blue: 1, alpha: 1))
-                context.fill(CGRect(x: 0, y: 0, width: 16, height: 16))
+                context.fill(CGRect(x: 0, y: 0, width: 32, height: 16))
             }
             guard adaptor.append(buffer, withPresentationTime: CMTime(value: Int64(index), timescale: 3)) else {
                 throw writer.error ?? NSError(domain: "WallmotionVideoFixture", code: 3)
@@ -152,6 +153,27 @@ final class WallpaperRendererTests: XCTestCase {
         XCTAssertTrue(CGImageDestinationFinalize(destination), "A fixture precisa ser uma imagem real decodificável.")
     }
 
+    func testCenterVideoUsesTransformedPresentationSizeAtBackingScale() async throws {
+        let screen = try availableScreen()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("rotated.mp4")
+        try await writeShortVideo(at: url, rotated: true)
+        let wallpaper = Wallpaper(title: "Rotated", kind: .video, source: .local(filename: "rotated.mp4"))
+        let renderer = try WallpaperRenderer(wallpaper: wallpaper, url: url, screen: screen, mediaFit: .center, isWindowVisible: { _ in true }, onError: { XCTFail($0) })
+        defer { renderer.stop() }
+        renderer.setPaused(false)
+        let surface = try XCTUnwrap(renderer.window.contentView as? VideoSurface)
+        guard try await eventually({
+            surface.layout()
+            return surface.playerLayer.frame.height > 0
+        }) else { return XCTFail("Presentation size not observed") }
+        XCTAssertEqual(surface.playerLayer.frame.size, CGSize(width: 16 / screen.backingScaleFactor, height: 32 / screen.backingScaleFactor))
+        XCTAssertEqual(surface.playerLayer.frame.midX, surface.bounds.midX)
+        XCTAssertEqual(surface.playerLayer.frame.midY, surface.bounds.midY)
+    }
+
     func testCenterPhotoRetainsOrientedOriginalDimensionsWhenDecodeIsDownsampled() throws {
         let screen = try availableScreen()
         try withTemporaryDirectory { directory in
@@ -168,9 +190,9 @@ final class WallpaperRendererTests: XCTestCase {
             let surface = try XCTUnwrap(renderer.window.contentView as? ImageSurface)
             let decoded = try XCTUnwrap(surface.imageView.image)
             XCTAssertEqual(decoded.size, NSSize(width: 100 / screen.backingScaleFactor, height: 20000 / screen.backingScaleFactor))
-            let rep = try XCTUnwrap(decoded.representations.first)
-            XCTAssertLessThanOrEqual(max(rep.pixelsWide, rep.pixelsHigh), PhotoDecodeBudget.maximumDimension)
-            XCTAssertLessThan(max(rep.pixelsWide, rep.pixelsHigh), 20000)
+            let bitmap = try XCTUnwrap(decoded.cgImage(forProposedRect: nil, context: nil, hints: nil))
+            XCTAssertLessThanOrEqual(max(bitmap.width, bitmap.height), PhotoDecodeBudget.maximumDimension)
+            XCTAssertLessThan(max(bitmap.width, bitmap.height), 20000)
             surface.layout()
             XCTAssertEqual(surface.imageView.frame.size, decoded.size)
         }
