@@ -39,4 +39,30 @@ final class RenameDraftTests: XCTestCase {
         XCTAssertTrue(RenameDraft.accepts(String(repeating: "a", count: 256)))
         XCTAssertFalse(RenameDraft.accepts(String(repeating: "a", count: 257)))
     }
+    func testOversizeCanonicalEquivalentNameCannotSkipByteBudget() {
+        let original = "a" + String(repeating: "\u{0344}", count: 1100)
+        let incoming = "a" + String(repeating: "\u{0308}\u{0301}", count: 1100)
+        XCTAssertEqual(original, incoming)
+        XCTAssertTrue(RenameDraft.accepts(original))
+        XCTAssertFalse(RenameDraft.accepts(incoming))
+        var draft = RenameDraft(text: original)
+        draft.replace(with: incoming)
+        XCTAssertTrue(draft.text.utf8.elementsEqual(original.utf8))
+        XCTAssertNotNil(draft.inputError)
+        draft.replace(with: original)
+        XCTAssertNotNil(draft.inputError)
+    }
+
+    func testValidDifferentBytesAcknowledgeEditEvenWhenCanonicallyEquivalent() {
+        let original = "caf\u{00E9}"
+        let incoming = "cafe\u{0301}"
+        var draft = RenameDraft(text: original)
+        draft.replace(with: String(repeating: "x", count: 257))
+        XCTAssertNotNil(draft.inputError)
+        draft.replace(with: incoming)
+        XCTAssertTrue(draft.text.utf8.elementsEqual(incoming.utf8))
+        XCTAssertNil(draft.inputError)
+        XCTAssertNil(draft.validationError)
+    }
+
 }

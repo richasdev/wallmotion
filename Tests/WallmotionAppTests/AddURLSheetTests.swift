@@ -40,9 +40,11 @@ final class AddURLSheetTests: XCTestCase {
     }
 
     func testOptionalURLSheetSnapshots() async throws {
-        guard let directory = ProcessInfo.processInfo.environment["WALLMOTION_URL_SNAPSHOT_DIR"] else {
+        guard let directory = ProcessInfo.processInfo.environment["WALLMOTION_URL_SNAPSHOT_DIR"], !directory.isEmpty else {
             throw XCTSkip("Opt-in URL sheet snapshots")
         }
+        let destination = URL(fileURLWithPath: directory, isDirectory: true)
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
         _ = NSApplication.shared
         for (name, text, web, appearance) in [
             ("youtube-dark", "https://youtu.be/dQw4w9WgXcQ?t=90", true, NSAppearance.Name.darkAqua),
@@ -62,7 +64,7 @@ final class AddURLSheetTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(250))
             let bitmap = try await LibrarySnapshotCapture.capture(hosting)
             let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
-            try png.write(to: URL(fileURLWithPath: directory).appendingPathComponent(name + ".png"), options: .atomic)
+            try png.write(to: destination.appendingPathComponent(name + ".png"), options: .atomic)
         }
     }
 }

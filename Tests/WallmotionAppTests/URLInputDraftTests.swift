@@ -1,3 +1,4 @@
+import Foundation
 import XCTest
 @testable import Wallmotion
 
@@ -32,4 +33,31 @@ final class URLInputDraftTests: XCTestCase {
         XCTAssertTrue(URLInputDraft(text: "").text.isEmpty)
         XCTAssertNil(URLInputDraft(text: "").inputError)
     }
+    func testCanonicalURLNormalizationEditPreservesExactBytesAndEncodedPath() {
+        let original = "https://example.com/caf\u{00E9}.mp4"
+        let incoming = "https://example.com/cafe\u{0301}.mp4"
+        XCTAssertEqual(original, incoming, "Swift String equality is canonical, not byte identity")
+        XCTAssertNotEqual(URL(string: original)?.absoluteString, URL(string: incoming)?.absoluteString)
+        var draft = URLInputDraft(text: original)
+        draft.replace(with: incoming)
+        XCTAssertTrue(draft.text.utf8.elementsEqual(incoming.utf8))
+        XCTAssertEqual(URL(string: draft.text)?.absoluteString, URL(string: incoming)?.absoluteString)
+    }
+
+    func testOversizeCanonicalEquivalentPasteStillSetsErrorAndExactWritebackKeepsIt() {
+        let original = "https://example.com/" + String(repeating: "\u{00E9}", count: 1500)
+        let incoming = "https://example.com/" + String(repeating: "e\u{0301}", count: 1500)
+        XCTAssertEqual(original, incoming)
+        XCTAssertTrue(URLInputDraft.accepts(original))
+        XCTAssertFalse(URLInputDraft.accepts(incoming))
+        var draft = URLInputDraft(text: original)
+        draft.replace(with: incoming)
+        XCTAssertTrue(draft.text.utf8.elementsEqual(original.utf8))
+        XCTAssertNotNil(draft.inputError)
+        draft.replace(with: original)
+        XCTAssertNotNil(draft.inputError)
+        draft.replace(with: original + "x")
+        XCTAssertNil(draft.inputError)
+    }
+
 }

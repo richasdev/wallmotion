@@ -39,9 +39,10 @@ struct RenameMediaSheet: View {
             Text("O novo nome aparece na biblioteca e nos monitores. O arquivo e a reprodução atual são preservados.")
                 .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             TextField("Nome da mídia", text: Binding(get: { draft.text }, set: {
-                guard $0 != draft.text else { return }
+                var next = draft
+                guard next.replace(with: $0) else { return }
                 saveError = nil
-                draft.replace(with: $0)
+                draft = next
             }))
                 .textFieldStyle(.roundedBorder)
                 .focused($isFocused)
