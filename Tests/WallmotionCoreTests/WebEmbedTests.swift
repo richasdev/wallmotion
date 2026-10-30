@@ -60,6 +60,32 @@ struct WebEmbedTests {
         #expect(loaded.assignments["display"] == loaded.wallpapers[0].id)
     }
 
+    @Test func migrationPreservesLegacyNoCookieRemoteWithoutReclassification() throws {
+        // Persistence compatibility only: no network or playback certification.
+        let bytes = Data("""
+        {"version":1,"wallpapers":[{"id":"00000000-0000-0000-0000-000000000001","title":"Legacy remote","kind":"video","source":{"remote":{"url":"https://www.youtube-nocookie.com/embed/M7lc1UVf-VE"}},"addedAt":0},{"id":"00000000-0000-0000-0000-000000000002","title":"Local photo","kind":"image","source":{"local":{"filename":"photo.png"}},"addedAt":1}],"assignments":{"remote-display":"00000000-0000-0000-0000-000000000001","photo-display":"00000000-0000-0000-0000-000000000002"},"settings":{"pauseOnLowPower":false,"isManuallyPaused":true}}
+        """.utf8)
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let store = LibraryStore(rootURL: root)
+        try bytes.write(to: store.stateURL)
+        var expected = try JSONDecoder().decode(LibraryState.self, from: bytes)
+        expected.version = 2
+        let loaded = try store.load()
+        #expect(loaded == expected)
+        #expect(try Data(contentsOf: store.stateURL) == bytes)
+        let url = try #require(URL(string: "https://www.youtube-nocookie.com/embed/M7lc1UVf-VE"))
+        #expect(loaded.wallpapers[0].source == .remote(url: url))
+        #expect(try store.resolvedURL(for: loaded.wallpapers[0]) == url)
+        // Compatibility must survive saving/reloading the migrated v2 too.
+        var edited = loaded
+        edited.wallpapers.append(try Wallpaper.remote("https://cdn.example.com/video.mp4"))
+        try store.save(edited)
+        #expect(try store.load() == edited)
+        #expect(try store.resolvedURL(for: store.load().wallpapers[0]) == url)
+    }
+
     @Test func decodedInvalidEmbedCannotReachRendererOrSave() throws {
         let malformed = Data(#"{"provider":"youtube","videoID":"<script>"}"#.utf8)
         let embed = try JSONDecoder().decode(WebEmbed.self, from: malformed)

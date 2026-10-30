@@ -44,7 +44,7 @@ public struct LibraryStore: Sendable {
         case .web(let embed):
             try embed.validate()
             return embed.pageURL
-        case .remote(let url): return try MediaURL.validate(url.absoluteString)
+        case .remote(let url): return try MediaURL.validatePersisted(url.absoluteString)
         }
     }
 

@@ -44,6 +44,17 @@ public struct Wallpaper: Identifiable, Codable, Equatable, Sendable {
 
 public enum MediaURL {
     public static func validate(_ text: String) throws -> URL {
+        let url = try validatePersisted(text)
+        let host = url.host?.lowercased() ?? ""
+        guard host != "youtube-nocookie.com", !host.hasSuffix(".youtube-nocookie.com") else {
+            throw LibraryError.webPageURL
+        }
+        return url
+    }
+
+    /// Preserve the original remote-source contract for stored data, including
+    /// after migration to v2. New entries must use validate instead.
+    static func validatePersisted(_ text: String) throws -> URL {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty,
               !trimmed.contains(where: { $0.isWhitespace }),
@@ -52,7 +63,7 @@ public enum MediaURL {
               let host = components.host, !host.isEmpty,
               components.user == nil, components.password == nil,
               let url = components.url else { throw LibraryError.invalidURL }
-        let pageHosts = ["youtube.com", "youtube-nocookie.com", "youtu.be", "vimeo.com", "dailymotion.com", "twitch.tv"]
+        let pageHosts = ["youtube.com", "youtu.be", "vimeo.com", "dailymotion.com", "twitch.tv"]
         let normalizedHost = host.lowercased()
         guard !pageHosts.contains(where: { normalizedHost == $0 || normalizedHost.hasSuffix("." + $0) }),
               !["html", "htm", "php", "asp", "aspx"].contains(url.pathExtension.lowercased()) else {

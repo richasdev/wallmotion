@@ -40,7 +40,7 @@ public struct LibraryState: Codable, Equatable, Sendable {
                 try embed.validate()
             case .local(let filename): try LibraryStore.validateFilename(filename)
             case .remote(let url):
-                _ = try MediaURL.validate(url.absoluteString)
+                _ = try MediaURL.validatePersisted(url.absoluteString)
                 guard item.kind == .video else { throw LibraryError.invalidState }
             }
         }

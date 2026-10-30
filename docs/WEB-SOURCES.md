@@ -7,6 +7,7 @@ O seletor “Fonte web (YouTube ou Vimeo)” cria `MediaSource.web(embed:)`. O m
 - YouTube: HTTPS de vídeo individual `watch?v=`, `youtu.be/ID`, `shorts/ID`, `live/ID` ou `embed/ID`; ID ASCII de 11 caracteres. Usa youtube-nocookie.com; isso não elimina contato com o provedor nem garante ausência de rastreamento.
 - Vimeo: `vimeo.com/ID`, `vimeo.com/ID/HASH` e `player.vimeo.com/video/ID?h=HASH`. Preserva hash de vídeo não listado, sem login/senha. IDs numéricos positivos; hash alfanumérico até 64 caracteres.
 - Hosts/rotas explícitos, HTTPS, sem credenciais ou porta não padrão. Ignora tracking, timestamp e playlist de links de vídeo; links somente de playlist são rejeitados. Não repassa flags arbitrárias ao player.
+- Novas URLs diretas passam pela validação estrita de `MediaURL.validate`/`Wallpaper.remote`, que exige adicionar youtube-nocookie.com explicitamente como fonte web. Fontes remotas persistidas usam o contrato anterior em load/save/resolução, inclusive após migrar para v2. Assim, uma URL youtube-nocookie.com aceita na v1 continua `.remote`, sem conversão automática para WebKit; isso não garante que AVFoundation reproduza uma página de embed.
 - Estado v1 migra em memória para v2; bytes originais só mudam ao salvar uma edição. Preserva IDs, datas, seleções, preferências, arquivos e URLs assinadas. Estado inválido causa erro sem sobrescrever a biblioteca. Builds antigos não abrem v2.
 
 ## Renderização e segurança
@@ -61,3 +62,11 @@ Em 2026-10-30, neste worktree `agents/sol-web`:
 - `git diff --check`: aprovado.
 
 CI remoto segue bloqueado por billing (#11). Não foram medidos consumo sustentado de CPU/GPU/RAM/energia, comportamento prolongado de oclusão, macOS 14 físico ou múltiplos monitores. Esses limites precisam permanecer no PR draft e na revisão de integração.
+
+### Correção da compatibilidade legada solicitada no review
+
+O [BUG-HUNTER-1](https://github.com/richasdev/wallmotion/pull/35#issuecomment-6523112512) identificou que ampliar o bloqueio de novas URLs também invalidava bibliotecas v1 antes aceitas. O validador de fontes persistidas agora preserva o contrato anterior em load, save e resolução, mesmo em v2. O fluxo de inclusão continua estrito. Não há reclassificação automática das fontes antigas.
+
+O fixture JSON v1 literal com `https://www.youtube-nocookie.com/embed/M7lc1UVf-VE`, foto local e seleções cobre preservação integral, ausência de escrita no load, manutenção de `.remote` e round-trip após editar/salvar em v2. Testes adicionais confirmam rejeição da nova entrada direta e de URLs persistidas que já eram inválidas (HTTP, credenciais, hosts anteriormente bloqueados e HTML).
+
+Checks desta correção: `CARGO_INCREMENTAL=0 sh scripts/build-native.sh` aprovado; `swift test -j 2` aprovado (44 Swift Testing, 17 XCTest, 4 skips explícitos, sem warnings); `git diff --check` aprovado. Rust tests/Clippy não foram repetidos, pois não há alteração Rust/ABI. Nenhum teste de rede foi executado nesta revisão. Fixtures de persistência/JS/WebKit não certificam reprodução real YouTube/Vimeo. CI continua bloqueado por billing #11. O novo commit invalida os pareceres anteriores; são necessários três novos pareceres no mesmo HEAD antes de integração por outro agente.
