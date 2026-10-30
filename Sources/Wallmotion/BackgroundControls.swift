@@ -96,6 +96,7 @@ struct BackgroundControls: View {
         }
         .padding(16)
         .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(.primary.opacity(0.1), lineWidth: 1))
         .overlay(alignment: .top) {
             RoundedRectangle(cornerRadius: 1).fill(BrandTheme.auroraGradient)
                 .frame(height: 2).padding(.horizontal, 16).accessibilityHidden(true)
@@ -130,17 +131,26 @@ struct BackgroundControls: View {
                 Text(fitTitle(fit)).tag(fit)
             }
         }.labelsHidden().accessibilityLabel("Enquadramento do fundo")
+            .accessibilityValue(fitTitle(model.mediaFit(on: selectedDisplay)))
+            .accessibilityHint(Text(fitDescription(model.mediaFit(on: selectedDisplay))))
     }
 
     private var displayModePicker: some View {
+        ViewThatFits(in: .horizontal) {
+            displayModeOptions.pickerStyle(.segmented).fixedSize(horizontal: true, vertical: false)
+            displayModeOptions.pickerStyle(.menu)
+        }.frame(maxWidth: 380)
+    }
+
+    private var displayModeOptions: some View {
         Picker("Organização dos monitores", selection: Binding(
             get: { model.state.displayMode },
             set: { model.setDisplayMode($0, sourceDisplayID: selectedDisplay) }
         )) {
             Text("Separado por monitor").tag(DisplayMode.independent)
             Text("Mesmo fundo em todos").tag(DisplayMode.mirrored)
-        }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 380)
-            .accessibilityLabel("Organização dos monitores")
+        }.labelsHidden().accessibilityLabel("Organização dos monitores")
+            .accessibilityHint("No modo separado, cada monitor mantém sua escolha de fundo.")
     }
 
     private var audioHelp: String {

@@ -11,6 +11,11 @@ enum BrandTheme {
     static let cyan = Color(red: 0/255, green: 242/255, blue: 254/255)
     static let violet = Color(red: 127/255, green: 0/255, blue: 255/255)
 
+    /// Decorative cyan remains unchanged; selection contours need darker ink on light surfaces.
+    static func selection(for scheme: ColorScheme) -> Color {
+        scheme == .dark ? cyan : Color(red: 107/255, green: 56/255, blue: 204/255)
+    }
+
     /// Dynamic Aurora Linear Gradient (Cyan to Violet)
     static let auroraGradient = LinearGradient(
         colors: [cyan, violet],
@@ -73,5 +78,6 @@ struct BrandLogoView: View {
             .stroke(BrandTheme.cyan, style: StrokeStyle(lineWidth: size * 0.032, lineCap: .round))
         }
         .frame(width: size, height: size)
+        .accessibilityHidden(true)
     }
 }

@@ -147,11 +147,12 @@ struct LibraryView: View {
                 Text("Wallmotion").font(.title2.weight(.semibold))
             }.padding(.top, 18).padding(.bottom, 8)
             Text("MONITORES").font(.caption.weight(.semibold)).tracking(1).foregroundStyle(.secondary)
+                .accessibilityAddTraits(.isHeader)
             if model.displays.isEmpty {
                 Label("Nenhum monitor disponível", systemImage: "display.trianglebadge.exclamationmark")
                     .font(.callout).foregroundStyle(.secondary)
             }
-            ForEach(model.displays) { display in
+            ForEach(Array(model.displays.enumerated()), id: \.element.id) { index, display in
                 Button { selectedDisplay = display.id } label: {
                     HStack(spacing: 12) {
                         Image(systemName: "display").font(.title3)
@@ -173,8 +174,9 @@ struct LibraryView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(display.name)
-                .accessibilityValue(selectedDisplay == display.id ? "Monitor selecionado" : "Monitor disponível")
+                .accessibilityLabel("Monitor \(index + 1), \(display.name)")
+                .accessibilityValue(displayAccessibilityValue(display))
+                .accessibilityAddTraits(selectedDisplay == display.id ? .isSelected : [])
             }
             Spacer()
             VStack(alignment: .leading, spacing: 12) {
@@ -198,11 +200,18 @@ struct LibraryView: View {
         }.padding(18)
     }
 
+    private func displayAccessibilityValue(_ display: Display) -> String {
+        let selection = selectedDisplay == display.id ? "Monitor selecionado" : "Monitor disponível"
+        let wallpaper = appliedWallpaper(on: display.id).map { "Fundo aplicado: \($0.title)" } ?? "Fundo do sistema"
+        return [selection, wallpaper, model.remotePlaybackStates[display.id]?.description]
+            .compactMap { $0 }.joined(separator: ". ")
+    }
+
     private var header: some View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text("Sua biblioteca").font(.largeTitle.weight(.bold))
+                    Text("Sua biblioteca").font(.largeTitle.weight(.bold)).accessibilityAddTraits(.isHeader)
                     Spacer()
                     Text("WALLMOTION").font(.caption2.weight(.semibold)).tracking(2).foregroundStyle(.secondary)
                 }
@@ -296,6 +305,8 @@ struct LibraryView: View {
 }
 
 struct WallpaperCard: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var contrast
     let item: Wallpaper
     let localURL: URL?
     let isApplied: Bool
@@ -328,6 +339,10 @@ struct WallpaperCard: View {
         }
         .padding(16)
         .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(isApplied ? BrandTheme.cyan : .primary.opacity(0.07), lineWidth: isApplied ? 1.5 : 1))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(isApplied ? BrandTheme.selection(for: colorScheme) : .primary.opacity(0.07), lineWidth: isApplied ? (contrast == .increased ? 3 : 2) : 1))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(item.title)
+        .accessibilityValue(isApplied ? "Fundo aplicado" : "Não aplicado no monitor selecionado")
+        .accessibilityAddTraits(isApplied ? .isSelected : [])
     }
 }
