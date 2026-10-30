@@ -123,8 +123,9 @@ final class WebWallpaperRenderer: NSObject, WKNavigationDelegate {
             return
         }
         guard value.hasPrefix("error:") else { return }
-        let code = String(value.dropFirst(6).prefix(80))
-        fail("\(embed.provider == .youtube ? "YouTube" : "Vimeo") (\(code)): embed indisponível. O provedor pode bloquear autoplay, incorporação, origem ou exigir login/DRM, não suportados. Tente outro vídeo público.")
+        let code = String(decoding: value.dropFirst(6).utf8.prefix(96), as: UTF8.self)
+        lastEvent = "error:" + WebPlaybackFailure.identifier(from: code)
+        fail(WebPlaybackFailure.message(provider: embed.provider, code: code))
     }
 
     private func fail(_ message: String) {
@@ -135,7 +136,7 @@ final class WebWallpaperRenderer: NSObject, WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
         guard webView === self.webView, (error as NSError).code != NSURLErrorCancelled else { return }
-        fail("Falha ao carregar embed: \(error.localizedDescription)")
+        fail(WebPlaybackFailure.navigationMessage(provider: embed.provider, error: error))
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {

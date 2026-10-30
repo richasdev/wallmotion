@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import WallmotionCore
 
 struct LibraryView: View {
@@ -233,14 +234,27 @@ struct LibraryView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color.accentColor.opacity(0.07), in: RoundedRectangle(cornerRadius: 12))
             if let error = model.playbackErrors[selectedDisplay] {
-                HStack {
-                    Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
-                    Spacer()
-                    Button("Tentar novamente") { model.retryPlayback(displayID: selectedDisplay) }
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange)
+                        Text(error).foregroundStyle(.primary).fixedSize(horizontal: false, vertical: true)
+                    }.accessibilityElement(children: .combine)
+                    ViewThatFits(in: .horizontal) {
+                        HStack { playbackErrorActions }
+                        VStack(alignment: .leading, spacing: 8) { playbackErrorActions }
+                    }
                 }
                 .font(.callout).padding(12)
                 .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
             }
+        }
+    }
+
+    @ViewBuilder private var playbackErrorActions: some View {
+        Button("Tentar novamente") { model.retryPlayback(displayID: selectedDisplay) }
+        if let item = appliedWallpaper(on: selectedDisplay), case .web(let embed) = item.source {
+            Button("Abrir vídeo no navegador") { NSWorkspace.shared.open(embed.pageURL) }
+                .help("Conferir disponibilidade no site do provedor")
         }
     }
 
