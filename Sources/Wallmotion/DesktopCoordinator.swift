@@ -142,6 +142,7 @@ final class WallpaperRenderer {
     private var occlusionObserver: NSObjectProtocol?
     private(set) var playbackState = RendererPlaybackState()
     private(set) var audioEnabled = false
+    private(set) var audioVolume: Double = 1
     private let isWindowVisible: @MainActor (NSWindow) -> Bool
     private let seekToStart: @MainActor (AVPlayer, @escaping @MainActor @Sendable (Bool) -> Void) -> Void
 
@@ -257,8 +258,9 @@ final class WallpaperRenderer {
     /// request, since policy/rebuild/seek may run without a new occlusion event.
     private func applyPlaybackState() {
         playbackState.setVisible(isWindowVisible(window))
-        player?.isMuted = !(audioEnabled && playbackState.shouldPlay)
-        webRenderer?.setAudioEnabled(audioEnabled && playbackState.shouldPlay)
+        player?.volume = Float(audioVolume)
+        player?.isMuted = !(audioEnabled && audioVolume > 0 && playbackState.shouldPlay)
+        webRenderer?.setAudioPolicy(enabled: audioEnabled && playbackState.shouldPlay, volume: audioVolume)
         webRenderer?.setPaused(!playbackState.shouldPlay)
         imageView?.animates = playbackState.shouldPlay
         remotePlayback?.setPaused(!playbackState.shouldPlay)
@@ -283,8 +285,13 @@ final class WallpaperRenderer {
     }
 
     func setAudioEnabled(_ enabled: Bool) {
+        setAudioPolicy(enabled: enabled, volume: audioVolume)
+    }
+
+    func setAudioPolicy(enabled: Bool, volume: Double) {
         guard !playbackState.isStopped else { return }
         audioEnabled = enabled
+        audioVolume = volume.isFinite ? min(1, max(0, volume)) : 0
         applyPlaybackState()
     }
 
@@ -420,10 +427,12 @@ final class DesktopCoordinator {
             renderers.removeValue(forKey: id)?.renderer.stop()
         }
         gifBudget = gifBudget.retaining(displays: Set(renderers.keys))
-        renderers.values.forEach { $0.renderer.setAudioEnabled(false) }
+        for (id, entry) in renderers where state.settings.audioDisplayID != id || assignments[id] != entry.wallpaperID {
+            entry.renderer.setAudioEnabled(false)
+        }
         for (id, entry) in renderers {
             entry.renderer.setPaused(paused)
-            entry.renderer.setAudioEnabled(state.settings.audioDisplayID == id && assignments[id] == entry.wallpaperID)
+            entry.renderer.setAudioPolicy(enabled: state.settings.audioDisplayID == id && assignments[id] == entry.wallpaperID, volume: state.settings.audioVolume)
         }
         do { try validateAssignments(state: state, store: store) }
         catch {
@@ -476,7 +485,9 @@ final class DesktopCoordinator {
         }
         gifBudget = gifBudget.retaining(displays: Set(renderers.keys))
         // Silence every existing player before any display receives audio ownership.
-        renderers.values.forEach { $0.renderer.setAudioEnabled(false) }
+        for (id, entry) in renderers where state.settings.audioDisplayID != id || assignments[id] != entry.wallpaperID {
+            entry.renderer.setAudioEnabled(false)
+        }
         let proposed: GIFPlaybackBudget
         do { proposed = try proposedBudget(state: state, store: store, connected: currentTargets.map(\.id)) }
         catch {
@@ -502,7 +513,7 @@ final class DesktopCoordinator {
             if !force, !reloadRequested, let entry = renderers[displayID], entry.wallpaperID == wallpaperID, entry.frame == screen.frame,
                entry.mediaFit == mediaFit, entry.backingScale == screen.backingScaleFactor {
                 entry.renderer.setPaused(paused)
-                entry.renderer.setAudioEnabled(state.settings.audioDisplayID == displayID)
+                entry.renderer.setAudioPolicy(enabled: state.settings.audioDisplayID == displayID, volume: state.settings.audioVolume)
                 continue
             }
             let token = UUID()
@@ -526,7 +537,7 @@ final class DesktopCoordinator {
                 gifBudget = nextBudget
                 renderers[displayID] = Entry(wallpaperID: wallpaperID, frame: screen.frame, mediaFit: mediaFit, backingScale: screen.backingScaleFactor, token: token, renderer: renderer)
                 renderer.setPaused(paused)
-                renderer.setAudioEnabled(state.settings.audioDisplayID == displayID)
+                renderer.setAudioPolicy(enabled: state.settings.audioDisplayID == displayID, volume: state.settings.audioVolume)
                 if let state = renderer.remotePlaybackState { onState(displayID, state) }
             } catch {
                 renderers[displayID]?.renderer.setPaused(paused)

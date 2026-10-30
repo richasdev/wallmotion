@@ -19,18 +19,29 @@ final class WebWallpaperRenderer: NSObject, WKNavigationDelegate {
     private var startupTimeout: Task<Void, Never>?
     private(set) var isPlaying = false
     private(set) var audioEnabled = false
+    private(set) var audioVolume: Double = 1
     private var documentReady = false
+    private var appliedAudioPolicy: String?
 
     func setAudioEnabled(_ enabled: Bool) {
         guard !stopped else { return }
+        setAudioPolicy(enabled: enabled, volume: audioVolume)
+    }
+
+    func setAudioPolicy(enabled: Bool, volume: Double) {
+        guard !stopped else { return }
         audioEnabled = enabled
+        audioVolume = volume.isFinite ? min(1, max(0, volume)) : 0
         applyAudioPolicy()
     }
 
     private func applyAudioPolicy() {
         guard documentReady, let webView else { return }
-        // Only a Swift Bool enters JavaScript; no media/user strings are evaluated.
-        webView.evaluateJavaScript("window.setAudioEnabled(\(audioEnabled ? "true" : "false"))", completionHandler: nil)
+        // Only bounded numbers and a Swift Bool enter JavaScript.
+        let script = "window.setAudioPolicy(\(audioEnabled && audioVolume > 0 ? "true" : "false"),\(audioVolume))"
+        guard script != appliedAudioPolicy else { return }
+        appliedAudioPolicy = script
+        webView.evaluateJavaScript(script, completionHandler: nil)
     }
     private(set) var lastEvent = "loading"
 
@@ -82,6 +93,7 @@ final class WebWallpaperRenderer: NSObject, WKNavigationDelegate {
         startupTimeout = nil
         isPlaying = false
         documentReady = false
+        appliedAudioPolicy = nil
         guard let view = webView else { return }
         // Public WebKit APIs suspend media even if the provider SDK has failed.
         view.setAllMediaPlaybackSuspended(true, completionHandler: nil)
@@ -167,6 +179,12 @@ final class WebWallpaperRenderer: NSObject, WKNavigationDelegate {
             <iframe id="player" src="https://www.youtube-nocookie.com/embed/\(embed.videoID)?enablejsapi=1&origin=\(origin)&playsinline=1&mute=1&loop=1&playlist=\(embed.videoID)" allow="autoplay" referrerpolicy="strict-origin-when-cross-origin"></iframe>
             <script>
             window.setAudioEnabled=function(enabled){if(window.player){if(enabled===true)player.unMute();else player.mute()}};
+            window.setAudioPolicy=function(enabled,volume){
+              if(!window.player)return;
+              var level=typeof volume==="number" && Number.isFinite(volume)?Math.max(0,Math.min(1,volume)):0;
+              player.setVolume(level*100);
+              window.setAudioEnabled(enabled===true && level>0);
+            };
             function onYouTubeIframeAPIReady(){report("sdk-ready");
               window.player=new YT.Player("player",{events:{
                 onReady:function(e){e.target.mute();e.target.playVideo();report("ready")},
@@ -185,6 +203,21 @@ final class WebWallpaperRenderer: NSObject, WKNavigationDelegate {
         <script>
         window.player=new Vimeo.Player(document.getElementById("player"));
         window.setAudioEnabled=function(enabled){player.setMuted(enabled!==true).catch(vimeoError)};
+        var audioVersion=0,audioChain=Promise.resolve();
+        window.setAudioPolicy=function(enabled,volume){
+          var version=++audioVersion;
+          var level=typeof volume==="number" && Number.isFinite(volume)?Math.max(0,Math.min(1,volume)):0;
+          audioChain=audioChain.catch(function(){}).then(function(){
+            if(version!==audioVersion)return;
+            return player.setMuted(true).then(function(){
+              if(version!==audioVersion)return;
+              return player.setVolume(level);
+            }).then(function(){
+              if(version!==audioVersion)return;
+              return player.setMuted(enabled!==true || level===0);
+            });
+          }).catch(vimeoError);
+        };
         player.on("playing",function(){report("playing")});
         function vimeoError(e){report("error:"+e.name+": "+(e.message||""))}
         player.on("error",vimeoError);

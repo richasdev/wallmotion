@@ -241,14 +241,85 @@ final class WebWallpaperRendererTests: XCTestCase {
         }
     }
 
+    func testVimeoVolumePoliciesSerializeAndDiscardStaleUnmute() async throws {
+        let html = WebWallpaperRenderer.document(embed: try WebEmbed.parse("https://vimeo.com/76979871"), origin: "https://dev.richas.wallmotion")
+        let context = try XCTUnwrap(JSContext())
+        context.evaluateScript("""
+        var window=this, muted=true, volume=1, plays=0, events=[], pendingVolumes=[];
+        var document={getElementById:function(){return {}}};
+        window.webkit={messageHandlers:{playback:{postMessage:function(){}}}};
+        var Vimeo={Player:function(){return {
+          on:function(){},ready:function(){return Promise.resolve()},play:function(){plays++;return Promise.resolve()},
+          setMuted:function(value){muted=value;events.push('mute:'+value);return Promise.resolve()},
+          setVolume:function(value){events.push('volume:'+value);return new Promise(function(resolve){pendingVolumes.push(function(){volume=value;resolve()})})}
+        }}};
+        """)
+        let regex = try NSRegularExpression(pattern: "<script>([\\s\\S]*?)</script>")
+        for match in regex.matches(in: html, range: NSRange(html.startIndex..., in: html)) {
+            let range = try XCTUnwrap(Range(match.range(at: 1), in: html))
+            context.evaluateScript(String(html[range]))
+            XCTAssertNil(context.exception, context.exception?.toString() ?? "")
+        }
+        func waitUntil(_ expression: String) async throws {
+            let deadline = ContinuousClock.now + .seconds(2)
+            while ContinuousClock.now < deadline {
+                if context.evaluateScript(expression)?.toBool() == true { return }
+                try await Task.sleep(for: .milliseconds(5))
+            }
+            XCTFail("JS policy did not settle: \(expression)")
+        }
+        try await waitUntil("plays===1")
+        context.evaluateScript("events=[];window.setAudioPolicy(true,0.8)")
+        try await waitUntil("pendingVolumes.length===1")
+        context.evaluateScript("window.setAudioPolicy(false,0.2);window.setAudioPolicy(true,0.3)")
+        XCTAssertTrue(context.objectForKeyedSubscript("muted")?.toBool() == true)
+        context.evaluateScript("pendingVolumes.shift()()")
+        try await waitUntil("pendingVolumes.length===1 && events.indexOf('volume:0.3')>=0")
+        XCTAssertFalse(context.evaluateScript("events.indexOf('mute:false')>=0")?.toBool() == true)
+        XCTAssertFalse(context.evaluateScript("events.indexOf('volume:0.2')>=0")?.toBool() == true)
+        context.evaluateScript("pendingVolumes.shift()()")
+        try await waitUntil("muted===false && volume===0.3")
+        XCTAssertEqual(context.objectForKeyedSubscript("plays")?.toInt32(), 1, "Changing gain must not restart transport")
+        context.evaluateScript("window.setAudioPolicy(true,NaN)")
+        try await waitUntil("pendingVolumes.length===1")
+        context.evaluateScript("pendingVolumes.shift()()")
+        try await waitUntil("muted===true && volume===0")
+        XCTAssertNil(context.exception, context.exception?.toString() ?? "")
+    }
+
+    func testYouTubeVolumeIsBoundedBeforeUnmuteWithoutRestart() throws {
+        let html = WebWallpaperRenderer.document(embed: try WebEmbed.parse("https://youtu.be/M7lc1UVf-VE"), origin: "https://dev.richas.wallmotion")
+        let context = try XCTUnwrap(JSContext())
+        context.evaluateScript("""
+        var window=this,muted=true,volume=100,plays=0,events=[];
+        window.webkit={messageHandlers:{playback:{postMessage:function(){}}}};
+        var transport={mute:function(){muted=true;events.push('mute')},unMute:function(){muted=false;events.push('unmute')},setVolume:function(v){volume=v;events.push('volume:'+v)},playVideo:function(){plays++}};
+        var YT={Player:function(id,options){options.events.onReady({target:transport});return transport}};
+        """)
+        let regex = try NSRegularExpression(pattern: "<script>([\\s\\S]*?)</script>")
+        for match in regex.matches(in: html, range: NSRange(html.startIndex..., in: html)) {
+            let range = try XCTUnwrap(Range(match.range(at: 1), in: html))
+            context.evaluateScript(String(html[range]))
+        }
+        context.evaluateScript("onYouTubeIframeAPIReady();events=[];window.setAudioPolicy(true,0.25)")
+        XCTAssertEqual(context.evaluateScript("events.join(',')")?.toString(), "volume:25,unmute")
+        context.evaluateScript("window.setAudioPolicy(true,Infinity)")
+        XCTAssertEqual(context.objectForKeyedSubscript("volume")?.toInt32(), 0)
+        XCTAssertTrue(context.objectForKeyedSubscript("muted")?.toBool() == true)
+        context.evaluateScript("window.setAudioPolicy(true,2)")
+        XCTAssertEqual(context.objectForKeyedSubscript("volume")?.toInt32(), 100)
+        XCTAssertEqual(context.objectForKeyedSubscript("plays")?.toInt32(), 1)
+        XCTAssertNil(context.exception, context.exception?.toString() ?? "")
+    }
+
     func testReadyAudioPolicySurvivesViewReplacementWithoutNetwork() async throws {
         let document = """
-        <script>window.audio=false;window.setAudioEnabled=function(value){window.audio=value===true};
+        <script>window.audio=false;window.setAudioPolicy=function(value,volume){window.audio=value===true && volume>0;window.volume=volume;window.applies=(window.applies||0)+1};
         window.webkit.messageHandlers.playback.postMessage('ready');</script>
         """
         let renderer = try WebWallpaperRenderer(embed: WebEmbed(provider: .youtube, videoID: "M7lc1UVf-VE"), onError: { XCTFail($0) }, document: document)
         defer { renderer.stop() }
-        renderer.setAudioEnabled(true)
+        renderer.setAudioPolicy(enabled: true, volume: 0.25)
         renderer.setPaused(false)
         let first = try XCTUnwrap(renderer.webView)
         func waitForAudio(_ expected: Bool) async throws {
@@ -260,6 +331,16 @@ final class WebWallpaperRendererTests: XCTestCase {
             XCTFail("Audio policy did not reach ready document")
         }
         try await waitForAudio(true)
+        let firstVolume = try await renderer.webView?.evaluateJavaScript("window.volume")
+        XCTAssertEqual(firstVolume as? Double, 0.25)
+        renderer.setAudioPolicy(enabled: true, volume: 0.25)
+        renderer.setPaused(false)
+        let applies = try await renderer.webView?.evaluateJavaScript("window.applies")
+        XCTAssertEqual(applies as? Int, 1, "Unchanged policy must not enqueue more SDK commands")
+        renderer.setAudioPolicy(enabled: true, volume: 0)
+        try await waitForAudio(false)
+        renderer.setAudioPolicy(enabled: true, volume: 0.4)
+        try await waitForAudio(true)
         renderer.setAudioEnabled(false)
         try await waitForAudio(false)
         XCTAssertTrue(renderer.webView === first)
@@ -268,6 +349,8 @@ final class WebWallpaperRendererTests: XCTestCase {
         renderer.setPaused(false)
         XCTAssertFalse(renderer.webView === first)
         try await waitForAudio(true)
+        let restoredVolume = try await renderer.webView?.evaluateJavaScript("window.volume")
+        XCTAssertEqual(restoredVolume as? Double, 0.4)
     }
 
     func testProviderDocumentsUseOfficialAPIsAndIdentity() throws {
