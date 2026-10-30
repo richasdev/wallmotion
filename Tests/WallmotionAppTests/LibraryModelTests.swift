@@ -4,6 +4,23 @@ import XCTest
 import WallmotionCore
 @testable import Wallmotion
 
+private actor TestAsyncGate {
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        guard !isOpen else { return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    func open() {
+        isOpen = true
+        let pending = waiters
+        waiters.removeAll(keepingCapacity: true)
+        pending.forEach { $0.resume() }
+    }
+}
+
 @MainActor
 final class LibraryModelTests: XCTestCase {
     private func temporaryDirectory() throws -> URL {
@@ -100,6 +117,78 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: source), originalBytes)
         XCTAssertTrue(try store.load().wallpapers.isEmpty)
         XCTAssertNil(model.errorMessage)
+    }
+
+    func testImportQueuesConcurrentSelectionsAndKeepsValidDuplicatesAndOriginals() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = LibraryStore(rootURL: directory.appendingPathComponent("Library", isDirectory: true))
+        let source = directory.appendingPathComponent("Selecionada.png")
+        let originalBytes = try writePhoto(to: source)
+        let folder = directory.appendingPathComponent("Pasta", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let unsupported = directory.appendingPathComponent("notas.txt")
+        try Data("texto".utf8).write(to: unsupported)
+        let model = LibraryModel(store: store)
+        defer { model.stop() }
+
+        let firstSelection = Task { await model.importFiles([source]) }
+        await Task.yield()
+        await model.importFiles([folder, source, unsupported])
+        await firstSelection.value
+
+        XCTAssertFalse(model.isImporting)
+        XCTAssertEqual(model.state.wallpapers.count, 2)
+        XCTAssertNotNil(model.errorMessage)
+        XCTAssertEqual(try Data(contentsOf: source), originalBytes)
+        let copies = try model.state.wallpapers.map { try store.resolvedURL(for: $0) }
+        XCTAssertEqual(Set(copies).count, 2)
+        for copy in copies { XCTAssertEqual(try Data(contentsOf: copy), originalBytes) }
+    }
+
+    func testImportDrainsSelectionQueuedDuringFailedSaveRollback() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = LibraryStore(rootURL: directory.appendingPathComponent("Library", isDirectory: true))
+        let failedSource = directory.appendingPathComponent("Rollback.png")
+        let failedBytes = try writePhoto(to: failedSource)
+        let queuedSource = directory.appendingPathComponent("Queued.png")
+        let queuedBytes = try writePhoto(to: queuedSource)
+        let cleanupStarted = TestAsyncGate()
+        let finishCleanup = TestAsyncGate()
+        let model = LibraryModel(store: store, beforeRollbackCleanup: {
+            await cleanupStarted.open()
+            await finishCleanup.wait()
+        })
+        defer { model.stop() }
+
+        // Replacing the not-yet-created state file path with a directory makes save fail
+        // after the first media copy, forcing the asynchronous rollback path.
+        try FileManager.default.createDirectory(at: store.stateURL, withIntermediateDirectories: true)
+        let failedSelection = Task { await model.importFiles([failedSource]) }
+        await cleanupStarted.wait()
+
+        let queuedSelection = Task { await model.importFiles([queuedSource]) }
+        let deadline = ContinuousClock.now + .seconds(5)
+        while model.queuedImportCount == 0, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(1))
+        }
+        let selectionWasQueuedDuringCleanup = model.queuedImportCount == 1
+
+        try FileManager.default.removeItem(at: store.stateURL)
+        await finishCleanup.open()
+        await failedSelection.value
+        await queuedSelection.value
+
+        XCTAssertTrue(selectionWasQueuedDuringCleanup, "A second selection must reach the queue before rollback finishes.")
+        XCTAssertFalse(model.isImporting)
+        XCTAssertEqual(model.state.wallpapers.map(\.title), ["Queued"])
+        XCTAssertNotNil(model.errorMessage)
+        XCTAssertEqual(try Data(contentsOf: failedSource), failedBytes)
+        XCTAssertEqual(try Data(contentsOf: queuedSource), queuedBytes)
+        XCTAssertEqual(try store.load(), model.state)
+        let mediaFiles = try FileManager.default.contentsOfDirectory(at: store.mediaDirectory, includingPropertiesForKeys: nil)
+        XCTAssertEqual(mediaFiles.count, 1, "Rollback removes the failed copy while the queued import persists its own copy.")
     }
 
     func testRejectedGIFSelectionPreservesPersistedAssignmentAndOtherMonitors() throws {

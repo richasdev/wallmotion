@@ -10,6 +10,8 @@ struct LibraryView: View {
     @State private var urlText = ""
     @State private var urlError: String?
     @State private var pendingRemoval: Wallpaper?
+    @State private var isDropTargeted = false
+    @State private var dropMessage = ""
 
     private var filteredItems: [Wallpaper] {
         model.state.wallpapers.filter { search.isEmpty || $0.title.localizedCaseInsensitiveContains(search) }
@@ -53,6 +55,33 @@ struct LibraryView: View {
         }
         .padding(28)
         .background(Color(nsColor: .windowBackgroundColor))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(isDropTargeted ? Color.accentColor : .clear, lineWidth: 3)
+                .padding(6)
+                .allowsHitTesting(false)
+        }
+        .dropDestination(for: URL.self, action: { urls, _ in
+            guard !urls.isEmpty, model.canEdit else { return false }
+            dropMessage = "Arquivos recebidos. Importando mídia."
+            Task { @MainActor in
+                await model.importFiles(urls)
+                dropMessage = model.errorMessage == nil
+                    ? "Importação concluída."
+                    : "Importação concluída com arquivos que não puderam ser adicionados."
+            }
+            return true
+        }, isTargeted: { isDropTargeted = $0 })
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Biblioteca de mídia. Solte fotos, GIFs ou vídeos para importar.")
+        .overlay(alignment: .bottomLeading) {
+            if !dropMessage.isEmpty {
+                Text(dropMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .accessibilityAddTraits(.updatesFrequently)
+            }
+        }
     }
 
     @ViewBuilder private var libraryContent: some View {
