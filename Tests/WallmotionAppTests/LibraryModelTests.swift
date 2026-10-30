@@ -228,6 +228,79 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(mediaFiles.count, 1, "Rollback removes the failed copy while the queued import persists its own copy.")
     }
 
+    func testOversizeImportBatchIsRejectedAtomicallyAndNextCycleCanImport() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = LibraryStore(rootURL: directory.appendingPathComponent("Library", isDirectory: true))
+        let source = directory.appendingPathComponent("Source.png")
+        let original = try writePhoto(to: source)
+        let model = LibraryModel(thermalState: { .nominal }, store: store, connectedDisplays: { [] })
+        defer { model.stop() }
+        await model.importFiles(Array(repeating: source, count: LibraryModel.maximumImportURLsPerCycle + 1))
+        XCTAssertFalse(model.isImporting)
+        XCTAssertEqual(model.queuedImportCount, 0)
+        XCTAssertTrue(model.state.wallpapers.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: store.mediaDirectory.path))
+        XCTAssertTrue(model.errorMessage?.contains("256") == true)
+        model.errorMessage = nil
+        await model.importFiles([source])
+        XCTAssertEqual(model.state.wallpapers.count, 1)
+        XCTAssertNil(model.errorMessage)
+        XCTAssertEqual(try Data(contentsOf: source), original)
+    }
+
+    func testImportCycleBudgetIncludesActiveBatchDuringRollbackAndResets() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = LibraryStore(rootURL: directory.appendingPathComponent("Library", isDirectory: true))
+        let source = directory.appendingPathComponent("Source.png")
+        _ = try writePhoto(to: source)
+        let cleanupStarted = TestAsyncGate()
+        let finishCleanup = TestAsyncGate()
+        let model = LibraryModel(thermalState: { .nominal }, store: store, connectedDisplays: { [] }, beforeRollbackCleanup: {
+            await cleanupStarted.open()
+            await finishCleanup.wait()
+        })
+        defer { model.stop() }
+        try FileManager.default.createDirectory(at: store.stateURL, withIntermediateDirectories: true)
+        let active = Task { await model.importFiles([source]) }
+        await cleanupStarted.wait()
+        let unsupported = directory.appendingPathComponent("unsupported.txt")
+        let queuedCount = LibraryModel.maximumImportURLsPerCycle - 1
+        let queued = Task { await model.importFiles(Array(repeating: unsupported, count: queuedCount)) }
+        let deadline = ContinuousClock.now + .seconds(5)
+        while model.queuedImportCount == 0, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(1))
+        }
+        XCTAssertEqual(model.queuedImportCount, queuedCount)
+        await model.importFiles([source]) // Exceeds total even though only 255 are pending.
+        XCTAssertEqual(model.queuedImportCount, queuedCount)
+        XCTAssertTrue(model.errorMessage?.contains("256") == true)
+        try FileManager.default.removeItem(at: store.stateURL)
+        await finishCleanup.open()
+        await active.value
+        await queued.value
+        XCTAssertFalse(model.isImporting)
+        XCTAssertTrue(model.state.wallpapers.isEmpty)
+        XCTAssertTrue(model.errorMessage?.contains("245") == true)
+        XCTAssertTrue(model.errorMessage?.contains("256") == true, "The rejected batch warning survives the accepted cycle.")
+        model.errorMessage = nil
+        await model.importFiles([source])
+        XCTAssertEqual(model.state.wallpapers.count, 1)
+        XCTAssertNil(model.errorMessage)
+    }
+
+    func testImportFailureSummaryBoundsDetailsByUTF8BytesAndCountsRemainder() {
+        var failures = ImportFailureSummary()
+        let oversized = String(repeating: "🌅", count: 1000)
+        for _ in 0..<256 { failures.append(oversized) }
+        XCTAssertEqual(failures.count, 256)
+        XCTAssertEqual(failures.details.count, 10)
+        XCTAssertTrue(failures.details.allSatisfy { $0.utf8.count <= 1024 && $0.hasSuffix("…") && !$0.contains("�") })
+        XCTAssertTrue(failures.message?.contains("246") == true)
+        XCTAssertLessThanOrEqual(failures.message?.utf8.count ?? Int.max, 11_000)
+    }
+
     func testRejectedGIFSelectionPreservesPersistedAssignmentAndOtherMonitors() throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

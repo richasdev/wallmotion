@@ -21,6 +21,9 @@ final class LibraryModel {
     private var screenLocked = false
     private var lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
     private var observers: [(NotificationCenter, NSObjectProtocol)] = []
+    static let maximumImportURLsPerCycle = 256
+    private var acceptedImportCount = 0
+    private var rejectedDuringImport = false
     private var pendingImportURLs: [URL] = []
     private var importWaiters: [CheckedContinuation<Void, Never>] = []
     @ObservationIgnored private let beforeRollbackCleanup: (@MainActor () async -> Void)?
@@ -162,6 +165,7 @@ final class LibraryModel {
         guard canEdit, !isImporting else { return }
         let panel = NSOpenPanel()
         panel.title = "Importar fotos, GIFs e vídeos"
+        panel.message = "Selecione até 256 arquivos por vez. Para seleções maiores, importe em lotes."
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = true
         panel.allowedContentTypes = ["jpg", "jpeg", "png", "heic", "heif", "tiff", "tif", "bmp", "gif", "mp4", "mov", "m4v"].compactMap { UTType(filenameExtension: $0) }
@@ -174,6 +178,12 @@ final class LibraryModel {
 
     func importFiles(_ urls: [URL]) async {
         guard canEdit, !urls.isEmpty else { return }
+        guard urls.count <= Self.maximumImportURLsPerCycle - acceptedImportCount else {
+            if isImporting { rejectedDuringImport = true }
+            errorMessage = Self.importLimitMessage
+            return
+        }
+        acceptedImportCount += urls.count
         pendingImportURLs.append(contentsOf: urls)
         if isImporting {
             await withCheckedContinuation { importWaiters.append($0) }
@@ -182,11 +192,13 @@ final class LibraryModel {
         isImporting = true
         defer {
             isImporting = false
+            acceptedImportCount = 0
+            rejectedDuringImport = false
             let waiters = importWaiters
             importWaiters.removeAll(keepingCapacity: true)
             waiters.forEach { $0.resume() }
         }
-        var failures: [String] = []
+        var failures = ImportFailureSummary()
         var imported: [Wallpaper] = []
         while true {
             while !pendingImportURLs.isEmpty {
@@ -218,8 +230,12 @@ final class LibraryModel {
             imported.removeAll(keepingCapacity: true)
             if pendingImportURLs.isEmpty { break }
         }
-        if !failures.isEmpty { errorMessage = failures.joined(separator: "\n") }
+        var messages = [failures.message].compactMap { $0 }
+        if rejectedDuringImport { messages.append(Self.importLimitMessage) }
+        if !messages.isEmpty { errorMessage = messages.joined(separator: "\n") }
     }
+
+    private static let importLimitMessage = "Este lote não foi adicionado. Importe até 256 arquivos por vez; se uma importação já estiver em andamento, aguarde a conclusão e tente novamente."
 
     @discardableResult func addURL(_ text: String, web: Bool = false) -> Bool {
         do {

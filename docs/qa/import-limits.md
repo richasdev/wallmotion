@@ -1,0 +1,11 @@
+# Bounded import admission and diagnostics
+
+A LibraryModel import cycle accepts at most 256 URLs total, including URLs already copied/being copied, queued batches and accepted calls waiting for the cycle to finish. The counter is not released after each copy: a continuous stream cannot keep the cycle alive while growing its pending publication list indefinitely. Every new batch is accepted entirely or rejected entirely before acquiring security-scoped resources or copying files. Rejected calls return promptly with an actionable message; no rejected URLs are retained and no continuation is added.
+
+The cycle owner resets the admission counter and rejection flag on exit and resumes all accepted waiters. Existing sequential copy, transactional publication, rollback cleanup, duplicate-file behavior and original-file preservation remain in place. Rollback still accepts later batches within remaining capacity and drains them afterward. The rejection warning survives the final accepted-file diagnostic report.
+
+Failure details retain only the first ten entries, each at most 1024 UTF-8 bytes including a truncation ellipsis, followed by the count of remaining failures. UTF-8 truncation preserves valid scalar boundaries, including emoji. Total accepted files remain counted as failures even when details are omitted. This bounds retained diagnostics and admission count; it is not a byte budget for the incoming URL array, copied media bytes, the complete library, or decoder memory.
+
+The file picker explains the limit before selection; drag-and-drop and launch forwarding use the same model admission path. Existing forward acknowledgement is dispatch acknowledgement, not import success, so an oversized forwarded batch can be rejected at the primary and require a smaller retry.
+
+Tests reject a 257-file initial batch without creating a media directory, then successfully import a later batch. A real-copy/save-failure fixture holds rollback, queues 255 unsupported files behind one active import, rejects the next file, drains and resumes accepted calls, preserves the rejection warning, and admits a subsequent new cycle. Summary coverage uses 256 multibyte failures to check detail count, byte size, valid Unicode and remainder accounting. Fixtures use temporary libraries and never seed user data.
