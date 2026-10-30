@@ -89,6 +89,36 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertNil(restored.localMediaURL(for: try XCTUnwrap(restored.state.wallpapers.first)))
     }
 
+    func testMediaFitPersistsForEachWallpaperOnTheSelectedDisplay() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        guard let screen = NSScreen.screens.first, let displayID = Display.identify(screen) else {
+            throw XCTSkip("A seleção de monitor requer uma sessão gráfica.")
+        }
+        let store = LibraryStore(rootURL: directory.appendingPathComponent("Library"))
+        let photo = directory.appendingPathComponent("photo.png")
+        _ = try writePhoto(to: photo)
+        let model = LibraryModel(store: store)
+        defer { model.stop() }
+        await model.importFiles([photo, photo])
+        model.refreshPlayback(force: false)
+        let first = model.state.wallpapers[0]
+        let second = model.state.wallpapers[1]
+        model.apply(first, to: displayID)
+        model.setMediaFit(.fill, on: displayID)
+        model.apply(second, to: displayID)
+        XCTAssertEqual(model.state.mediaFit(for: second.id, on: displayID), .fit)
+        model.apply(first, to: displayID)
+        XCTAssertEqual(model.state.mediaFit(for: first.id, on: displayID), .fill)
+        let restored = LibraryModel(store: store)
+        defer { restored.stop() }
+        XCTAssertEqual(restored.state.mediaFit(for: first.id, on: displayID), .fill)
+        XCTAssertEqual(try store.load(), model.state)
+        model.clear(displayID: displayID)
+        XCTAssertEqual(model.state.mediaFit(for: first.id, on: displayID), .fill)
+        XCTAssertNil(model.errorMessage)
+    }
+
     func testAsyncImportAndRemovalOnlyDeleteTheLibraryCopy() async throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -254,6 +284,26 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(engine.gifBudget.totalBytes, 0)
     }
 
+    func testNativeFitPreferenceDoesNotChangeOfficialWebEmbedState() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        guard let screen = NSScreen.screens.first, let displayID = Display.identify(screen) else {
+            throw XCTSkip("É necessário um display para validar a seleção.")
+        }
+        let store = LibraryStore(rootURL: directory.appendingPathComponent("Library"))
+        let item = try Wallpaper.web("https://youtu.be/M7lc1UVf-VE")
+        let initial = LibraryState(wallpapers: [item], assignments: [displayID: item.id],
+                                   settings: .init(isManuallyPaused: true))
+        try store.save(initial)
+        let bytes = try Data(contentsOf: store.stateURL)
+        let model = LibraryModel(store: store)
+        defer { model.stop() }
+        model.refreshPlayback(force: false)
+        model.setMediaFit(.fill, on: displayID)
+        XCTAssertEqual(model.state, initial)
+        XCTAssertEqual(try Data(contentsOf: store.stateURL), bytes)
+    }
+
     func testOptionalLibraryViewSnapshotUsesOnlyTemporaryFixtures() async throws {
         guard let path = ProcessInfo.processInfo.environment["WALLMOTION_SNAPSHOT_PATH"], !path.isEmpty else {
             throw XCTSkip("Defina WALLMOTION_SNAPSHOT_PATH para exportar o snapshot de QA.")
@@ -270,6 +320,10 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertTrue(model.addURL("https://media.example.com/Cidade-noturna.m3u8"))
         model.refreshPlayback(force: false)
 
+        if let display = model.displays.first, let photo = model.state.wallpapers.first {
+            model.apply(photo, to: display.id)
+            model.setMediaFit(.fill, on: display.id)
+        }
         let bounds = NSRect(x: 0, y: 0, width: 1120, height: 760)
         let hosting = NSHostingView(rootView: LibraryView(model: model))
         hosting.frame = bounds

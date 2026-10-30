@@ -30,6 +30,12 @@ struct LibraryView: View {
         return model.state.wallpapers.first(where: { $0.id == id })
     }
 
+    private var supportsMediaFit: Bool {
+        guard let wallpaper = appliedWallpaper(on: selectedDisplay) else { return false }
+        if case .web = wallpaper.source { return false }
+        return true
+    }
+
     var body: some View {
         NavigationSplitView {
             sidebar
@@ -65,6 +71,24 @@ struct LibraryView: View {
     private var detail: some View {
         VStack(alignment: .leading, spacing: 24) {
             header
+            if let wallpaperID = model.state.assignments[selectedDisplay], supportsMediaFit {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Exibição neste monitor").font(.callout.weight(.semibold))
+                    Picker("Exibição neste monitor", selection: Binding(
+                        get: { model.state.mediaFit(for: wallpaperID, on: selectedDisplay) },
+                        set: { model.setMediaFit($0, on: selectedDisplay) }
+                    )) {
+                        Text("Ajustar").tag(MediaFit.fit)
+                        Text("Preencher").tag(MediaFit.fill)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(maxWidth: 320)
+                    .disabled(!model.canEdit)
+                    Text("Ajustar mostra toda a mídia. Preencher recorta as bordas, sem distorcer. Fotos muito grandes usam resolução reduzida para limitar memória.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
             libraryContent
             if model.isImporting { ProgressView("Copiando mídia para a biblioteca…").controlSize(.small) }
         }

@@ -200,6 +200,17 @@ final class LibraryModel {
         }
     }
 
+    func setMediaFit(_ fit: MediaFit, on displayID: String) {
+        guard displays.contains(where: { $0.id == displayID }),
+              let wallpaperID = state.assignments[displayID],
+              let wallpaper = state.wallpapers.first(where: { $0.id == wallpaperID }) else { return }
+        // Official embeds keep the provider's proportional presentation.
+        if case .web = wallpaper.source { return }
+        var next = state
+        next.setMediaFit(fit, for: wallpaperID, on: displayID)
+        if update(next) { refreshPlayback(force: false) }
+    }
+
     func clear(displayID: String) {
         var next = state
         next.assignments.removeValue(forKey: displayID)
