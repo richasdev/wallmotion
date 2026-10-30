@@ -206,6 +206,35 @@ final class WebWallpaperRendererTests: XCTestCase {
         XCTAssertNil(renderer.webView, "Falhas exigem recarga explícita, sem retry em eventos de monitores/energia")
     }
 
+    func testProviderFailureDoesNotExposeRawURLInMessageOrEvent() async throws {
+        var failure: String?
+        let document = "<script>window.webkit.messageHandlers.playback.postMessage('error:PlaybackError:https://example.com/video?h=PRIVATE_TOKEN')</script>"
+        let renderer = try WebWallpaperRenderer(embed: WebEmbed(provider: .vimeo, videoID: "19231868"), onError: { failure = $0 }, document: document)
+        defer { renderer.stop() }
+        renderer.setPaused(false)
+        let deadline = ContinuousClock.now + .seconds(3)
+        while failure == nil && ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertNotNil(failure)
+        XCTAssertFalse(failure?.contains("PRIVATE_TOKEN") == true)
+        XCTAssertFalse(failure?.contains("https://") == true)
+        XCTAssertEqual(renderer.lastEvent, "error:PlaybackError")
+        XCTAssertNil(renderer.webView)
+    }
+
+    func testNavigationFailureDoesNotExposeNSErrorURLAndDiscardsView() throws {
+        var failure: String?
+        let renderer = try WebWallpaperRenderer(embed: WebEmbed(provider: .vimeo, videoID: "19231868"), onError: { failure = $0 }, document: "<html>Offline navigation fixture</html>")
+        defer { renderer.stop() }
+        renderer.setPaused(false)
+        let view = try XCTUnwrap(renderer.webView)
+        let error = NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotConnectToHost, userInfo: [NSLocalizedDescriptionKey: "https://example.com/?h=PRIVATE_TOKEN"])
+        renderer.webView(view, didFail: nil, withError: error)
+        XCTAssertNotNil(failure)
+        XCTAssertFalse(failure?.contains("PRIVATE_TOKEN") == true)
+        XCTAssertFalse(failure?.contains("https://") == true)
+        XCTAssertNil(renderer.webView)
+    }
+
     func testProviderAudioCommandsUseBooleanPolicyWithoutRestartOffline() throws {
         for provider in [WebEmbed.Provider.youtube, .vimeo] {
             let embed = try WebEmbed(provider: provider, videoID: provider == .youtube ? "M7lc1UVf-VE" : "76979871")
