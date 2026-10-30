@@ -24,6 +24,8 @@ open dist/Wallmotion.app
 
 O script compila o scanner Rust como biblioteca estática e depois o app Swift. Para usar `swift test` ou abrir `Package.swift` no Xcode diretamente, execute `sh scripts/build-native.sh` antes. O `.app` inclui o Rust no executável e não requer Cargo na máquina de quem o executa. O build usa a arquitetura do host e assinatura ad-hoc; Developer ID e notarização ficam para a distribuição pública.
 
+Entre rodadas de validação, use `sh scripts/clean-builds.sh` para remover os artefatos Rust de desenvolvimento, preservando a biblioteca release. Para limpar também os builds release/Swift, com os compiladores parados, use `sh scripts/clean-builds.sh --all` e depois `sh scripts/build-native.sh` antes de compilar novamente. O `.app` em `dist/` é preservado; os caches globais de Cargo e de outros projetos não são alterados.
+
 URLs de páginas (YouTube, Vimeo etc.) e conteúdo com DRM não são fontes de vídeo direto e não fazem parte do MVP. Arquivos HEIC/JPEG/PNG/TIFF/BMP/GIF e vídeos MP4/MOV/M4V são reconhecidos; a decodificação depende do suporte do macOS ao codec.
 
 ## Performance
