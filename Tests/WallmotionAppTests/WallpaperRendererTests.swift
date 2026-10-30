@@ -250,6 +250,46 @@ final class WallpaperRendererTests: XCTestCase {
         XCTAssertFalse(renderer.window.isVisible)
     }
 
+    func testOptInRemoteStreamBecomesReadyAndAdvances() async throws {
+        guard let text = ProcessInfo.processInfo.environment["WALLMOTION_REMOTE_TEST_URL"], !text.isEmpty else {
+            throw XCTSkip("Defina WALLMOTION_REMOTE_TEST_URL para testar reprodução remota com rede.")
+        }
+        let screen = try availableScreen()
+        let url = try MediaURL.validate(text)
+        let wallpaper = try Wallpaper.remote(text)
+        let renderer = try WallpaperRenderer(wallpaper: wallpaper, url: url, screen: screen) {
+            XCTFail("Falha no stream remoto: \($0)")
+        }
+        defer { renderer.stop() }
+        let surface = try XCTUnwrap(renderer.window.contentView as? VideoSurface)
+        let player = try XCTUnwrap(surface.playerLayer.player)
+        XCTAssertFalse(player is AVQueuePlayer)
+        XCTAssertTrue(player.isMuted)
+        XCTAssertFalse(player.preventsDisplaySleepDuringVideoPlayback)
+        renderer.setPaused(false)
+        guard try await eventually(timeout: .seconds(15), {
+            player.currentItem?.status == .readyToPlay || player.currentItem?.status == .failed
+        }) else {
+            return XCTFail("O stream remoto não ficou pronto em 15 segundos.")
+        }
+        guard player.currentItem?.status == .readyToPlay else {
+            return XCTFail("O decoder remoto falhou: \(String(describing: player.currentItem?.error))")
+        }
+        let initialTime = player.currentTime().seconds
+        guard try await eventually(timeout: .seconds(15), {
+            let current = player.currentTime().seconds
+            return current.isFinite && current > max(initialTime.isFinite ? initialTime : 0, 0) + 0.05
+        }) else {
+            return XCTFail("O stream ficou pronto, mas o tempo de reprodução não avançou em 15 segundos.")
+        }
+        XCTAssertGreaterThan(player.rate, 0)
+        renderer.setPaused(true)
+        XCTAssertEqual(player.rate, 0)
+        renderer.stop()
+        XCTAssertNil(surface.playerLayer.player)
+        XCTAssertFalse(renderer.window.isVisible)
+    }
+
     func testRebuildWithSameConfigurationPreservesWindowIdentity() throws {
         let screen = try availableScreen()
         let displayID = try XCTUnwrap(Display.identify(screen))

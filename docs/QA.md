@@ -6,6 +6,14 @@
 
 O runner sem display pode pular testes que precisam de `NSScreen`. O teste que troca conteúdo em outro monitor precisa de dois displays. Consulte o log para diferenciar aprovado de ignorado.
 
+O teste de reprodução remota é opt-in, para que a suíte padrão não dependa de rede. Para executá-lo com o [exemplo HLS oficial da Apple](https://developer.apple.com/streaming/examples/advanced-stream-hevc.html):
+
+```sh
+WALLMOTION_REMOTE_TEST_URL=https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_adv_example_hevc/master.m3u8 swift test --filter testOptInRemoteStreamBecomesReadyAndAdvances
+```
+
+Esse teste passou localmente: estado pronto, tempo de reprodução avançando, áudio mudo e pausa/stop. Não verifica transmissão ao vivo nem reconexão.
+
 ## Roteiro manual antes de distribuir
 
 - [ ] Abrir `dist/Wallmotion.app`; biblioteca vazia mostra ações claras.
