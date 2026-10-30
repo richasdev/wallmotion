@@ -71,6 +71,9 @@ final class WallpaperRenderer {
     private var remotePlayback: RemoteVideoPlayback?
     var remotePlaybackState: RemotePlaybackState? { remotePlayback?.state }
     private var failureObserver: NSObjectProtocol?
+    private var occlusionObserver: NSObjectProtocol?
+    private var paused = true
+    private var occluded = false
     private var stopped = false
 
     init(wallpaper: Wallpaper, url: URL, screen: NSScreen, onState: @escaping @MainActor (RemotePlaybackState) -> Void = { _ in }, onError: @escaping @MainActor (String) -> Void) throws {
@@ -133,6 +136,18 @@ final class WallpaperRenderer {
                 }
             }
         }
+
+        occlusionObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didChangeOcclusionStateNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, !self.stopped else { return }
+                self.occluded = !self.window.occlusionState.contains(.visible)
+                self.applyPlaybackPause()
+            }
+        }
     }
 
     private func observeCurrentItem(onError: @escaping @MainActor (String) -> Void) {
@@ -153,14 +168,21 @@ final class WallpaperRenderer {
 
     func setPaused(_ value: Bool) {
         guard !stopped else { return }
-        imageView?.animates = !value
-        if let remotePlayback { remotePlayback.setPaused(value) }
-        else if value { player?.pause() } else { player?.play() }
+        paused = value
+        applyPlaybackPause()
         window.orderBack(nil)
+    }
+
+    private func applyPlaybackPause() {
+        let effectivePause = paused || occluded
+        imageView?.animates = !effectivePause
+        if let remotePlayback { remotePlayback.setPaused(effectivePause) }
+        else if effectivePause { player?.pause() } else { player?.play() }
     }
 
     func stop() {
         stopped = true
+        paused = true
         statusObserver?.invalidate()
         statusObserver = nil
         currentItemObserver?.invalidate()
@@ -171,6 +193,8 @@ final class WallpaperRenderer {
         remotePlayback = nil
         if let failureObserver { NotificationCenter.default.removeObserver(failureObserver) }
         failureObserver = nil
+        if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
+        occlusionObserver = nil
         looper?.disableLooping()
         looper = nil
         player?.pause()
@@ -205,24 +229,53 @@ final class DesktopCoordinator {
         let renderer: WallpaperRenderer
     }
     private var renderers: [String: Entry] = [:]
+    private var pendingReloads: Set<String> = []
+    private(set) var gifBudget: GIFPlaybackBudget
+    private let screens: @MainActor () -> [NSScreen]
+
+    init(gifBudgetLimit: UInt64 = GIFPlaybackBudget.defaultLimit,
+         screens: @escaping @MainActor () -> [NSScreen] = { NSScreen.screens }) {
+        gifBudget = GIFPlaybackBudget(limit: gifBudgetLimit)
+        self.screens = screens
+    }
+
+    // Check before persisting a user selection. Rebuild also checks restored and
+    // reconnected assignments before opening any AppKit GIF decoder.
+    func validateAssignment(_ wallpaper: Wallpaper, to displayID: String, store: LibraryStore) throws {
+        let connected = Set(screens().compactMap(Display.identify))
+        _ = try proposal(for: wallpaper, displayID: displayID, store: store,
+                         budget: gifBudget.retaining(displays: connected))
+    }
+
+    private func proposal(for wallpaper: Wallpaper, displayID: String, store: LibraryStore,
+                          budget: GIFPlaybackBudget) throws -> GIFPlaybackBudget {
+        let bytes = wallpaper.kind == .gif
+            ? try GIFPreflight.inspect(url: store.resolvedURL(for: wallpaper)).decodedBytes : nil
+        return try budget.replacing(displayID: displayID, decodedBytes: bytes)
+    }
 
     func rebuild(state: LibraryState, store: LibraryStore, paused: Bool, force: Bool = false, onState: @escaping @MainActor (String, RemotePlaybackState) -> Void = { _, _ in }, onError: @escaping @MainActor (String, String) -> Void) {
-        if force { stop() }
-        let connected = Set(NSScreen.screens.compactMap(Display.identify))
-        for id in Array(renderers.keys) where !connected.contains(id) || state.assignments[id] == nil {
+        let currentScreens = screens()
+        let connected = Set(currentScreens.compactMap(Display.identify))
+        let available = Set(state.wallpapers.map(\.id))
+        let assigned = Set(state.assignments.filter { available.contains($0.value) }.keys)
+        pendingReloads.formIntersection(connected.intersection(assigned))
+        for id in Array(renderers.keys) where !connected.contains(id) || !assigned.contains(id) {
             renderers.removeValue(forKey: id)?.renderer.stop()
         }
-        for screen in NSScreen.screens {
+        gifBudget = gifBudget.retaining(displays: Set(renderers.keys))
+        for screen in currentScreens {
             guard let displayID = Display.identify(screen),
                   let wallpaperID = state.assignments[displayID],
                   let wallpaper = state.wallpapers.first(where: { $0.id == wallpaperID }) else { continue }
-            if let entry = renderers[displayID], entry.wallpaperID == wallpaperID, entry.frame == screen.frame {
+            let reloadRequested = pendingReloads.remove(displayID) != nil
+            if !force, !reloadRequested, let entry = renderers[displayID], entry.wallpaperID == wallpaperID, entry.frame == screen.frame {
                 entry.renderer.setPaused(paused)
                 continue
             }
-            renderers.removeValue(forKey: displayID)?.renderer.stop()
             let token = UUID()
             do {
+                let nextBudget = try proposal(for: wallpaper, displayID: displayID, store: store, budget: gifBudget)
                 let renderer = try WallpaperRenderer(wallpaper: wallpaper, url: store.resolvedURL(for: wallpaper), screen: screen, onState: { [weak self] state in
                     guard self?.renderers[displayID]?.token == token else { return }
                     onState(displayID, state)
@@ -230,15 +283,24 @@ final class DesktopCoordinator {
                     guard self?.renderers[displayID]?.token == token else { return }
                     onError(displayID, message)
                 }
+                // Keep the previous renderer and charge intact on any failure.
+                renderers.removeValue(forKey: displayID)?.renderer.stop()
+                gifBudget = nextBudget
                 renderers[displayID] = Entry(wallpaperID: wallpaperID, frame: screen.frame, token: token, renderer: renderer)
                 renderer.setPaused(paused)
                 if let state = renderer.remotePlaybackState { onState(displayID, state) }
-            } catch { onError(displayID, error.localizedDescription) }
+            } catch {
+                renderers[displayID]?.renderer.setPaused(paused)
+                if let state = renderers[displayID]?.renderer.remotePlaybackState { onState(displayID, state) }
+                onError(displayID, error.localizedDescription)
+            }
         }
     }
 
     func invalidate(displayID: String) {
-        renderers.removeValue(forKey: displayID)?.renderer.stop()
+        // Rebuild replaces transactionally: preserve the renderer and GIF charge
+        // until the new item has passed validation and decoder construction.
+        pendingReloads.insert(displayID)
     }
 
     func setPaused(_ value: Bool) { renderers.values.forEach { $0.renderer.setPaused(value) } }
@@ -246,6 +308,8 @@ final class DesktopCoordinator {
     func stop() {
         let previous = Array(renderers.values)
         renderers.removeAll()
+        gifBudget = GIFPlaybackBudget(limit: gifBudget.limit)
+        pendingReloads.removeAll()
         previous.forEach { $0.renderer.stop() }
     }
 }
