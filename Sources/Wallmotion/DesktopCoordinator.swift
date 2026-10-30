@@ -141,6 +141,7 @@ final class VideoSurface: NSView {
 @MainActor
 final class WallpaperRenderer {
     let window: DesktopWindow
+    private(set) var photoQuality: PhotoQualityInfo?
     private var webRenderer: WebWallpaperRenderer?
     private let player: AVPlayer?
     private let imageView: NSImageView?
@@ -204,6 +205,8 @@ final class WallpaperRenderer {
                     viewportWidth: viewport.width, viewportHeight: viewport.height))
                 } catch PhotoDecodingError.unreadable { throw RendererError.unreadableImage }
                 catch PhotoDecodingError.overBudget { throw RendererError.photoTooLarge }
+                photoQuality = PhotoQualityInfo(wallpaperID: wallpaper.id, sourceSize: decoded.sourceSize,
+                    bitmapWidth: decoded.image.width, bitmapHeight: decoded.image.height, isPanorama: panorama != nil)
                 image = NSImage(cgImage: decoded.image, size: NSSize(
                     width: decoded.sourceSize.width / photoScale,
                     height: decoded.sourceSize.height / photoScale))
@@ -457,6 +460,7 @@ final class DesktopCoordinator {
     /// Production entry point: AppKit remains responsive while bounded ImageIO
     /// output is prepared serially. Existing windows stay until replacement succeeds.
     func scheduleRebuild(state: LibraryState, store: LibraryStore, paused: Bool, force: Bool = false, deferNewRenderers: Bool = false,
+                         onPhotoQuality: @escaping @MainActor (String, PhotoQualityInfo?) -> Void = { _, _ in },
                          onState: @escaping @MainActor (String, RemotePlaybackState) -> Void = { _, _ in },
                          onError: @escaping @MainActor (String, String) -> Void) {
         latestPaused = paused
@@ -510,15 +514,15 @@ final class DesktopCoordinator {
         photos.submit(requests) { [weak self] prepared in
             guard let self else { return }
             guard self.geometry(self.targets()) == requestedGeometry else {
-                self.scheduleRebuild(state: state, store: store, paused: self.latestPaused, force: force, onState: onState, onError: onError)
+                self.scheduleRebuild(state: state, store: store, paused: self.latestPaused, force: force, onPhotoQuality: onPhotoQuality, onState: onState, onError: onError)
                 return
             }
             self.rebuild(state: state, store: store, paused: self.latestPaused, force: force,
-                         preparedPhotos: prepared, requiresPreparedPhotos: true, onState: onState, onError: onError)
+                         preparedPhotos: prepared, requiresPreparedPhotos: true, onPhotoQuality: onPhotoQuality, onState: onState, onError: onError)
         }
     }
 
-    func rebuild(state: LibraryState, store: LibraryStore, paused: Bool, force: Bool = false, preparedPhotos: PhotoPreparation.Results = [:], requiresPreparedPhotos: Bool = false, onState: @escaping @MainActor (String, RemotePlaybackState) -> Void = { _, _ in }, onError: @escaping @MainActor (String, String) -> Void) {
+    func rebuild(state: LibraryState, store: LibraryStore, paused: Bool, force: Bool = false, preparedPhotos: PhotoPreparation.Results = [:], requiresPreparedPhotos: Bool = false, onPhotoQuality: @escaping @MainActor (String, PhotoQualityInfo?) -> Void = { _, _ in }, onState: @escaping @MainActor (String, RemotePlaybackState) -> Void = { _, _ in }, onError: @escaping @MainActor (String, String) -> Void) {
         if !requiresPreparedPhotos { photos.cancel() }
         latestPaused = paused
         let currentTargets = targets()
@@ -566,6 +570,7 @@ final class DesktopCoordinator {
                 entry.renderer.setHLSResolution(state.settings.hlsResolution)
                 entry.renderer.setPaused(paused)
                 entry.renderer.setAudioPolicy(enabled: state.settings.audioDisplayID == displayID, volume: state.settings.audioVolume)
+                onPhotoQuality(displayID, entry.renderer.photoQuality)
                 continue
             }
             let token = UUID()
@@ -590,6 +595,7 @@ final class DesktopCoordinator {
                 renderers[displayID] = Entry(wallpaperID: wallpaperID, frame: target.frame, mediaFit: mediaFit, backingScale: target.backingScale, panorama: layout, token: token, renderer: renderer)
                 renderer.setPaused(paused)
                 renderer.setAudioPolicy(enabled: state.settings.audioDisplayID == displayID, volume: state.settings.audioVolume)
+                onPhotoQuality(displayID, renderer.photoQuality)
                 if let state = renderer.remotePlaybackState { onState(displayID, state) }
             } catch {
                 renderers[displayID]?.renderer.setPaused(paused)

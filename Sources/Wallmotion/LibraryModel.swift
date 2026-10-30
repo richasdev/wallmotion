@@ -11,6 +11,7 @@ final class LibraryModel {
     private(set) var isImporting = false
     private(set) var playbackErrors: [String: String] = [:]
     private(set) var remotePlaybackStates: [String: RemotePlaybackState] = [:]
+    private(set) var photoQualityByDisplay: [String: PhotoQualityInfo] = [:]
     var errorMessage: String?
     @ObservationIgnored private let thermalState: @MainActor () -> ThermalPausePolicy.Pressure
     @ObservationIgnored private let memoryMonitor: any MemoryPressureMonitoring
@@ -160,6 +161,7 @@ final class LibraryModel {
         engine.stop() // Cancels pending photo publication and releases owned surfaces.
         playbackErrors = [:]
         remotePlaybackStates = [:]
+        photoQualityByDisplay = [:]
     }
 
     private func applyPolicy() {
@@ -174,6 +176,7 @@ final class LibraryModel {
         resourcesReleasedForMemory = false
         observers.forEach { $0.0.removeObserver($0.1) }
         observers.removeAll()
+        photoQualityByDisplay = [:]
         engine.stop()
         remotePlaybackStates = [:]
         playbackErrors = [:]
@@ -292,6 +295,13 @@ final class LibraryModel {
 
     func activeWallpaperID(on displayID: String) -> UUID? {
         state.effectiveAssignments(for: displays.map(\.id))[displayID]
+    }
+
+    func photoQuality(on displayID: String) -> PhotoQualityInfo? {
+        guard let info = photoQualityByDisplay[displayID],
+              activeWallpaperID(on: displayID) == info.wallpaperID,
+              state.wallpapers.contains(where: { $0.id == info.wallpaperID && $0.kind == .image }) else { return nil }
+        return info
     }
 
     func mediaFit(on displayID: String) -> MediaFit {
@@ -462,6 +472,8 @@ final class LibraryModel {
         displays = connectedDisplays()
         if shouldReleaseForMemory { releaseMemoryResources(); return }
         resourcesReleasedForMemory = false
+        let effectivePhotos = state.effectiveAssignments(for: displays.map(\.id))
+        photoQualityByDisplay = photoQualityByDisplay.filter { effectivePhotos[$0.key] == $0.value.wallpaperID }
         if force {
             playbackErrors = [:]
             remotePlaybackStates = [:]
@@ -476,7 +488,12 @@ final class LibraryModel {
             }
             playbackErrors = playbackErrors.filter { effective[$0.key] != nil }
         }
-        engine.scheduleRebuild(state: state, store: store, paused: isPaused, force: force, deferNewRenderers: shouldDeferNewRenderers, onState: { [weak self] id, state in
+        engine.scheduleRebuild(state: state, store: store, paused: isPaused, force: force, deferNewRenderers: shouldDeferNewRenderers, onPhotoQuality: { [weak self] id, info in
+            guard let self, !self.resourcesReleasedForMemory else { return }
+            if let info, self.activeWallpaperID(on: id) == info.wallpaperID {
+                self.photoQualityByDisplay[id] = info
+            } else { self.photoQualityByDisplay[id] = nil }
+        }, onState: { [weak self] id, state in
             self?.remotePlaybackStates[id] = state
             if case .error(let message) = state { self?.playbackErrors[id] = message }
             else { self?.playbackErrors[id] = nil }
