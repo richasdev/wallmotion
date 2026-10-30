@@ -217,6 +217,16 @@ struct LibraryView: View {
     }
 
     private var sidebar: some View {
+        GeometryReader { viewport in
+            ScrollView {
+                sidebarContent
+                    .frame(maxWidth: .infinity, minHeight: max(0, viewport.size.height - 36), alignment: .topLeading)
+                    .padding(18)
+            }
+        }
+    }
+
+    private var sidebarContent: some View {
         VStack(alignment: .leading, spacing: 20) {
             HStack(spacing: 10) {
                 BrandLogoView(size: 36)
@@ -276,7 +286,7 @@ struct LibraryView: View {
                 .font(.caption).foregroundStyle(.secondary)
             Text("Arquivos originais preservados")
                 .font(.caption2).foregroundStyle(.secondary)
-        }.padding(18)
+        }
     }
 
     private func displayAccessibilityValue(_ display: Display) -> String {
