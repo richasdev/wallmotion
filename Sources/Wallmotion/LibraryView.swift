@@ -79,7 +79,7 @@ struct LibraryView: View {
 
     private func card(for item: Wallpaper) -> some View {
         let applied = model.state.assignments[selectedDisplay] == item.id
-        return WallpaperCard(item: item, isApplied: applied, onApply: {
+        return WallpaperCard(item: item, localURL: model.localMediaURL(for: item), isApplied: applied, onApply: {
             model.apply(item, to: selectedDisplay)
         }, onRemove: {
             pendingRemoval = item
@@ -178,27 +178,17 @@ struct LibraryView: View {
     }
 }
 
-private struct WallpaperCard: View {
+struct WallpaperCard: View {
     let item: Wallpaper
+    let localURL: URL?
     let isApplied: Bool
     let onApply: () -> Void
     let onRemove: () -> Void
 
-    private var symbol: String {
-        switch item.kind {
-        case .image: "photo"
-        case .gif: "square.stack.3d.up"
-        case .video: "play.rectangle"
-        }
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            ZStack {
-                LinearGradient(colors: [.accentColor.opacity(0.25), .indigo.opacity(0.1)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                Image(systemName: symbol).font(.system(size: 38, weight: .light)).foregroundStyle(Color.accentColor)
-            }
-            .frame(height: 118).clipShape(RoundedRectangle(cornerRadius: 10))
+            MediaThumbnail(item: item, localURL: localURL)
+                .frame(height: 118).clipShape(RoundedRectangle(cornerRadius: 10))
             Text(item.title).font(.headline).lineLimit(1).help(item.title)
             HStack {
                 Text(item.kind.rawValue.uppercased()).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
