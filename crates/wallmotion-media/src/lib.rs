@@ -22,6 +22,7 @@ pub enum GifError {
     NoFrames,
     Overflow,
     BudgetExceeded,
+    EncodedBudgetExceeded,
     StructureBudgetExceeded,
     ReadFailure,
 }
@@ -170,6 +171,19 @@ pub fn probe_gif_with_budget(bytes: &[u8], max_decoded_bytes: u64) -> Result<Gif
     probe_input(SliceInput { bytes, position: 0 }, max_decoded_bytes)
 }
 
+/// Checks the complete encoded input length, including bytes after a trailer,
+/// before inspecting structure. Does not allocate or decode pixels.
+pub fn probe_gif_with_limits(
+    bytes: &[u8],
+    max_decoded_bytes: u64,
+    max_encoded_bytes: u64,
+) -> Result<GifInfo, GifError> {
+    if bytes.len() as u64 > max_encoded_bytes {
+        return Err(GifError::EncodedBudgetExceeded);
+    }
+    probe_gif_with_budget(bytes, max_decoded_bytes)
+}
+
 fn probe_input(input: impl Input, max_decoded_bytes: u64) -> Result<GifInfo, GifError> {
     probe_input_with_steps(input, max_decoded_bytes, DEFAULT_MAX_STRUCTURE_STEPS)
 }
@@ -254,6 +268,21 @@ pub fn probe_gif_file_with_budget(
     probe_input(file_input::FileInput::new(file)?, max_decoded_bytes)
 }
 
+/// Like the compatible file probe, with an additional initial encoded-length
+/// limit checked from the same descriptor before any input read. Appends after
+/// metadata remain outside the initial snapshot; this is not a coherent snapshot.
+#[cfg(unix)]
+pub fn probe_gif_file_with_limits(
+    file: &std::fs::File,
+    max_decoded_bytes: u64,
+    max_encoded_bytes: u64,
+) -> Result<GifInfo, GifError> {
+    probe_input(
+        file_input::FileInput::with_input_limit(file, max_encoded_bytes)?,
+        max_decoded_bytes,
+    )
+}
+
 fn decoded_size(width: u32, height: u32, frames: u32) -> Result<u64, GifError> {
     u64::from(width)
         .checked_mul(u64::from(height))
@@ -322,6 +351,30 @@ pub unsafe extern "C" fn wm_gif_probe_bounded(
     }
 }
 
+/// Like wm_gif_probe_bounded, plus result 4 when the complete encoded length
+/// exceeds max_encoded_bytes. Error paths preserve output storage.
+///
+/// # Safety
+/// The buffer and output have the same readable/aligned/writable contract as
+/// wm_gif_probe_bounded, even when a size limit rejects the input early.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wm_gif_probe_limited(
+    bytes: *const u8,
+    len: usize,
+    max_decoded_bytes: u64,
+    max_encoded_bytes: u64,
+    out: *mut WMGifInfo,
+) -> i32 {
+    if bytes.is_null() || out.is_null() || !out.is_aligned() || len > isize::MAX as usize {
+        return 1;
+    }
+    if len as u64 > max_encoded_bytes {
+        return 4;
+    }
+    // SAFETY: Identical buffer/output contract, checked above and required of caller.
+    unsafe { wm_gif_probe_bounded(bytes, len, max_decoded_bytes, out) }
+}
+
 /// Same result codes as wm_gif_probe_bounded; read errors are invalid input.
 /// Duplicates the descriptor for this call and never changes the caller's offset.
 /// No file-backed memory mapping or whole-file allocation is used.
@@ -336,6 +389,52 @@ pub unsafe extern "C" fn wm_gif_probe_fd_bounded(
     max_decoded_bytes: u64,
     out: *mut WMGifInfo,
 ) -> i32 {
+    // SAFETY: Identical descriptor/output contract; legacy entry has no encoded cap.
+    unsafe { wm_gif_probe_fd_limited(descriptor, max_decoded_bytes, u64::MAX, out) }
+}
+
+/// Metadata-only size check for a regular input file. Does not validate GIF data.
+/// Returns 0 when size is allowed, 1 for invalid/read metadata, 4 for encoded size.
+///
+/// # Safety
+/// The caller must keep descriptor open throughout this call. The descriptor is
+/// duplicated, never sought or read, and no descriptor or data is retained.
+#[cfg(unix)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wm_gif_check_input_fd(descriptor: i32, max_encoded_bytes: u64) -> i32 {
+    use std::os::fd::BorrowedFd;
+    if descriptor < 0 {
+        return 1;
+    }
+    // SAFETY: The caller keeps the supplied descriptor open throughout the call.
+    let borrowed = unsafe { BorrowedFd::borrow_raw(descriptor) };
+    let owned = match borrowed.try_clone_to_owned() {
+        Ok(owned) => owned,
+        Err(_) => return 1,
+    };
+    let file = std::fs::File::from(owned);
+    match file_input::checked_length(&file, max_encoded_bytes) {
+        Ok(_) => 0,
+        Err(GifError::EncodedBudgetExceeded) => 4,
+        Err(_) => 1,
+    }
+}
+
+/// Like wm_gif_probe_fd_bounded, plus result 4 when the initial regular-file
+/// length exceeds max_encoded_bytes. Uses the same descriptor metadata as the
+/// bounded read-ahead input, without reading a rejected file's contents.
+///
+/// # Safety
+/// The caller keeps descriptor open and supplies writable aligned WMGifInfo
+/// storage throughout the call. No descriptor, mapping or data is retained.
+#[cfg(unix)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wm_gif_probe_fd_limited(
+    descriptor: i32,
+    max_decoded_bytes: u64,
+    max_encoded_bytes: u64,
+    out: *mut WMGifInfo,
+) -> i32 {
     use std::os::fd::BorrowedFd;
     if descriptor < 0 || out.is_null() || !out.is_aligned() {
         return 1;
@@ -347,7 +446,7 @@ pub unsafe extern "C" fn wm_gif_probe_fd_bounded(
         Err(_) => return 1,
     };
     let file = std::fs::File::from(owned);
-    match probe_gif_file_with_budget(&file, max_decoded_bytes) {
+    match probe_gif_file_with_limits(&file, max_decoded_bytes, max_encoded_bytes) {
         Ok(info) => {
             // SAFETY: The caller provides aligned writable output storage.
             unsafe {
@@ -360,6 +459,7 @@ pub unsafe extern "C" fn wm_gif_probe_fd_bounded(
             }
             0
         }
+        Err(GifError::EncodedBudgetExceeded) => 4,
         Err(GifError::BudgetExceeded) => 2,
         Err(GifError::StructureBudgetExceeded) => 3,
         Err(_) => 1,
@@ -532,3 +632,6 @@ mod tests {
         assert_eq!(output, previous);
     }
 }
+
+#[cfg(test)]
+mod input_budget_tests;

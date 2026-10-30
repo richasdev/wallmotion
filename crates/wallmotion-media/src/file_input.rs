@@ -14,15 +14,31 @@ pub(crate) struct FileInput<'a> {
     buffered: usize,
 }
 
+/// Metadata-only encoded-size check. No GIF format or structure validation.
+pub(crate) fn checked_length(file: &File, max_encoded_bytes: u64) -> Result<u64, GifError> {
+    let metadata = file.metadata().map_err(|_| GifError::ReadFailure)?;
+    if !metadata.is_file() || metadata.len() > i64::MAX as u64 {
+        return Err(GifError::InvalidBlock);
+    }
+    if metadata.len() > max_encoded_bytes {
+        return Err(GifError::EncodedBudgetExceeded);
+    }
+    Ok(metadata.len())
+}
+
 impl<'a> FileInput<'a> {
     pub(crate) fn new(file: &'a File) -> Result<Self, GifError> {
-        let metadata = file.metadata().map_err(|_| GifError::ReadFailure)?;
-        if !metadata.is_file() || metadata.len() > i64::MAX as u64 {
-            return Err(GifError::InvalidBlock);
-        }
+        Self::with_input_limit(file, u64::MAX)
+    }
+
+    pub(crate) fn with_input_limit(
+        file: &'a File,
+        max_encoded_bytes: u64,
+    ) -> Result<Self, GifError> {
+        let length = checked_length(file, max_encoded_bytes)?;
         Ok(Self {
             file,
-            length: metadata.len(),
+            length,
             position: 0,
             buffer: [0; 8192],
             buffer_start: 0,

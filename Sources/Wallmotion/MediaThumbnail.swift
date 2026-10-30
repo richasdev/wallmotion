@@ -96,6 +96,7 @@ enum MediaThumbnailDecoding {
               let kind = MediaKind(rawValue: request.kind) else { throw ThumbnailError.unavailable }
         switch kind {
         case .image, .gif:
+            if kind == .gif { try GIFPreflight.validateInputSize(url: url) }
             return try autoreleasepool {
                 guard let image = imageThumbnail(url: url, targetWidth: request.width, targetHeight: request.height) else { throw ThumbnailError.unavailable }
                 return image
