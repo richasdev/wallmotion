@@ -145,7 +145,7 @@ final class WallpaperRenderer {
     private let isWindowVisible: @MainActor (NSWindow) -> Bool
     private let seekToStart: @MainActor (AVPlayer, @escaping @MainActor @Sendable (Bool) -> Void) -> Void
 
-    init(wallpaper: Wallpaper, url: URL, screen: NSScreen, mediaFit: MediaFit = .fit, webDocument: String? = nil,
+    init(wallpaper: Wallpaper, url: URL, screen: NSScreen, mediaFit: MediaFit = .fit, preparedPhoto: DecodedPhoto? = nil, webDocument: String? = nil,
          isWindowVisible: @escaping @MainActor (NSWindow) -> Bool = { $0.occlusionState.contains(.visible) },
          makePlayer: @MainActor (AVPlayerItem, Bool) -> AVPlayer = { item, local in
              local ? AVQueuePlayer() : AVPlayer(playerItem: item)
@@ -180,34 +180,17 @@ final class WallpaperRenderer {
                                         height: height.doubleValue / screen.backingScaleFactor)
                 }
             } else {
-                // Decode only the pixels required by this display and crop mode,
-                // accounting for orientation and Retina backing scale.
-                guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
-                      let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-                      let width = properties[kCGImagePropertyPixelWidth] as? NSNumber,
-                      let height = properties[kCGImagePropertyPixelHeight] as? NSNumber else { throw RendererError.unreadableImage }
-                let orientation = (properties[kCGImagePropertyOrientation] as? NSNumber)?.intValue ?? 1
-                let rotated = (5...8).contains(orientation)
-                let size = CGSize(width: rotated ? height.doubleValue : width.doubleValue,
-                                  height: rotated ? width.doubleValue : height.doubleValue)
-                let viewport = CGSize(width: screen.frame.width * screen.backingScaleFactor,
-                                      height: screen.frame.height * screen.backingScaleFactor)
-                let maxPixels = mediaFit.decodePixelLimit(for: size, viewport: viewport)
-                guard let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                        kCGImageSourceCreateThumbnailFromImageAlways: true,
-                        kCGImageSourceCreateThumbnailWithTransform: true,
-                        kCGImageSourceThumbnailMaxPixelSize: maxPixels,
-                        kCGImageSourceShouldAllowFloat: false,
-                        kCGImageSourceShouldCacheImmediately: true
-                      ] as CFDictionary) else { throw RendererError.unreadableImage }
-                // Defense in depth if a codec returns an unexpected layout. Use division
-                // to avoid overflow, and check before retaining or handing it to AppKit.
-                guard thumbnail.width <= maxPixels, thumbnail.height <= maxPixels,
-                      thumbnail.height > 0,
-                      thumbnail.bytesPerRow <= PhotoDecodeBudget.maximumBytes / thumbnail.height else {
-                    throw RendererError.photoTooLarge
-                }
-                image = NSImage(cgImage: thumbnail, size: NSSize(width: size.width / screen.backingScaleFactor, height: size.height / screen.backingScaleFactor))
+                let decoded: DecodedPhoto
+                do {
+                    decoded = try preparedPhoto ?? PhotoDecodeWorker.decodeImage(PhotoDecodeRequest(
+                    url: url, mediaFit: mediaFit,
+                    viewportWidth: screen.frame.width * screen.backingScaleFactor,
+                    viewportHeight: screen.frame.height * screen.backingScaleFactor))
+                } catch PhotoDecodingError.unreadable { throw RendererError.unreadableImage }
+                catch PhotoDecodingError.overBudget { throw RendererError.photoTooLarge }
+                image = NSImage(cgImage: decoded.image, size: NSSize(
+                    width: decoded.sourceSize.width / screen.backingScaleFactor,
+                    height: decoded.sourceSize.height / screen.backingScaleFactor))
             }
             let view = ImageSurface(image: image, mediaFit: mediaFit)
             imageView = view.imageView
@@ -366,6 +349,17 @@ final class DesktopCoordinator {
     }
     private var renderers: [String: Entry] = [:]
     private var pendingReloads: Set<String> = []
+    private let photos: PhotoPreparation
+    private var latestPaused = true
+    private struct TargetGeometry: Equatable {
+        let id: String
+        let frame: CGRect
+        let scale: CGFloat
+    }
+
+    private func geometry(_ targets: [DesktopTarget]) -> [TargetGeometry] {
+        targets.map { TargetGeometry(id: $0.id, frame: $0.screen.frame, scale: $0.screen.backingScaleFactor) }
+    }
     private(set) var gifBudget: GIFPlaybackBudget
     private let targets: @MainActor () -> [DesktopTarget]
     private let isWindowVisible: @MainActor (NSWindow) -> Bool
@@ -374,7 +368,9 @@ final class DesktopCoordinator {
     init(gifBudgetLimit: UInt64 = GIFPlaybackBudget.defaultLimit,
          targets: @escaping @MainActor () -> [DesktopTarget] = { DesktopTarget.connected },
          isWindowVisible: @escaping @MainActor (NSWindow) -> Bool = { $0.occlusionState.contains(.visible) },
-         webDocument: String? = nil) {
+         webDocument: String? = nil,
+         photoDecoder: @escaping PhotoPreparation.Decode = PhotoDecodeWorker.prepare) {
+        photos = PhotoPreparation(decode: photoDecoder)
         gifBudget = GIFPlaybackBudget(limit: gifBudgetLimit)
         self.targets = targets
         self.isWindowVisible = isWindowVisible
@@ -410,7 +406,65 @@ final class DesktopCoordinator {
         return try budget.replacing(displayID: displayID, decodedBytes: bytes)
     }
 
-    func rebuild(state: LibraryState, store: LibraryStore, paused: Bool, force: Bool = false, onState: @escaping @MainActor (String, RemotePlaybackState) -> Void = { _, _ in }, onError: @escaping @MainActor (String, String) -> Void) {
+    /// Production entry point: AppKit remains responsive while bounded ImageIO
+    /// output is prepared serially. Existing windows stay until replacement succeeds.
+    func scheduleRebuild(state: LibraryState, store: LibraryStore, paused: Bool, force: Bool = false,
+                         onState: @escaping @MainActor (String, RemotePlaybackState) -> Void = { _, _ in },
+                         onError: @escaping @MainActor (String, String) -> Void) {
+        latestPaused = paused
+        let currentTargets = targets()
+        let connected = Set(currentTargets.map(\.id))
+        let assignments = state.effectiveAssignments(for: currentTargets.map(\.id))
+        let assigned = Set(assignments.keys)
+        for id in Array(renderers.keys) where !connected.contains(id) || !assigned.contains(id) {
+            renderers.removeValue(forKey: id)?.renderer.stop()
+        }
+        gifBudget = gifBudget.retaining(displays: Set(renderers.keys))
+        renderers.values.forEach { $0.renderer.setAudioEnabled(false) }
+        for (id, entry) in renderers {
+            entry.renderer.setPaused(paused)
+            entry.renderer.setAudioEnabled(state.settings.audioDisplayID == id && assignments[id] == entry.wallpaperID)
+        }
+        do { try validateAssignments(state: state, store: store) }
+        catch {
+            photos.cancel()
+            for id in assigned { onError(id, error.localizedDescription) }
+            return
+        }
+        var requests: [String: PhotoDecodeRequest] = [:]
+        for target in currentTargets {
+            guard let id = assignments[target.id],
+                  let wallpaper = state.wallpapers.first(where: { $0.id == id }), wallpaper.kind == .image else { continue }
+            let fit = state.mediaFit(for: id, on: target.id)
+            if !force, !pendingReloads.contains(target.id), let entry = renderers[target.id],
+               entry.wallpaperID == id, entry.frame == target.screen.frame,
+               entry.backingScale == target.screen.backingScaleFactor, entry.mediaFit == fit { continue }
+            do {
+                requests[target.id] = PhotoDecodeRequest(url: try store.resolvedURL(for: wallpaper), mediaFit: fit,
+                    viewportWidth: target.screen.frame.width * target.screen.backingScaleFactor,
+                    viewportHeight: target.screen.frame.height * target.screen.backingScaleFactor)
+            } catch {
+                // Resolve errors use the same non-mutating failure path as decode errors.
+                photos.cancel()
+                onError(target.id, error.localizedDescription)
+                return
+            }
+        }
+        let requestedGeometry = geometry(currentTargets)
+        photos.submit(requests) { [weak self] prepared in
+            guard let self else { return }
+            guard self.geometry(self.targets()) == requestedGeometry else {
+                self.scheduleRebuild(state: state, store: store, paused: self.latestPaused, force: force, onState: onState, onError: onError)
+                return
+            }
+            self.rebuild(state: state, store: store, paused: self.latestPaused, force: force,
+                         preparedPhotos: prepared, requiresPreparedPhotos: true, onState: onState, onError: onError)
+        }
+    }
+
+    func rebuild(state: LibraryState, store: LibraryStore, paused: Bool, force: Bool = false, preparedPhotos: PhotoPreparation.Results = [:], requiresPreparedPhotos: Bool = false, onState: @escaping @MainActor (String, RemotePlaybackState) -> Void = { _, _ in }, onError: @escaping @MainActor (String, String) -> Void) {
+        if !requiresPreparedPhotos { photos.cancel() }
+        latestPaused = paused
         let currentTargets = targets()
         let connected = Set(currentTargets.map(\.id))
         let available = Set(state.wallpapers.map(\.id))
@@ -453,9 +507,13 @@ final class DesktopCoordinator {
             }
             let token = UUID()
             do {
-                let nextBudget = try proposal(for: wallpaper, displayID: displayID, store: store,
-                                              budget: gifBudget)
-                let renderer = try WallpaperRenderer(wallpaper: wallpaper, url: store.resolvedURL(for: wallpaper), screen: screen, mediaFit: mediaFit, webDocument: webDocument,
+                let nextBudget = try proposal(for: wallpaper, displayID: displayID, store: store, budget: gifBudget)
+                let photo: DecodedPhoto?
+                if wallpaper.kind == .image, requiresPreparedPhotos {
+                    guard let result = preparedPhotos[displayID] else { throw PhotoDecodingError.unreadable }
+                    photo = try result.get()
+                } else { photo = nil }
+                let renderer = try WallpaperRenderer(wallpaper: wallpaper, url: store.resolvedURL(for: wallpaper), screen: screen, mediaFit: mediaFit, preparedPhoto: photo, webDocument: webDocument,
                                                      isWindowVisible: isWindowVisible, onState: { [weak self] state in
                     guard self?.renderers[displayID]?.token == token else { return }
                     onState(displayID, state)
@@ -483,9 +541,13 @@ final class DesktopCoordinator {
         pendingReloads.insert(displayID)
     }
 
-    func setPaused(_ value: Bool) { renderers.values.forEach { $0.renderer.setPaused(value) } }
+    func setPaused(_ value: Bool) {
+        latestPaused = value
+        renderers.values.forEach { $0.renderer.setPaused(value) }
+    }
 
     func stop() {
+        photos.cancel()
         let previous = Array(renderers.values)
         renderers.removeAll()
         gifBudget = GIFPlaybackBudget(limit: gifBudget.limit)

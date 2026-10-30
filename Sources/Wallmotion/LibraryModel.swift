@@ -305,7 +305,7 @@ final class LibraryModel {
             }
             playbackErrors = playbackErrors.filter { effective[$0.key] != nil }
         }
-        engine.rebuild(state: state, store: store, paused: isPaused, force: force, onState: { [weak self] id, state in
+        engine.scheduleRebuild(state: state, store: store, paused: isPaused, force: force, onState: { [weak self] id, state in
             self?.remotePlaybackStates[id] = state
             if case .error(let message) = state { self?.playbackErrors[id] = message }
             else { self?.playbackErrors[id] = nil }
