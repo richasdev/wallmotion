@@ -23,7 +23,7 @@ enum MediaDropIntent {
         }
         guard urls.count == 1 else { return .rejected("Arraste um link por vez para revisar antes de adicionar.") }
         let text = urls[0].absoluteString
-        guard text.utf8.prefix(4097).count <= 4096 else {
+        guard URLInputDraft.accepts(text) else {
             return .rejected("Este link é muito longo. Use uma URL de até 4096 bytes.")
         }
         if (try? WebEmbed.parse(text)) != nil { return .link(MediaURLDraft(text: text, web: true)) }

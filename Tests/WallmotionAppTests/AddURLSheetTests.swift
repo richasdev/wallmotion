@@ -46,7 +46,8 @@ final class AddURLSheetTests: XCTestCase {
         _ = NSApplication.shared
         for (name, text, web, appearance) in [
             ("youtube-dark", "https://youtu.be/dQw4w9WgXcQ?t=90", true, NSAppearance.Name.darkAqua),
-            ("invalid-light", "https://youtu.be/dQw4w9WgXcQ", false, NSAppearance.Name.aqua)
+            ("invalid-light", "https://youtu.be/dQw4w9WgXcQ", false, NSAppearance.Name.aqua),
+            ("oversized-dark", String(repeating: "a", count: 4097), false, NSAppearance.Name.darkAqua)
         ] {
             let hosting = NSHostingView(rootView: AddURLSheet(text: text, web: web, canAdd: true, onAdd: { _, _ in nil }, onCancel: {}))
             hosting.appearance = NSAppearance(named: appearance)

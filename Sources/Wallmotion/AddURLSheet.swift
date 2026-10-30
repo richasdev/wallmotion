@@ -14,7 +14,7 @@ struct URLDraftFeedback {
             return
         }
         // Bound interactive parsing, including direct URLs with long query strings.
-        guard text.utf8.count <= 4096 else {
+        guard URLInputDraft.accepts(text) else {
             summary = nil
             error = "Este link é muito longo. Use uma URL de até 4096 bytes."
             return
@@ -41,7 +41,7 @@ struct URLDraftFeedback {
 }
 
 struct AddURLSheet: View {
-    @State private var text: String
+    @State private var draft: URLInputDraft
     @State private var web: Bool
     @State private var saveError: String?
     @FocusState private var isFocused: Bool
@@ -51,14 +51,14 @@ struct AddURLSheet: View {
 
     init(text: String = "", web: Bool = false, canAdd: Bool,
          onAdd: @escaping (String, Bool) -> String?, onCancel: @escaping () -> Void) {
-        _text = State(initialValue: text)
+        _draft = State(initialValue: URLInputDraft(text: text))
         _web = State(initialValue: web)
         self.canAdd = canAdd
         self.onAdd = onAdd
         self.onCancel = onCancel
     }
 
-    private var feedback: URLDraftFeedback { .init(text: text, web: web) }
+    private var feedback: URLDraftFeedback { .init(text: draft.text, web: web) }
 
     var body: some View {
         let feedback = feedback
@@ -82,12 +82,16 @@ struct AddURLSheet: View {
             }.pickerStyle(.segmented)
             VStack(alignment: .leading, spacing: 10) {
                 Text("URL do vídeo").font(.callout.weight(.medium))
-                TextField(web ? "https://www.youtube.com/watch?v=…" : "https://exemplo.com/video.mp4", text: $text)
+                TextField(web ? "https://www.youtube.com/watch?v=…" : "https://exemplo.com/video.mp4", text: Binding(get: { draft.text }, set: {
+                        guard $0 != draft.text else { return }
+                        saveError = nil
+                        draft.replace(with: $0)
+                    }))
                     .textFieldStyle(.roundedBorder)
                     .accessibilityLabel("URL do vídeo")
                     .focused($isFocused)
                     .onSubmit(add)
-                if let error = saveError ?? feedback.error {
+                if let error = saveError ?? draft.inputError ?? feedback.error {
                     Label(error, systemImage: "exclamationmark.circle")
                         .foregroundStyle(.red)
                         .accessibilityLabel("Não foi possível adicionar. \(error)")
@@ -116,18 +120,17 @@ struct AddURLSheet: View {
                 Button("Cancelar", action: onCancel).keyboardShortcut(.cancelAction)
                 Button("Adicionar à biblioteca", action: add)
                     .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
-                    .disabled(!canAdd || !feedback.isValid)
+                    .disabled(!canAdd || draft.inputError != nil || !feedback.isValid)
             }
         }
         .padding(28).frame(width: 500)
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear { isFocused = true }
-        .onChange(of: text) { _, _ in saveError = nil }
         .onChange(of: web) { _, _ in saveError = nil; isFocused = true }
     }
 
     private func add() {
-        guard canAdd, feedback.isValid else { return }
-        saveError = onAdd(text, web)
+        guard canAdd, draft.inputError == nil, feedback.isValid else { return }
+        saveError = onAdd(draft.text, web)
     }
 }
