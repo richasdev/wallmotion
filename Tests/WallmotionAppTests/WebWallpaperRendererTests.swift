@@ -7,26 +7,115 @@ import WallmotionCore
 
 @MainActor
 final class WebWallpaperRendererTests: XCTestCase {
-    func testDesktopOcclusionDiscardsWebViewWithoutNetwork() throws {
+    @MainActor private final class TestVisibility {
+        var visible = false
+        var windows: [NSWindow] = []
+        func read(_ window: NSWindow) -> Bool {
+            if !windows.contains(where: { $0 === window }) { windows.append(window) }
+            return visible
+        }
+    }
+
+    func testCoveredWebStaysDiscardedAcrossResumeAndVisibility() throws {
         guard let screen = NSScreen.screens.first else { throw XCTSkip("Sem display") }
         let wallpaper = try Wallpaper.web("https://youtu.be/M7lc1UVf-VE")
+        let visibility = TestVisibility()
         let renderer = try WallpaperRenderer(
             wallpaper: wallpaper, url: LibraryStore().resolvedURL(for: wallpaper), screen: screen,
-            webDocument: "<html><body>Offline occlusion fixture</body></html>"
+            webDocument: "<html><body>Offline occlusion fixture</body></html>",
+            isWindowVisible: { visibility.read($0) }
         ) { XCTFail($0) }
         defer { renderer.stop() }
         let surface = try XCTUnwrap(renderer.window.contentView)
+        XCTAssertTrue(surface.subviews.isEmpty, "Inicialização coberta não deve criar WKWebView")
         renderer.setPaused(false)
-        renderer.window.orderOut(nil)
-        XCTAssertFalse(renderer.window.occlusionState.contains(.visible))
+        XCTAssertTrue(surface.subviews.isEmpty)
+        visibility.visible = true
         NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: renderer.window)
-        XCTAssertTrue(surface.subviews.isEmpty, "Oclusão deve descartar a WKWebView")
-        renderer.setPaused(true)
-        NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: renderer.window)
-        XCTAssertTrue(surface.subviews.isEmpty, "Notificações não devem desfazer pausa manual")
-        renderer.stop()
+        let first = try XCTUnwrap(surface.subviews.first as? WKWebView)
+        renderer.setPaused(false)
+        XCTAssertTrue(surface.subviews.first === first, "Retomada repetida não deve recarregar embed visível")
+        visibility.visible = false
         NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: renderer.window)
         XCTAssertTrue(surface.subviews.isEmpty)
+        XCTAssertNil(first.superview)
+        // No new visibility event follows manual/policy resume while covered.
+        renderer.setPaused(false)
+        renderer.setPaused(true)
+        renderer.setPaused(false)
+        var policy = PlaybackPolicy()
+        policy.sleeping = true
+        renderer.setPaused(policy.isPaused(settings: PlaybackSettings(), lowPower: false))
+        policy.sleeping = false
+        renderer.setPaused(policy.isPaused(settings: PlaybackSettings(), lowPower: false))
+        renderer.setPaused(policy.isPaused(settings: PlaybackSettings(), lowPower: true))
+        renderer.setPaused(policy.isPaused(settings: PlaybackSettings(), lowPower: false))
+        XCTAssertTrue(surface.subviews.isEmpty, "Resume, wake e baixo consumo não desfazem oclusão")
+        renderer.setPaused(true)
+        visibility.visible = true
+        NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: renderer.window)
+        XCTAssertTrue(surface.subviews.isEmpty, "Visibilidade não desfaz pausa manual")
+        renderer.setPaused(false)
+        let resumed = try XCTUnwrap(surface.subviews.first as? WKWebView)
+        XCTAssertFalse(resumed === first)
+        renderer.stop()
+        renderer.setPaused(false)
+        NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: renderer.window)
+        XCTAssertTrue(surface.subviews.isEmpty, "Stop é terminal")
+    }
+
+    func testCoveredWebStaysDiscardedAcrossPreservedAndForcedRebuild() throws {
+        guard let screen = NSScreen.screens.first else { throw XCTSkip("Sem display") }
+        for text in ["https://youtu.be/M7lc1UVf-VE", "https://vimeo.com/76979871"] {
+            let wallpaper = try Wallpaper.web(text)
+            let state = LibraryState(wallpapers: [wallpaper], assignments: ["test": wallpaper.id])
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            let store = LibraryStore(rootURL: root)
+            let visibility = TestVisibility()
+            let engine = DesktopCoordinator(
+                targets: { [DesktopTarget(id: "test", screen: screen)] },
+                isWindowVisible: { visibility.read($0) },
+                webDocument: "<html><body>Offline rebuild fixture</body></html>"
+            )
+            defer { engine.stop(); try? FileManager.default.removeItem(at: root) }
+            engine.rebuild(state: state, store: store, paused: false) { _, error in XCTFail(error) }
+            let original = try XCTUnwrap(visibility.windows.first)
+            let surface = try XCTUnwrap(original.contentView)
+            XCTAssertTrue(surface.subviews.isEmpty, "Restauração coberta não cria WKWebView")
+            visibility.visible = true
+            NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: original)
+            XCTAssertNotNil(surface.subviews.first as? WKWebView)
+            visibility.visible = false
+            NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: original)
+            XCTAssertTrue(surface.subviews.isEmpty)
+            engine.setPaused(false)
+            engine.rebuild(state: state, store: store, paused: false, force: false) { _, error in XCTFail(error) }
+            XCTAssertEqual(visibility.windows.count, 1, "Rebuild deve preservar o renderer")
+            XCTAssertTrue(surface.subviews.isEmpty, "Rebuild preservado não recria view coberta")
+            engine.rebuild(state: state, store: store, paused: false, force: true) { _, error in XCTFail(error) }
+            XCTAssertEqual(visibility.windows.count, 2)
+            let replacement = try XCTUnwrap(visibility.windows.last)
+            let newSurface = try XCTUnwrap(replacement.contentView)
+            XCTAssertTrue(newSurface.subviews.isEmpty, "Rebuild forçado coberto também não cria view")
+            XCTAssertFalse(original.isVisible)
+            visibility.visible = true
+            // Rebuild must resample visibility even without an occlusion event.
+            engine.rebuild(state: state, store: store, paused: false, force: false) { _, error in XCTFail(error) }
+            XCTAssertNotNil(newSurface.subviews.first as? WKWebView)
+            visibility.visible = false
+            engine.rebuild(state: state, store: store, paused: false, force: false) { _, error in XCTFail(error) }
+            XCTAssertTrue(newSurface.subviews.isEmpty)
+            engine.setPaused(true)
+            visibility.visible = true
+            NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: replacement)
+            XCTAssertTrue(newSurface.subviews.isEmpty)
+            engine.setPaused(false)
+            XCTAssertNotNil(newSurface.subviews.first as? WKWebView)
+            engine.stop()
+            engine.setPaused(false)
+            NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: replacement)
+            XCTAssertTrue(newSurface.subviews.isEmpty)
+        }
     }
 
     func testPauseDiscardsViewResumeRecreatesAndStopIsTerminalWithoutNetwork() throws {

@@ -22,6 +22,8 @@ YouTube chama `mute()` antes de `playVideo()` em ready e faz loop com playlist d
 
 Erros YouTube (inclusive 100/101/150/153), autoplay bloqueado, rejeições/eventos Vimeo, falhas de navegação e término do processo WebKit geram erro por monitor. Prazo único de 30 segundos trata ausência de confirmação playing; sem polling/retry automático.
 
+A decisão central `RendererPlaybackState.shouldPlay`, aplicada por `WallpaperRenderer.applyPlaybackState`, combina intenção de pausa, visibilidade atual e stop. Enquanto coberta, a fonte não aloca WKWebView nem carrega o embed, inclusive em retomada manual/política e rebuild.
+
 Pausa chama `setAllMediaPlaybackSuspended(true)` e `pauseAllMediaPlayback`, interrompe carregamento, remove delegate/handler, remove a view da hierarquia e libera a referência. Retomar reinicia o vídeo. Stop é terminal/idempotente. A janela permanece preta enquanto pausada. WebKit pode reter processos auxiliares por política do sistema; não se garante término imediato nem teto medido de RAM.
 
 ## Limites e QA
@@ -80,3 +82,11 @@ A integração mínima conecta a WKWebView ao observador de oclusão já integra
 Checks após o merge: build Rust estático release com `CARGO_INCREMENTAL=0 sh scripts/build-native.sh`; `cargo test --locked --manifest-path crates/wallmotion-media/Cargo.toml --target-dir .build/native` (7 aprovados); Clippy `--all-targets -- -D warnings` aprovado; `swift test -j 2` (48 Swift Testing e 22 XCTest, 4 skips explícitos, sem warnings); diff staged sem erros ou marcadores de conflito. Rust usa `.build/native` e `CARGO_INCREMENTAL=0`.
 
 Nenhuma reprodução real de YouTube/Vimeo ou medição de energia foi repetida nesta integração. Fixtures offline e notificações de oclusão não certificam autoplay dos provedores nem oclusão física em todos os desktops/Spaces. CI segue bloqueado por billing #11. O novo HEAD exige três pareceres novos antes do merge por outro agente.
+
+### Correção de retomada web enquanto coberta (SECURITY-MEMORY-2)
+
+Após integrar o PR #39 de main, a fonte web passou a consumir `RendererPlaybackState.shouldPlay` exclusivamente em `applyPlaybackState`. Cada pedido de pausa/retomada, rebuild e notificação consulta a visibilidade atual. Não há chamada de retomada web incondicional que recrie o player por trás de outra janela. O teardown terminal continua em stop; não foram alterados parser, migração legada ou SDKs dos provedores.
+
+Regressões offline com visibilidade injetada verificam: início coberto; descarte ao cobrir; `setPaused(false)` e sequência manual/repouso/baixo consumo sem nova notificação enquanto coberto; rebuild preservado e forçado; mudança de visibilidade sem evento seguida de rebuild; retomada somente visível; pausa manual mesmo ao tornar visível; stop terminal. O teste de coordenador roda para YouTube e Vimeo com HTML local sem recursos remotos, verificando ausência de WKWebView na superfície enquanto coberta. O documento local é injetado apenas nos testes; produção mantém os embeds oficiais.
+
+Checks: build estático release antes do Swift com `CARGO_INCREMENTAL=0`; `swift test -j 2` aprovado (54 Swift Testing, 29 XCTest, 4 skips explícitos, sem warnings). Fixtures não certificam reprodução real nem oclusão física por WindowServer/Spaces; nenhum teste de rede ou benchmark foi repetido. CI bloqueado por billing #11. Novo HEAD requer três pareceres novos independentes; integração por outro agente.

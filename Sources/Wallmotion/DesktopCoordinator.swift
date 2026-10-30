@@ -17,6 +17,19 @@ struct Display: Identifiable, Equatable {
     }
 }
 
+/// A connected display snapshot. Tests may use separate logical IDs on one
+/// physical screen to exercise multi-display reconciliation deterministically.
+struct DesktopTarget {
+    let id: String
+    let screen: NSScreen
+
+    @MainActor static var connected: [Self] {
+        NSScreen.screens.compactMap { screen in
+            Display.identify(screen).map { Self(id: $0, screen: screen) }
+        }
+    }
+}
+
 @MainActor
 final class DesktopWindow: NSWindow {
     override var canBecomeKey: Bool { false }
@@ -72,10 +85,23 @@ final class WallpaperRenderer {
     private var endObserver: NSObjectProtocol?
     private var failureObserver: NSObjectProtocol?
     private var occlusionObserver: NSObjectProtocol?
-    private var paused = true
-    private var stopped = false
+    private(set) var playbackState = RendererPlaybackState()
+    private let isWindowVisible: @MainActor (NSWindow) -> Bool
+    private let seekToStart: @MainActor (AVPlayer, @escaping @MainActor @Sendable (Bool) -> Void) -> Void
 
-    init(wallpaper: Wallpaper, url: URL, screen: NSScreen, webDocument: String? = nil, onError: @escaping @MainActor (String) -> Void) throws {
+    init(wallpaper: Wallpaper, url: URL, screen: NSScreen, webDocument: String? = nil,
+         isWindowVisible: @escaping @MainActor (NSWindow) -> Bool = { $0.occlusionState.contains(.visible) },
+         makePlayer: @MainActor (AVPlayerItem, Bool) -> AVPlayer = { item, local in
+             local ? AVQueuePlayer() : AVPlayer(playerItem: item)
+         },
+         seekToStart: @escaping @MainActor (AVPlayer, @escaping @MainActor @Sendable (Bool) -> Void) -> Void = { player, completion in
+             player.seek(to: .zero) { finished in
+                 Task { @MainActor in completion(finished) }
+             }
+         },
+         onError: @escaping @MainActor (String) -> Void) throws {
+        self.isWindowVisible = isWindowVisible
+        self.seekToStart = seekToStart
         if case .web(let embed) = wallpaper.source {
             let renderer = try WebWallpaperRenderer(embed: embed, onError: onError, document: webDocument)
             webRenderer = renderer
@@ -111,12 +137,7 @@ final class WallpaperRenderer {
         } else {
             if url.isFileURL, !FileManager.default.isReadableFile(atPath: url.path) { throw RendererError.missingFile }
             let item = AVPlayerItem(url: url)
-            let mediaPlayer: AVPlayer
-            if url.isFileURL {
-                mediaPlayer = AVQueuePlayer()
-            } else {
-                mediaPlayer = AVPlayer(playerItem: item)
-            }
+            let mediaPlayer = makePlayer(item, url.isFileURL)
             mediaPlayer.isMuted = true
             mediaPlayer.preventsDisplaySleepDuringVideoPlayback = false
             mediaPlayer.automaticallyWaitsToMinimizeStalling = true
@@ -133,16 +154,8 @@ final class WallpaperRenderer {
             } else {
                 mediaPlayer.actionAtItemEnd = .pause
                 endObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
-                    Task { @MainActor [weak self] in
-                        guard let self else { return }
-                        self.player?.seek(to: .zero) { [weak self] finished in
-                            Task { @MainActor [weak self] in
-                                guard let self, !self.stopped else { return }
-                                guard finished else { onError("Não foi possível reiniciar o vídeo remoto. Tente recarregar a reprodução."); return }
-                                guard !self.paused else { return }
-                                self.player?.play()
-                            }
-                        }
+                    MainActor.assumeIsolated {
+                        self?.restartRemotePlayback(onError: onError)
                     }
                 }
             }
@@ -159,23 +172,35 @@ final class WallpaperRenderer {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self, !self.stopped else { return }
-                let isOccluded = !self.window.occlusionState.contains(.visible)
-                if isOccluded {
-                    self.webRenderer?.setPaused(true)
-                    self.player?.pause()
-                    self.imageView?.animates = false
-                } else if !self.paused {
-                    self.webRenderer?.setPaused(false)
-                    self.player?.play()
-                    self.imageView?.animates = true
-                }
+                guard let self, !self.playbackState.isStopped else { return }
+                self.applyPlaybackState()
             }
+        }
+        // Sample initial visibility even if AppKit has not posted a transition.
+        applyPlaybackState()
+    }
+
+    private func restartRemotePlayback(onError: @escaping @MainActor (String) -> Void) {
+        guard let player, let token = playbackState.beginRestart() else { return }
+        applyPlaybackState()
+        seekToStart(player) { [weak self] finished in
+            guard let self, self.playbackState.completeRestart(token, finished: finished) else { return }
+            self.applyPlaybackState()
+            if !finished { onError("Não foi possível reiniciar o vídeo remoto. Tente recarregar a reprodução.") }
         }
     }
 
+    /// The only path that starts/stops transport or animation. Resample on every
+    /// request, since policy/rebuild/seek may run without a new occlusion event.
+    private func applyPlaybackState() {
+        playbackState.setVisible(isWindowVisible(window))
+        webRenderer?.setPaused(!playbackState.shouldPlay)
+        imageView?.animates = playbackState.shouldPlay
+        if playbackState.shouldPlay { player?.play() } else { player?.pause() }
+    }
+
     private func observeCurrentItem(onError: @escaping @MainActor (String) -> Void) {
-        guard !stopped else { return }
+        guard !playbackState.isStopped else { return }
         statusObserver?.invalidate()
         if let failureObserver { NotificationCenter.default.removeObserver(failureObserver) }
         failureObserver = nil
@@ -191,19 +216,18 @@ final class WallpaperRenderer {
     }
 
     func setPaused(_ value: Bool) {
-        guard !stopped else { return }
-        paused = value
-        webRenderer?.setPaused(value)
-        imageView?.animates = !value
-        if value { player?.pause() } else { player?.play() }
+        guard !playbackState.isStopped else { return }
+        playbackState.setPaused(value)
         window.orderBack(nil)
+        applyPlaybackState()
     }
 
     func stop() {
-        stopped = true
+        guard !playbackState.isStopped else { return }
+        playbackState.stop()
+        applyPlaybackState()
         webRenderer?.stop()
         webRenderer = nil
-        paused = true
         statusObserver?.invalidate()
         statusObserver = nil
         currentItemObserver?.invalidate()
@@ -218,14 +242,12 @@ final class WallpaperRenderer {
         occlusionObserver = nil
         looper?.disableLooping()
         looper = nil
-        player?.pause()
         player?.replaceCurrentItem(with: nil)
         (player as? AVQueuePlayer)?.removeAllItems()
         if let surface = window.contentView as? VideoSurface {
             surface.playerLayer.player = nil
             surface.playerLayer.removeFromSuperlayer()
         }
-        imageView?.animates = false
         window.orderOut(nil)
         window.close()
     }
@@ -251,18 +273,24 @@ final class DesktopCoordinator {
     }
     private var renderers: [String: Entry] = [:]
     private(set) var gifBudget: GIFPlaybackBudget
-    private let screens: @MainActor () -> [NSScreen]
+    private let targets: @MainActor () -> [DesktopTarget]
+    private let isWindowVisible: @MainActor (NSWindow) -> Bool
+    private let webDocument: String?
 
     init(gifBudgetLimit: UInt64 = GIFPlaybackBudget.defaultLimit,
-         screens: @escaping @MainActor () -> [NSScreen] = { NSScreen.screens }) {
+         targets: @escaping @MainActor () -> [DesktopTarget] = { DesktopTarget.connected },
+         isWindowVisible: @escaping @MainActor (NSWindow) -> Bool = { $0.occlusionState.contains(.visible) },
+         webDocument: String? = nil) {
         gifBudget = GIFPlaybackBudget(limit: gifBudgetLimit)
-        self.screens = screens
+        self.targets = targets
+        self.isWindowVisible = isWindowVisible
+        self.webDocument = webDocument
     }
 
     // Check before persisting a user selection. Rebuild also checks restored and
     // reconnected assignments before opening any AppKit GIF decoder.
     func validateAssignment(_ wallpaper: Wallpaper, to displayID: String, store: LibraryStore) throws {
-        let connected = Set(screens().compactMap(Display.identify))
+        let connected = Set(targets().map(\.id))
         _ = try proposal(for: wallpaper, displayID: displayID, store: store,
                          budget: gifBudget.retaining(displays: connected))
     }
@@ -275,17 +303,18 @@ final class DesktopCoordinator {
     }
 
     func rebuild(state: LibraryState, store: LibraryStore, paused: Bool, force: Bool = false, onError: @escaping @MainActor (String, String) -> Void) {
-        let currentScreens = screens()
-        let connected = Set(currentScreens.compactMap(Display.identify))
+        let currentTargets = targets()
+        let connected = Set(currentTargets.map(\.id))
         let available = Set(state.wallpapers.map(\.id))
         let assigned = Set(state.assignments.filter { available.contains($0.value) }.keys)
         for id in Array(renderers.keys) where !connected.contains(id) || !assigned.contains(id) {
             renderers.removeValue(forKey: id)?.renderer.stop()
         }
         gifBudget = gifBudget.retaining(displays: Set(renderers.keys))
-        for screen in currentScreens {
-            guard let displayID = Display.identify(screen),
-                  let wallpaperID = state.assignments[displayID],
+        for target in currentTargets {
+            let screen = target.screen
+            let displayID = target.id
+            guard let wallpaperID = state.assignments[displayID],
                   let wallpaper = state.wallpapers.first(where: { $0.id == wallpaperID }) else { continue }
             if !force, let entry = renderers[displayID], entry.wallpaperID == wallpaperID, entry.frame == screen.frame {
                 entry.renderer.setPaused(paused)
@@ -294,7 +323,8 @@ final class DesktopCoordinator {
             let token = UUID()
             do {
                 let nextBudget = try proposal(for: wallpaper, displayID: displayID, store: store, budget: gifBudget)
-                let renderer = try WallpaperRenderer(wallpaper: wallpaper, url: store.resolvedURL(for: wallpaper), screen: screen) { [weak self] message in
+                let renderer = try WallpaperRenderer(wallpaper: wallpaper, url: store.resolvedURL(for: wallpaper), screen: screen, webDocument: webDocument,
+                                                     isWindowVisible: isWindowVisible) { [weak self] message in
                     guard self?.renderers[displayID]?.token == token else { return }
                     onError(displayID, message)
                 }
