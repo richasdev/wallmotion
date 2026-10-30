@@ -223,6 +223,13 @@ final class LibraryModel {
         if update(next) { refreshPlayback(force: false) }
     }
 
+    func setAudioVolume(_ value: Double) {
+        guard value.isFinite, (0...1).contains(value), value != state.settings.audioVolume else { return }
+        var next = state
+        next.settings.audioVolume = value
+        if update(next) { refreshPlayback(force: false) }
+    }
+
     func apply(_ item: Wallpaper, to displayID: String) {
         guard canEdit, state.wallpapers.contains(where: { $0.id == item.id }),
               displays.contains(where: { $0.id == displayID }) else { return }

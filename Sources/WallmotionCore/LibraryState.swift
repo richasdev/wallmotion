@@ -4,15 +4,17 @@ public struct PlaybackSettings: Codable, Equatable, Sendable {
     public var pauseOnLowPower: Bool
     public var isManuallyPaused: Bool
     public var audioDisplayID: String?
+    public var audioVolume: Double
 
-    public init(pauseOnLowPower: Bool = true, isManuallyPaused: Bool = false, audioDisplayID: String? = nil) {
+    public init(pauseOnLowPower: Bool = true, isManuallyPaused: Bool = false, audioDisplayID: String? = nil, audioVolume: Double = 1) {
         self.pauseOnLowPower = pauseOnLowPower
         self.isManuallyPaused = isManuallyPaused
         self.audioDisplayID = audioDisplayID
+        self.audioVolume = audioVolume
     }
 
     private enum CodingKeys: String, CodingKey {
-        case pauseOnLowPower, isManuallyPaused, audioDisplayID
+        case pauseOnLowPower, isManuallyPaused, audioDisplayID, audioVolume
     }
 
     public init(from decoder: any Decoder) throws {
@@ -20,6 +22,7 @@ public struct PlaybackSettings: Codable, Equatable, Sendable {
         pauseOnLowPower = try values.decodeIfPresent(Bool.self, forKey: .pauseOnLowPower) ?? true
         isManuallyPaused = try values.decodeIfPresent(Bool.self, forKey: .isManuallyPaused) ?? false
         audioDisplayID = try values.decodeIfPresent(String.self, forKey: .audioDisplayID)
+        audioVolume = try values.decodeIfPresent(Double.self, forKey: .audioVolume) ?? 1
     }
 }
 
@@ -97,6 +100,7 @@ public struct LibraryState: Codable, Equatable, Sendable {
         guard ids.count == wallpapers.count,
               mirroredWallpaperID.map(ids.contains) != false,
               settings.audioDisplayID?.isEmpty != true,
+              settings.audioVolume.isFinite, (0...1).contains(settings.audioVolume),
               assignments.allSatisfy({ !$0.key.isEmpty && ids.contains($0.value) }) else { throw LibraryError.invalidState }
         let fitIDs = Set(wallpapers.map { $0.id.uuidString })
         guard mediaFits.allSatisfy({ display, fits in

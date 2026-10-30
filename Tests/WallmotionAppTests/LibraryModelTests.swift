@@ -421,6 +421,25 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertTrue(model.errorMessage?.contains("salvar") == true)
     }
 
+    func testAudioVolumePersistsAndRejectsInvalidValuesAndFailedSave() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = LibraryStore(rootURL: directory)
+        let model = LibraryModel(store: store, engine: DesktopCoordinator(targets: { [] }))
+        defer { model.stop() }
+        model.setAudioVolume(0.35)
+        XCTAssertEqual(model.state.settings.audioVolume, 0.35)
+        XCTAssertEqual(try store.load().settings.audioVolume, 0.35)
+        let bytes = try Data(contentsOf: store.stateURL)
+        for invalid in [Double.nan, .infinity, -1, 2] { model.setAudioVolume(invalid) }
+        XCTAssertEqual(try Data(contentsOf: store.stateURL), bytes)
+        try FileManager.default.removeItem(at: store.stateURL)
+        try FileManager.default.createDirectory(at: store.stateURL, withIntermediateDirectories: false)
+        model.setAudioVolume(0.7)
+        XCTAssertEqual(model.state.settings.audioVolume, 0.35)
+        XCTAssertNotNil(model.errorMessage)
+    }
+
     func testOptionalLibraryViewSnapshotUsesOnlyTemporaryFixtures() async throws {
         guard let path = ProcessInfo.processInfo.environment["WALLMOTION_SNAPSHOT_PATH"], !path.isEmpty else {
             throw XCTSkip("Defina WALLMOTION_SNAPSHOT_PATH para exportar o snapshot de QA.")
