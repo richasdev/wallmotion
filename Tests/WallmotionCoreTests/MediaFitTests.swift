@@ -5,6 +5,14 @@ import Testing
 
 @Suite("Proportional media presentation")
 struct MediaFitTests {
+    @Test func centerUsesOriginalPixelsAtBackingScaleAndStretchUsesBounds() {
+        let source = CGSize(width: 800, height: 400)
+        let bounds = CGRect(x: 10, y: 20, width: 100, height: 100)
+        #expect(MediaFit.center.frame(for: source, in: bounds, backingScale: 2) == CGRect(x: -140, y: -30, width: 400, height: 200))
+        #expect(MediaFit.stretch.frame(for: source, in: bounds) == bounds)
+        #expect(MediaFit.center.decodePixelLimit(for: source, viewport: CGSize(width: 100, height: 100)) == 800)
+    }
+
     @Test func landscapeFitAndFillAreCenteredWithoutStretching() {
         let media = CGSize(width: 400, height: 200)
         let bounds = CGRect(x: 10, y: 20, width: 100, height: 100)
@@ -23,7 +31,7 @@ struct MediaFitTests {
 
     @Test func equalAspectRatiosUseSameFrame() {
         let bounds = CGRect(x: 0, y: 0, width: 1920, height: 1080)
-        for fit in MediaFit.allCases {
+        for fit in [MediaFit.fit, .fill, .stretch] {
             #expect(fit.frame(for: CGSize(width: 3840, height: 2160), in: bounds) == bounds)
         }
     }
@@ -65,7 +73,7 @@ struct MediaFitTests {
     @Test func budgetBoundaryIsEnforcedAndRetinaQualitySurvivesWithinBudget() {
         let source = CGSize(width: 7680, height: 4320)
         let retina = CGSize(width: 3840, height: 2160)
-        for fit in MediaFit.allCases {
+        for fit in [MediaFit.fit, .fill, .stretch] {
             #expect(fit.decodePixelLimit(for: source, viewport: retina) == 3840)
         }
         let square = CGSize(width: 60000, height: 60000)
@@ -92,7 +100,7 @@ struct MediaFitTests {
         // Literal fixture with no new field; does not rely on today's encoder.
         let json = #"{"version":1,"wallpapers":[{"id":"11111111-1111-1111-1111-111111111111","title":"Old photo","kind":"image","source":{"local":{"filename":"old.png"}},"addedAt":0}],"assignments":{"display":"11111111-1111-1111-1111-111111111111"},"settings":{"pauseOnLowPower":true,"isManuallyPaused":false}}"#
         let state = try JSONDecoder().decode(LibraryState.self, from: Data(json.utf8)).validated()
-        #expect(state.version == 2)
+        #expect(state.version == 3)
         #expect(state.mediaFits.isEmpty)
         #expect(state.mediaFit(for: state.wallpapers[0].id, on: "display") == .fit)
     }
@@ -108,7 +116,7 @@ struct MediaFitTests {
         try bytes.write(to: store.stateURL)
         let loaded = try store.load()
         let item = try #require(loaded.wallpapers.first)
-        #expect(loaded.version == 2)
+        #expect(loaded.version == 3)
         #expect(loaded.mediaFit(for: item.id, on: "display") == .fill)
         #expect(loaded.mediaFit(for: item.id, on: "other") == .fit)
         #expect(item.source == .remote(url: URL(string: "https://www.youtube-nocookie.com/embed/M7lc1UVf-VE")!))

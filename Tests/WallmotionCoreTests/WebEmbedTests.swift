@@ -49,7 +49,7 @@ struct WebEmbedTests {
         let store = LibraryStore(rootURL: root)
         try bytes.write(to: store.stateURL)
         var loaded = try store.load()
-        #expect(loaded.version == 2)
+        #expect(loaded.version == 3)
         #expect(try Data(contentsOf: store.stateURL) == bytes)
         #expect(loaded.wallpapers[0].source == .remote(url: URL(string: "https://cdn.example.com/stream?token=a%2Fb")!))
         #expect(loaded.wallpapers[1].source == .local(filename: "photo.png"))
@@ -71,7 +71,7 @@ struct WebEmbedTests {
         let store = LibraryStore(rootURL: root)
         try bytes.write(to: store.stateURL)
         var expected = try JSONDecoder().decode(LibraryState.self, from: bytes)
-        expected.version = 2
+        expected.version = 3
         let loaded = try store.load()
         #expect(loaded == expected)
         #expect(try Data(contentsOf: store.stateURL) == bytes)
