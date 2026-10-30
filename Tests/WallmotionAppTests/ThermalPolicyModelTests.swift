@@ -15,7 +15,7 @@ final class ThermalPolicyModelTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let store = LibraryStore(rootURL: root)
         let source = PressureSource()
-        let model = LibraryModel(thermalState: { source.value }, store: store, connectedDisplays: { [] })
+        let model = LibraryModel(thermalState: { source.value }, memoryMonitor: TestMemoryPressureMonitor(), store: store, connectedDisplays: { [] })
         model.setPauseOnLowPower(false)
         model.start()
         defer { model.stop() }
@@ -50,14 +50,14 @@ final class ThermalPolicyModelTests: XCTestCase {
         let store = LibraryStore(rootURL: root)
         let source = PressureSource()
         source.value = .critical
-        let model = LibraryModel(thermalState: { source.value }, store: store, connectedDisplays: { [] })
+        let model = LibraryModel(thermalState: { source.value }, memoryMonitor: TestMemoryPressureMonitor(), store: store, connectedDisplays: { [] })
         model.setPauseOnLowPower(false)
         XCTAssertTrue(model.isPaused)
         model.start()
         model.setPauseOnThermalPressure(false)
         XCTAssertFalse(model.isPaused)
         XCTAssertFalse(try store.load().settings.pauseOnThermalPressure)
-        let restored = LibraryModel(thermalState: { source.value }, store: store, connectedDisplays: { [] })
+        let restored = LibraryModel(thermalState: { source.value }, memoryMonitor: TestMemoryPressureMonitor(), store: store, connectedDisplays: { [] })
         XCTAssertFalse(restored.isPaused)
         restored.stop()
         model.setPauseOnThermalPressure(true)

@@ -1,0 +1,18 @@
+# Cooperative response to memory pressure
+
+The macOS app subscribes to [DispatchSourceMemoryPressure](https://developer.apple.com/documentation/dispatch/dispatchsourcememorypressure) on the main queue. Events are mapped locally with critical taking priority over warning/normal if flags are coalesced. The source has no synchronous initial snapshot in this implementation: before the first event, no critical condition is assumed. This is not a measured claim that system memory is normal. Source restart resets that runtime history; event ordering and every transition are not guaranteed to be recoverable.
+
+`pauseOnMemoryPressure` defaults to true for existing libraries via optional decoding; library schema stays 4. The sidebar control explains recovery/restart behavior and remains reachable through sidebar scrolling.
+
+- Warning clears the thumbnail cache's owned references, cancels pending photo publication and defers new renderers. Existing surfaces still receive audio/pause updates; removed/disconnected assignments are stopped. New assignments may remain queued behind their old surface until normal pressure is observed.
+- Critical latches the memory pause, clears reconstructible cache references and calls engine.stop. This cancels pending photo publication, removes renderer entries, closes windows, detaches window contents, clears NSImageView.image and disconnects player/looper/web resources. Library/media/assignments are preserved.
+- Warning after critical keeps the release latch. Normal clears it and schedules reconstitution with the current assignments/settings and other playback policies. Manual, thermal, low-power and screen/session pauses remain independent. Videos/web content restart after resources are recreated.
+- Opting out clears the latch and permits reconstruction; a failed settings save does not change the active policy. Reloaded settings also use the last observed pressure event. Event subscription and cancellation use weak ownership/generation checks, with no polling/timers. Stopped models ignore subsequent events.
+
+This is cooperative reclamation, not an OOM guarantee, a hard byte budget or proof of immediate RSS/GPU/energy reduction. ImageIO/AVFoundation/WebKit can finish uncancellable work or release native resources asynchronously. Visible thumbnail cells/in-flight thumbnail decoders may still retain images or refill the advisory cache; cache purge does not mean every image is freed. Coalesced flags are handled conservatively and may keep a pause latched until a separately observed normal event or explicit opt-out/restart. Runtime pressure itself is never persisted to the library.
+
+## Verification without stressing the host
+
+All unrelated model fixtures inject a quiet monitor. Synthetic monitor events exercise critical release using a generated tiny GIF and an offscreen desktop window, checking zero renderer GIF charge, detached contents, cleared images, unchanged saved state/assignments and recreation while manual pause remains in force. A held photo decoder verifies warning deferral cancels obsolete publication, keeps the old window and admits a fresh request after recovery. Existing disconnection coverage now retains its original surface reference and checks it is stopped/cleared after detachment.
+
+Other tests cover pressure hysteresis, opt-out/legacy persistence, manual/thermal/low-power independence, failed saves/reloads and event mapping. A system-source lifecycle check only registers/cancels the observer; it does not generate memory-pressure events. The sidebar capture uses six synthetic monitors and scrolls to the controls. No host stress command, memory allocation flood, OS setting change or user media/library is used.
