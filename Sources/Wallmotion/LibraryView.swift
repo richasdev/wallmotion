@@ -89,9 +89,15 @@ struct LibraryView: View {
     }
 
     private var removalMessage: String {
-        guard let item = pendingRemoval else { return "" }
+        guard let pendingRemoval else { return "" }
+        guard let item = model.state.wallpapers.first(where: { $0.id == pendingRemoval.id }) else {
+            return "Esta mídia já foi removida da biblioteca."
+        }
         switch item.source {
         case .local:
+            if model.hasOtherLocalReferences(to: item) {
+                return "Esta mídia será removida da biblioteca e dos monitores. A cópia importada continuará disponível para as outras mídias que a usam."
+            }
             return "A cópia importada será apagada e removida dos monitores. Seu arquivo original será preservado."
         case .remote, .web:
             return "O link será removido da biblioteca e dos monitores."
