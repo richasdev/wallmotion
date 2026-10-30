@@ -9,6 +9,11 @@ import WallmotionCore
 
 @MainActor
 final class WallpaperRendererTests: XCTestCase {
+    @MainActor private final class TestScreens {
+        var values: [NSScreen]
+        init(_ values: [NSScreen]) { self.values = values }
+    }
+
     private func eventually(timeout: Duration = .seconds(5), _ predicate: @MainActor () -> Bool) async throws -> Bool {
         let deadline = ContinuousClock.now.advanced(by: timeout)
         while ContinuousClock.now < deadline {
@@ -123,6 +128,88 @@ final class WallpaperRendererTests: XCTestCase {
             CGImageDestinationAddImage(destination, try frame(red: 1, blue: 0), nil)
         }
         XCTAssertTrue(CGImageDestinationFinalize(destination), "A fixture precisa ser uma imagem real decodificável.")
+    }
+
+    func testBudgetRejectionAndDecoderFailurePreserveRendererThenReleaseQuota() throws {
+        let screen = try availableScreen()
+        let displayID = try XCTUnwrap(Display.identify(screen))
+        try withTemporaryDirectory { directory in
+            let store = LibraryStore(rootURL: directory.appendingPathComponent("Library"))
+            let url = directory.appendingPathComponent("animation.gif")
+            try writeImage(at: url, animated: true)
+            let item = try store.importFile(at: url)
+            let bytes = try GIFPreflight.inspect(url: url).decodedBytes
+            let connectedScreens = TestScreens([screen])
+            let engine = DesktopCoordinator(gifBudgetLimit: bytes, screens: { connectedScreens.values })
+            defer { engine.stop() }
+            var state = LibraryState(wallpapers: [item], assignments: [displayID: item.id])
+            engine.rebuild(state: state, store: store, paused: false) { _, message in XCTFail(message) }
+            var window = try XCTUnwrap(NSApplication.shared.windows.compactMap { $0 as? DesktopWindow }.first { $0.isVisible })
+            XCTAssertEqual(engine.gifBudget.totalBytes, bytes)
+
+            // Changing presentation at the exact GIF quota replaces the existing
+            // display charge, and must not bypass its budget or double-charge it.
+            state.setMediaFit(.fill, for: item.id, on: displayID)
+            engine.rebuild(state: state, store: store, paused: true) { _, message in XCTFail(message) }
+            XCTAssertFalse(window.isVisible)
+            window = try XCTUnwrap(NSApplication.shared.windows.compactMap { $0 as? DesktopWindow }.first { $0.isVisible })
+            XCTAssertEqual(try XCTUnwrap(window.contentView as? ImageSurface).mediaFit, .fill)
+            XCTAssertEqual(engine.gifBudget.bytesByDisplay, [displayID: bytes])
+
+            // A tiny encoded fixture with a larger canvas; reject before decoding.
+            var larger = try Data(contentsOf: url)
+            larger.replaceSubrange(6..<10, with: [4, 0, 4, 0])
+            let largerURL = directory.appendingPathComponent("larger.gif")
+            try larger.write(to: largerURL)
+            let other = try store.importFile(at: largerURL)
+            state.wallpapers.append(other)
+            state.assignments[displayID] = other.id
+            var errors: [String] = []
+            engine.rebuild(state: state, store: store, paused: true) { _, message in errors.append(message) }
+            XCTAssertEqual(errors.count, 1)
+            XCTAssertTrue(errors[0].contains("limite global"))
+            XCTAssertTrue(window.isVisible)
+            XCTAssertFalse(try XCTUnwrap(window.contentView as? ImageSurface).imageView.animates)
+            XCTAssertEqual(engine.gifBudget.bytesByDisplay, [displayID: bytes])
+
+            // A decoder failure, including a forced refresh, must not consume quota.
+            let invalidURL = directory.appendingPathComponent("invalid.png")
+            try Data("invalid".utf8).write(to: invalidURL)
+            let invalid = try store.importFile(at: invalidURL)
+            state.wallpapers.append(invalid)
+            state.assignments[displayID] = invalid.id
+            engine.rebuild(state: state, store: store, paused: true, force: true) { _, message in errors.append(message) }
+            XCTAssertEqual(errors.count, 2)
+            XCTAssertTrue(window.isVisible)
+            XCTAssertEqual(engine.gifBudget.totalBytes, bytes)
+
+            connectedScreens.values = []
+            engine.rebuild(state: state, store: store, paused: true) { _, message in XCTFail(message) }
+            XCTAssertEqual(engine.gifBudget.totalBytes, 0)
+            XCTAssertFalse(window.isVisible)
+            connectedScreens.values = [screen]
+            state.assignments[displayID] = item.id
+            engine.rebuild(state: state, store: store, paused: true) { _, message in XCTFail(message) }
+            XCTAssertEqual(engine.gifBudget.totalBytes, bytes)
+            let photoURL = directory.appendingPathComponent("photo.png")
+            try writeImage(at: photoURL, animated: false)
+            let photo = try store.importFile(at: photoURL)
+            state.wallpapers.append(photo)
+            state.assignments[displayID] = photo.id
+            engine.rebuild(state: state, store: store, paused: true) { _, message in XCTFail(message) }
+            XCTAssertEqual(engine.gifBudget.totalBytes, 0)
+            state.assignments[displayID] = item.id
+            engine.rebuild(state: state, store: store, paused: true) { _, message in XCTFail(message) }
+            XCTAssertEqual(engine.gifBudget.totalBytes, bytes)
+            state.remove(id: item.id)
+            engine.rebuild(state: state, store: store, paused: true) { _, message in XCTFail(message) }
+            XCTAssertEqual(engine.gifBudget.totalBytes, 0)
+            state.wallpapers.append(item)
+            state.assignments[displayID] = item.id
+            engine.rebuild(state: state, store: store, paused: true) { _, message in XCTFail(message) }
+            engine.stop()
+            XCTAssertEqual(engine.gifBudget.totalBytes, 0)
+        }
     }
 
     func testPhotoCreatesNonInteractiveDesktopWindowAndStops() throws {
@@ -376,6 +463,27 @@ final class WallpaperRendererTests: XCTestCase {
             XCTAssertTrue(refreshed.contains { $0 === unaffected })
             XCTAssertFalse(replaced.isVisible)
             XCTAssertFalse(refreshed.contains { $0 === replaced })
+        }
+    }
+
+    func testWindowOcclusionNotificationDoesNotCrashOrCorruptWindow() throws {
+        let screen = try availableScreen()
+        let displayID = try XCTUnwrap(Display.identify(screen))
+        try withTemporaryDirectory { directory in
+            let store = LibraryStore(rootURL: directory.appendingPathComponent("Library"))
+            let url = directory.appendingPathComponent("photo.png")
+            try writeImage(at: url, animated: false)
+            let item = try store.importFile(at: url)
+            let state = LibraryState(wallpapers: [item], assignments: [displayID: item.id])
+            let engine = DesktopCoordinator()
+            defer { engine.stop() }
+            let existing = Set(NSApplication.shared.windows.map(ObjectIdentifier.init))
+            engine.rebuild(state: state, store: store, paused: false, force: false) { _, message in XCTFail(message) }
+            let windows = NSApplication.shared.windows.compactMap { $0 as? DesktopWindow }
+                .filter { !existing.contains(ObjectIdentifier($0)) && $0.isVisible }
+            let window = try XCTUnwrap(windows.first)
+            NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: window)
+            XCTAssertTrue(window.isVisible)
         }
     }
 }
