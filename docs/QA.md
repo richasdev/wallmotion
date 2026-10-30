@@ -16,10 +16,6 @@ WALLMOTION_REMOTE_TEST_URL=https://devstreaming-cdn.apple.com/videos/streaming/e
 
 Esse teste passou localmente: estado pronto, tempo de reprodução avançando, áudio mudo e pausa/stop. Não verifica transmissão ao vivo nem reconexão.
 
-## Fontes web (#15)
-
-Veja [contrato, segurança e testes opt-in](WEB-SOURCES.md). A suíte padrão não acessa rede. Para a execução local desta entrega, consulte o registro em `WEB-SOURCES.md`. Os testes de scripts executam JavaScript offline com SDKs simulados; o teste real exige confirmação do player oficial e mudo.
-
 ## Roteiro manual antes de distribuir
 
 - [ ] Abrir `dist/Wallmotion.app`; biblioteca vazia mostra ações claras.
@@ -27,8 +23,7 @@ Veja [contrato, segurança e testes opt-in](WEB-SOURCES.md). A suíte padrão n�
 - [ ] Importar GIF animado; pausar/retomar e verificar os frames.
 - [ ] Importar MP4/MOV com áudio; verificar loop contínuo e silêncio.
 - [ ] Adicionar URL HTTPS de MP4 e HLS; reproduzir, interromper rede e tentar novamente.
-- [ ] Adicionar YouTube/Vimeo explicitamente como fonte web; verificar mudo, proporção Retina, pausa/descarte e recarga manual após erro.
-- [ ] Rejeitar HTTP, páginas arbitrárias, arquivos não suportados e GIF acima do orçamento.
+- [ ] Rejeitar HTTP, páginas web, arquivos não suportados e GIF acima do orçamento.
 - [ ] Aplicar GIFs até 512 MiB estimados entre monitores (máximo de 256 MiB por arquivo); rejeitar a seleção seguinte com erro visível e manter seleção persistida e wallpapers anteriores. Contar o mesmo GIF em cada monitor, inclusive pausado.
 - [ ] Trocar/remover GIF, desconectar/reconectar monitor e reiniciar; confirmar liberação/revalidação da cota e preservação dos demais monitores.
 - [ ] Aplicar uma mídia em cada monitor; mover/redimensionar/desconectar/reconectar telas.

@@ -1,5 +1,7 @@
 # Fontes web oficiais (#15)
 
+Roteiro manual específico: [QA de fontes web](qa/web.md). O roteiro geral `docs/QA.md` acompanha main.
+
 O seletor “Fonte web (YouTube ou Vimeo)” cria `MediaSource.web(embed:)`. O modo padrão continua aceitando somente vídeo direto/HLS pelo AVFoundation. Não há conexão durante inclusão nem ao restaurar uma seleção pausada.
 
 ## Contrato e persistência

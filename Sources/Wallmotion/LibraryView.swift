@@ -17,6 +17,19 @@ struct LibraryView: View {
         model.state.wallpapers.filter { search.isEmpty || $0.title.localizedCaseInsensitiveContains(search) }
     }
 
+    private var targetDisplayName: String {
+        model.displays.first(where: { $0.id == selectedDisplay })?.name ?? "Selecione um monitor"
+    }
+
+    private var hasAppliedWallpaper: Bool {
+        model.displays.contains { model.state.assignments[$0.id] != nil }
+    }
+
+    private func appliedWallpaper(on displayID: String) -> Wallpaper? {
+        guard let id = model.state.assignments[displayID] else { return nil }
+        return model.state.wallpapers.first(where: { $0.id == id })
+    }
+
     var body: some View {
         NavigationSplitView {
             sidebar
@@ -27,8 +40,10 @@ struct LibraryView: View {
                 ToolbarItemGroup {
                     Button { showingURL = true } label: { Label("Adicionar URL", systemImage: "link.badge.plus") }
                         .disabled(!model.canEdit || model.isImporting)
+                        .help("Adicionar um link de vídeo à biblioteca")
                     Button { model.chooseFiles() } label: { Label("Importar", systemImage: "plus") }
                         .disabled(!model.canEdit || model.isImporting)
+                        .help("Importar fotos, GIFs e vídeos · ⌘O")
                 }
             }
             .searchable(text: $search, prompt: "Buscar na biblioteca")
@@ -97,13 +112,14 @@ struct LibraryView: View {
             } description: {
                 Text("Importe uma foto, GIF ou vídeo. Ou adicione um link direto de vídeo para começar.")
             } actions: { Button("Importar mídia…") { model.chooseFiles() }.buttonStyle(.borderedProminent) }
+        } else if filteredItems.isEmpty {
+            ContentUnavailableView.search(text: search)
         } else {
             ScrollView {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 230), spacing: 16)], spacing: 16) {
                     ForEach(filteredItems) { item in card(for: item) }
                 }.padding(.bottom)
             }
-            if filteredItems.isEmpty { Text("Nenhuma mídia encontrada.").foregroundStyle(.secondary) }
         }
     }
 
@@ -119,31 +135,51 @@ struct LibraryView: View {
 
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Label("Wallmotion", systemImage: "play.rectangle.on.rectangle.fill")
-                .font(.title2.weight(.semibold)).padding(.top, 18)
-            Text("SEUS MONITORES").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            HStack(spacing: 10) {
+                Image(systemName: "play.rectangle.on.rectangle.fill")
+                    .font(.title2).foregroundStyle(Color.accentColor)
+                Text("Wallmotion").font(.title2.weight(.semibold))
+            }.padding(.top, 18).padding(.bottom, 8)
+            Text("MONITORES").font(.caption.weight(.semibold)).tracking(1).foregroundStyle(.secondary)
+            if model.displays.isEmpty {
+                Label("Nenhum monitor disponível", systemImage: "display.trianglebadge.exclamationmark")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
             ForEach(model.displays) { display in
                 Button { selectedDisplay = display.id } label: {
                     HStack(spacing: 12) {
                         Image(systemName: "display").font(.title3)
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(display.name).lineLimit(1)
-                            Text(model.state.assignments[display.id] == nil ? "Wallpaper do sistema" : "Wallpaper aplicado")
-                                .font(.caption).foregroundStyle(.secondary)
+                            Text(display.name).font(.callout.weight(.medium)).lineLimit(2)
+                            Text(appliedWallpaper(on: display.id)?.title ?? "Fundo do sistema")
+                                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         }
                         Spacer(minLength: 0)
+                        if selectedDisplay == display.id {
+                            Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.accentColor)
+                        }
                     }
                     .padding(12)
                     .background(selectedDisplay == display.id ? Color.accentColor.opacity(0.14) : .clear, in: RoundedRectangle(cornerRadius: 10))
                     .contentShape(Rectangle())
-                }.buttonStyle(.plain)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(display.name)
+                .accessibilityValue(selectedDisplay == display.id ? "Monitor selecionado" : "Monitor disponível")
             }
             Spacer()
-            Divider()
-            Label(model.playbackDescription, systemImage: model.isPaused ? "pause.circle" : "play.circle")
-                .font(.callout)
-            Button(model.state.settings.isManuallyPaused ? "Retomar" : "Pausar") { model.togglePause() }
-                .disabled(!model.canEdit)
+            VStack(alignment: .leading, spacing: 12) {
+                Label(hasAppliedWallpaper ? model.playbackDescription : "Nenhum fundo aplicado", systemImage: hasAppliedWallpaper ? (model.isPaused ? "pause.circle.fill" : "play.circle.fill") : "display")
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(!hasAppliedWallpaper || model.isPaused ? Color.secondary : Color.accentColor)
+                Button { model.togglePause() } label: {
+                    Label(model.state.settings.isManuallyPaused ? "Retomar" : "Pausar", systemImage: model.state.settings.isManuallyPaused ? "play.fill" : "pause.fill")
+                        .frame(maxWidth: .infinity)
+                }.disabled(!model.canEdit).help("Controlar a reprodução em todos os monitores")
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
             Toggle("Pausar em baixo consumo", isOn: Binding(get: { model.state.settings.pauseOnLowPower }, set: { model.setPauseOnLowPower($0) }))
                 .font(.caption).disabled(!model.canEdit)
             Text("Áudio desativado · arquivos originais preservados")
@@ -152,22 +188,55 @@ struct LibraryView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Sua biblioteca").font(.largeTitle.weight(.bold))
-            HStack {
-                Text("\(model.state.wallpapers.count) itens · fotos, GIFs e vídeos").foregroundStyle(.secondary)
-                Spacer()
-                Button("Usar wallpaper do sistema") { model.clear(displayID: selectedDisplay) }
-                    .disabled(!model.canEdit || model.state.assignments[selectedDisplay] == nil)
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Sua biblioteca").font(.largeTitle.weight(.bold))
+                Text("\(model.state.wallpapers.count) \(model.state.wallpapers.count == 1 ? "mídia" : "mídias") · fotos, GIFs e vídeos")
+                    .font(.callout).foregroundStyle(.secondary)
             }
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 16) {
+                    monitorContext
+                    Spacer(minLength: 8)
+                    restoreSystemButton
+                }
+                VStack(alignment: .leading, spacing: 12) {
+                    monitorContext
+                    restoreSystemButton
+                }
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.accentColor.opacity(0.07), in: RoundedRectangle(cornerRadius: 12))
             if let error = model.playbackErrors[selectedDisplay] {
                 HStack {
                     Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
                     Spacer()
                     Button("Tentar novamente") { model.refreshPlayback() }
-                }.font(.callout)
+                }
+                .font(.callout).padding(12)
+                .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
             }
         }
+    }
+
+    private var monitorContext: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "display").font(.title2).foregroundStyle(Color.accentColor)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(targetDisplayName).font(.callout.weight(.semibold)).lineLimit(1)
+                Text(appliedWallpaper(on: selectedDisplay).map { "Fundo: \($0.title)" } ?? "Escolha uma mídia para este monitor")
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+            }
+        }
+    }
+
+    private var restoreSystemButton: some View {
+        Button { model.clear(displayID: selectedDisplay) } label: {
+            Label("Fundo do sistema", systemImage: "arrow.uturn.backward")
+        }
+        .disabled(!model.canEdit || model.state.assignments[selectedDisplay] == nil)
+        .help("Remover o Wallmotion deste monitor e revelar o fundo do macOS")
     }
 
     private var urlSheet: some View {
@@ -217,18 +286,23 @@ struct WallpaperCard: View {
     let onApply: () -> Void
     let onRemove: () -> Void
 
+    private var kindLabel: String {
+        ["image": "FOTO", "gif": "GIF", "video": "VÍDEO", "web": "WEB"][item.kind.rawValue] ?? item.kind.rawValue.uppercased()
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             MediaThumbnail(item: item, localURL: localURL)
                 .frame(height: 118).clipShape(RoundedRectangle(cornerRadius: 10))
             Text(item.title).font(.headline).lineLimit(1).help(item.title)
             HStack {
-                Text(item.kind.rawValue.uppercased()).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Text(kindLabel).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 if case .web(let embed) = item.source { Text(embed.provider == .youtube ? "YouTube" : "Vimeo").font(.caption).foregroundStyle(.secondary) }
                 if case .remote = item.source { Label("URL", systemImage: "link").font(.caption).foregroundStyle(.secondary) }
                 Spacer()
                 Button(role: .destructive, action: onRemove) { Image(systemName: "trash") }
                     .buttonStyle(.borderless).help("Remover da biblioteca")
+                    .accessibilityLabel("Remover \(item.title) da biblioteca")
             }
             Button(action: onApply) {
                 Label(isApplied ? "Aplicado · reaplicar" : "Aplicar neste monitor", systemImage: isApplied ? "checkmark.circle.fill" : "display")
