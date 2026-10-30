@@ -92,7 +92,7 @@ struct MediaFitTests {
         // Literal fixture with no new field; does not rely on today's encoder.
         let json = #"{"version":1,"wallpapers":[{"id":"11111111-1111-1111-1111-111111111111","title":"Old photo","kind":"image","source":{"local":{"filename":"old.png"}},"addedAt":0}],"assignments":{"display":"11111111-1111-1111-1111-111111111111"},"settings":{"pauseOnLowPower":true,"isManuallyPaused":false}}"#
         let state = try JSONDecoder().decode(LibraryState.self, from: Data(json.utf8)).validated()
-        #expect(state.version == 2)
+        #expect(state.version == 3)
         #expect(state.mediaFits.isEmpty)
         #expect(state.mediaFit(for: state.wallpapers[0].id, on: "display") == .fit)
     }
@@ -108,7 +108,7 @@ struct MediaFitTests {
         try bytes.write(to: store.stateURL)
         let loaded = try store.load()
         let item = try #require(loaded.wallpapers.first)
-        #expect(loaded.version == 2)
+        #expect(loaded.version == 3)
         #expect(loaded.mediaFit(for: item.id, on: "display") == .fill)
         #expect(loaded.mediaFit(for: item.id, on: "other") == .fit)
         #expect(item.source == .remote(url: URL(string: "https://www.youtube-nocookie.com/embed/M7lc1UVf-VE")!))
