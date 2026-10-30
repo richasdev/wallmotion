@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 22" width="22" height="22">
+  <!-- macOS Menu Bar Kinetic Monogram Template Icon -->
+  <g fill="none" stroke="#000000" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Kinetic W Flow Ribbon -->
+    <path d="M 3.5 6.5 L 7.5 16 L 11 9 L 14.5 16 L 18.5 6.5" stroke-width="1.8" />
+    <!-- Active Dynamic Particle Node -->
+    <circle cx="11" cy="5" r="1.5" fill="#000000" stroke="none" />
+  </g>
+</svg>
