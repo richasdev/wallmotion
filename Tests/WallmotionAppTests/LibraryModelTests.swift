@@ -505,7 +505,10 @@ final class LibraryModelTests: XCTestCase {
         }
         let bounds = NSRect(x: 0, y: 0, width: compact ? 820 : 1120, height: compact ? 560 : 760)
         let appearance: NSAppearance.Name = environment["WALLMOTION_SNAPSHOT_LIGHT"] == "1" ? .aqua : .darkAqua
-        let hosting = NSHostingView(rootView: LibraryView(model: model))
+        let query = LibraryQuery(text: environment["WALLMOTION_SNAPSHOT_SEARCH"] ?? "",
+            filter: LibraryMediaFilter(rawValue: environment["WALLMOTION_SNAPSHOT_FILTER"] ?? "") ?? .all,
+            sort: LibrarySortOrder(rawValue: environment["WALLMOTION_SNAPSHOT_SORT"] ?? "") ?? .recent)
+        let hosting = NSHostingView(rootView: LibraryView(model: model, initialQuery: query))
         hosting.appearance = NSAppearance(named: appearance)
         hosting.frame = bounds
         let window = NSWindow(contentRect: bounds, styleMask: [.borderless], backing: .buffered, defer: false)

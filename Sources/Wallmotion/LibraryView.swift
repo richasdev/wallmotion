@@ -6,6 +6,9 @@ struct LibraryView: View {
     @Bindable var model: LibraryModel
     @State private var selectedDisplay = ""
     @State private var search = ""
+    @State private var mediaFilter = LibraryMediaFilter.all
+    @State private var sortOrder = LibrarySortOrder.recent
+    @State private var catalog = LibraryCatalogProjection()
     @State private var showingURL = false
     @State private var isWebSource = false
     @State private var urlText = ""
@@ -14,8 +17,15 @@ struct LibraryView: View {
     @State private var isDropTargeted = false
     @State private var dropMessage = ""
 
+    init(model: LibraryModel, initialQuery: LibraryQuery = .init()) {
+        self.model = model
+        _search = State(initialValue: initialQuery.text)
+        _mediaFilter = State(initialValue: initialQuery.filter)
+        _sortOrder = State(initialValue: initialQuery.sort)
+    }
+
     private var filteredItems: [Wallpaper] {
-        model.state.wallpapers.filter { search.isEmpty || $0.title.localizedCaseInsensitiveContains(search) }
+        catalog.items(from: model.state.wallpapers, query: LibraryQuery(text: search, filter: mediaFilter, sort: sortOrder))
     }
 
     private var targetDisplayName: String {
@@ -74,6 +84,7 @@ struct LibraryView: View {
         VStack(alignment: .leading, spacing: 20) {
             header
             BackgroundControls(model: model, selectedDisplay: selectedDisplay, supportsMediaFit: supportsMediaFit)
+            if model.canEdit, !model.state.wallpapers.isEmpty { catalogControls }
             libraryContent
             if model.isImporting { ProgressView("Copiando mídia para a biblioteca…").controlSize(.small) }
         }
@@ -110,6 +121,7 @@ struct LibraryView: View {
     }
 
     @ViewBuilder private var libraryContent: some View {
+        let items = filteredItems
         if !model.canEdit {
             ContentUnavailableView {
                 Label("Biblioteca indisponível", systemImage: "externaldrive.badge.exclamationmark")
@@ -122,13 +134,67 @@ struct LibraryView: View {
             } description: {
                 Text("Importe uma foto, GIF ou vídeo. Ou adicione um link direto de vídeo para começar.")
             } actions: { Button("Importar mídia…") { model.chooseFiles() }.buttonStyle(.borderedProminent) }
-        } else if filteredItems.isEmpty {
-            ContentUnavailableView.search(text: search)
+        } else if items.isEmpty {
+            ContentUnavailableView {
+                Label("Nenhuma mídia corresponde", systemImage: "line.3.horizontal.decrease.circle")
+            } description: {
+                Text("Tente outro tipo de mídia ou ajuste a busca.")
+            } actions: {
+                Button("Limpar filtros", action: clearQuery)
+            }
         } else {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 230), spacing: 16)], spacing: 16) {
-                ForEach(filteredItems) { item in card(for: item) }
+                ForEach(items) { item in card(for: item) }
             }.padding(.bottom)
         }
+    }
+
+    private var catalogControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+        HStack(spacing: 12) {
+            ViewThatFits(in: .horizontal) {
+                mediaFilterPicker.pickerStyle(.segmented).fixedSize(horizontal: true, vertical: false)
+                mediaFilterPicker.pickerStyle(.menu)
+            }
+            Spacer(minLength: 0)
+            Picker("Ordenação da biblioteca", selection: $sortOrder) {
+                Text("Mais recentes").tag(LibrarySortOrder.recent)
+                Text("Título (A–Z)").tag(LibrarySortOrder.title)
+                Text("Tipo de mídia").tag(LibrarySortOrder.mediaType)
+            }.pickerStyle(.menu).labelsHidden()
+                .accessibilityLabel("Ordenação da biblioteca")
+                .help("Ordenar as mídias da biblioteca")
+        }
+            HStack {
+                Text("\(filteredItems.count) de \(model.state.wallpapers.count) mídias")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .accessibilityLabel("\(filteredItems.count) de \(model.state.wallpapers.count) mídias exibidas")
+                Spacer()
+                if mediaFilter != .all || !search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Button("Limpar filtros", systemImage: "xmark.circle", action: clearQuery)
+                        .buttonStyle(.borderless).font(.caption)
+                        .accessibilityLabel("Limpar busca e filtro de tipo")
+                }
+            }
+        }
+        .controlSize(.regular)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Filtros da biblioteca")
+    }
+
+    private func clearQuery() {
+        search = ""
+        mediaFilter = .all
+    }
+
+    private var mediaFilterPicker: some View {
+        Picker("Tipo de mídia", selection: $mediaFilter) {
+            Text("Todas").tag(LibraryMediaFilter.all)
+            Text("Fotos").tag(LibraryMediaFilter.photos)
+            Text("GIFs").tag(LibraryMediaFilter.gifs)
+            Text("Vídeos").tag(LibraryMediaFilter.videos)
+            Text("Web").tag(LibraryMediaFilter.web)
+        }.labelsHidden().accessibilityLabel("Tipo de mídia na biblioteca")
     }
 
     private func card(for item: Wallpaper) -> some View {
