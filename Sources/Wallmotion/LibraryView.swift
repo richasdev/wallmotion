@@ -13,6 +13,7 @@ struct LibraryView: View {
     @State private var isWebSource = false
     @State private var urlText = ""
     @State private var urlError: String?
+    @State private var pendingRename: Wallpaper?
     @State private var pendingRemoval: Wallpaper?
     @State private var isDropTargeted = false
     @State private var dropMessage = ""
@@ -68,6 +69,17 @@ struct LibraryView: View {
         .onAppear { selectAvailableDisplay() }
         .onChange(of: model.displays) { _, _ in selectAvailableDisplay() }
         .sheet(isPresented: $showingURL) { urlSheet }
+        .sheet(item: $pendingRename) { item in
+            RenameMediaSheet(title: item.title, canSave: model.canEdit) { title in
+                if model.rename(id: item.id, title: title) {
+                    pendingRename = nil
+                    return nil
+                }
+                let error = model.errorMessage ?? "Não foi possível salvar o nome."
+                model.errorMessage = nil
+                return error
+            } onCancel: { pendingRename = nil }
+        }
         .alert("Wallmotion", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) {
             Button("OK") { model.errorMessage = nil }
         } message: { Text(model.errorMessage ?? "") }
@@ -199,12 +211,12 @@ struct LibraryView: View {
 
     private func card(for item: Wallpaper) -> some View {
         let applied = model.activeWallpaperID(on: selectedDisplay) == item.id
-        return WallpaperCard(item: item, localURL: model.localMediaURL(for: item), isApplied: applied, appliesToAll: model.state.displayMode.isShared, onApply: {
+        return WallpaperCard(item: item, localURL: model.localMediaURL(for: item), isApplied: applied, appliesToAll: model.state.displayMode.isShared, canApply: !selectedDisplay.isEmpty, onRename: { pendingRename = item }, onApply: {
             model.apply(item, to: selectedDisplay)
         }, onRemove: {
             pendingRemoval = item
         })
-        .disabled(!model.canEdit || selectedDisplay.isEmpty)
+        .disabled(!model.canEdit)
     }
 
     private var sidebar: some View {
@@ -394,6 +406,8 @@ struct WallpaperCard: View {
     let localURL: URL?
     let isApplied: Bool
     var appliesToAll: Bool = false
+    var canApply = true
+    let onRename: () -> Void
     let onApply: () -> Void
     let onRemove: () -> Void
 
@@ -418,14 +432,19 @@ struct WallpaperCard: View {
             Button(action: onApply) {
                 Label(isApplied ? "Aplicado · reaplicar" : (appliesToAll ? "Aplicar em todos" : "Aplicar neste monitor"), systemImage: isApplied ? "checkmark.circle.fill" : "display")
                     .frame(maxWidth: .infinity)
-            }.buttonStyle(.bordered)
+            }.buttonStyle(.bordered).disabled(!canApply)
         }
         .padding(16)
         .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 14))
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(isApplied ? BrandTheme.selection(for: colorScheme) : .primary.opacity(0.07), lineWidth: isApplied ? (contrast == .increased ? 3 : 2) : 1))
+        .contextMenu {
+            Button("Renomear…", systemImage: "pencil", action: onRename)
+            Button("Remover…", systemImage: "trash", role: .destructive, action: onRemove)
+        }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(item.title)
         .accessibilityValue(isApplied ? "Fundo aplicado" : "Não aplicado no monitor selecionado")
         .accessibilityAddTraits(isApplied ? .isSelected : [])
+        .accessibilityAction(named: Text("Renomear"), onRename)
     }
 }
