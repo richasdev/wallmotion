@@ -24,37 +24,52 @@ struct WallpaperCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 0) {
             MediaThumbnail(item: item, localURL: localURL)
-                .frame(height: 118).clipShape(RoundedRectangle(cornerRadius: 10))
-            Text(item.title).font(.headline).lineLimit(1).help(item.title)
-            HStack {
-                Text(kindLabel).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                if case .web(let embed) = item.source { Text(embed.provider == .youtube ? "YouTube" : "Vimeo").font(.caption).foregroundStyle(.secondary) }
-                if case .remote = item.source { Label("URL", systemImage: "link").font(.caption).foregroundStyle(.secondary) }
-                Spacer()
-                Button(action: onRename) {
-                    Image(systemName: "pencil").foregroundStyle(.primary)
-                        .frame(width: 24, height: 24).contentShape(Rectangle())
+                .frame(height: 174)
+                .overlay(alignment: .topLeading) {
+                    Text(kindLabel).font(.system(size: 9, weight: .bold, design: .monospaced)).tracking(1.5)
+                        .foregroundStyle(.white).padding(.horizontal, 9).padding(.vertical, 6)
+                        .background(.black.opacity(0.65), in: Capsule()).padding(12)
                 }
-                    .buttonStyle(.borderless).help("Renomear título da mídia")
-                    .accessibilityLabel("Renomear \(item.title)")
-                Button(role: .destructive, action: onRemove) {
-                    Image(systemName: "trash").frame(width: 24, height: 24).contentShape(Rectangle())
+                .overlay(alignment: .bottomTrailing) {
+                    if isApplied {
+                        Label("EM CENA", systemImage: "checkmark.circle.fill")
+                            .font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
+                            .padding(8).background(.black.opacity(0.75), in: Capsule()).padding(10)
+                    }
                 }
-                    .buttonStyle(.borderless).help("Remover da biblioteca")
-                    .accessibilityLabel("Remover \(item.title) da biblioteca")
+            VStack(alignment: .leading, spacing: 12) {
+                Text(item.title).font(.headline).lineLimit(1).help(item.title)
+                HStack {
+                    Text(kindLabel).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    if case .web(let embed) = item.source { Text(embed.provider == .youtube ? "YouTube" : "Vimeo").font(.caption).foregroundStyle(.secondary) }
+                    if case .remote = item.source { Label("URL", systemImage: "link").font(.caption).foregroundStyle(.secondary) }
+                    Spacer()
+                    Button(action: onRename) {
+                        Image(systemName: "pencil").foregroundStyle(.primary)
+                            .frame(width: 24, height: 24).contentShape(Rectangle())
+                    }
+                        .buttonStyle(.borderless).help("Renomear título da mídia")
+                        .accessibilityLabel("Renomear \(item.title)")
+                    Button(role: .destructive, action: onRemove) {
+                        Image(systemName: "trash").frame(width: 24, height: 24).contentShape(Rectangle())
+                    }
+                        .buttonStyle(.borderless).help("Remover da biblioteca")
+                        .accessibilityLabel("Remover \(item.title) da biblioteca")
+                }
+                Button(action: onApply) {
+                    Label(isApplied ? "Aplicado · reaplicar" : (appliesToAll ? "Aplicar em todos" : "Aplicar neste monitor"), systemImage: isApplied ? "checkmark.circle.fill" : "display")
+                        .frame(maxWidth: .infinity)
+                }.buttonStyle(.bordered).disabled(!canApply)
+                    .help(applyDisabledReason ?? "Aplicar este fundo com a organização de monitores selecionada")
+                    .accessibilityHint(Text(applyDisabledReason ?? "Aplica o fundo com a organização de monitores selecionada"))
             }
-            Button(action: onApply) {
-                Label(isApplied ? "Aplicado · reaplicar" : (appliesToAll ? "Aplicar em todos" : "Aplicar neste monitor"), systemImage: isApplied ? "checkmark.circle.fill" : "display")
-                    .frame(maxWidth: .infinity)
-            }.buttonStyle(.bordered).disabled(!canApply)
-                .help(applyDisabledReason ?? "Aplicar este fundo com a organização de monitores selecionada")
-                .accessibilityHint(Text(applyDisabledReason ?? "Aplica o fundo com a organização de monitores selecionada"))
+            .padding(14)
         }
-        .padding(16)
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(isApplied ? BrandTheme.selection(for: colorScheme) : .primary.opacity(0.07), lineWidth: isApplied ? (contrast == .increased ? 3 : 2) : 1))
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(isApplied ? BrandTheme.selection(for: colorScheme) : .primary.opacity(0.07), lineWidth: isApplied ? (contrast == .increased ? 3 : 2) : 1))
+        .clipShape(RoundedRectangle(cornerRadius: 18))
         .contextMenu {
             Button("Renomear…", systemImage: "pencil", action: onRename)
             Button("Remover…", systemImage: "trash", role: .destructive, action: onRemove)

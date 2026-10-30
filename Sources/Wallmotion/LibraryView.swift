@@ -3,6 +3,7 @@ import AppKit
 import WallmotionCore
 
 struct LibraryView: View {
+    @Environment(\.colorScheme) private var colorScheme
     @Bindable var model: LibraryModel
     @State private var selectedDisplay = ""
     @State private var searchDraft = LibrarySearchDraft()
@@ -14,9 +15,11 @@ struct LibraryView: View {
     @State private var pendingRemoval: Wallpaper?
     @State private var isDropTargeted = false
     @State private var dropMessage = ""
+    @State private var showingSceneControls = false
 
-    init(model: LibraryModel, initialQuery: LibraryQuery = .init(), initialRename: Wallpaper? = nil) {
+    init(model: LibraryModel, initialQuery: LibraryQuery = .init(), initialRename: Wallpaper? = nil, initialSceneControls: Bool = false) {
         self.model = model
+        _showingSceneControls = State(initialValue: initialSceneControls)
         _pendingRename = State(initialValue: initialRename)
         _searchDraft = State(initialValue: LibrarySearchDraft(text: initialQuery.text))
         _mediaFilter = State(initialValue: initialQuery.filter)
@@ -129,7 +132,15 @@ struct LibraryView: View {
         ScrollView {
         VStack(alignment: .leading, spacing: 20) {
             header
-            BackgroundControls(model: model, selectedDisplay: selectedDisplay, supportsMediaFit: supportsMediaFit)
+            DisclosureGroup(isExpanded: $showingSceneControls) {
+                BackgroundControls(model: model, selectedDisplay: selectedDisplay, supportsMediaFit: supportsMediaFit)
+                    .padding(.top, 10)
+            } label: {
+                Label("Ajustar cenário · monitores, enquadramento e som", systemImage: "slider.horizontal.3")
+                    .font(.callout.weight(.medium))
+            }
+            .padding(14)
+            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 14))
             if let notice = searchDraft.notice {
                 HStack(alignment: .top, spacing: 12) {
                     Label(notice, systemImage: "text.magnifyingglass")
@@ -150,7 +161,7 @@ struct LibraryView: View {
         }
         .padding(24)
         }
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(colorScheme == .dark ? Color(red: 0.055, green: 0.065, blue: 0.095) : Color(red: 0.95, green: 0.95, blue: 0.98))
         .overlay {
             RoundedRectangle(cornerRadius: 12)
                 .stroke(isDropTargeted ? Color.accentColor : .clear, lineWidth: 3)
@@ -179,11 +190,19 @@ struct LibraryView: View {
                 Text("O arquivo original foi preservado. Corrija a biblioteca e tente carregá-la novamente.")
             } actions: { Button("Tentar novamente") { model.load() } }
         } else if model.state.wallpapers.isEmpty {
-            ContentUnavailableView {
-                Label("Seu desktop, em movimento", systemImage: "photo.on.rectangle.angled")
-            } description: {
-                Text("Importe uma foto, GIF ou vídeo. Ou adicione um link direto de vídeo para começar.")
-            } actions: { Button("Importar mídia…") { model.chooseFiles() }.buttonStyle(.borderedProminent) }
+            VStack(spacing: 14) {
+                Image(systemName: "sparkles.rectangle.stack.fill")
+                    .font(.system(size: 34, weight: .light)).foregroundStyle(Color.accentColor)
+                Text("Sua próxima paisagem começa aqui.").font(.title2.weight(.semibold))
+                Text("Solte uma foto, GIF ou vídeo. Transforme um link em atmosfera.")
+                    .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                HStack {
+                    Button("Importar mídia…", systemImage: "plus") { model.chooseFiles() }.buttonStyle(.borderedProminent)
+                    Button("Adicionar link", systemImage: "link") { pendingURLDraft = MediaURLDraft() }.buttonStyle(.bordered)
+                }.disabled(model.isImporting)
+            }
+            .padding(32).frame(maxWidth: .infinity)
+            .background(BrandTheme.cardBackground.opacity(0.35), in: RoundedRectangle(cornerRadius: 20))
         } else if items.isEmpty {
             ContentUnavailableView {
                 Label("Nenhuma mídia corresponde", systemImage: "line.3.horizontal.decrease.circle")
@@ -200,7 +219,8 @@ struct LibraryView: View {
     }
 
     private var catalogControls: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 14) {
+        Text("Sua coleção").font(.title2.weight(.bold)).accessibilityAddTraits(.isHeader)
         HStack(spacing: 12) {
             ViewThatFits(in: .horizontal) {
                 mediaFilterPicker.pickerStyle(.segmented).fixedSize(horizontal: true, vertical: false)
@@ -272,8 +292,12 @@ struct LibraryView: View {
         VStack(alignment: .leading, spacing: 20) {
             HStack(spacing: 10) {
                 BrandLogoView(size: 36)
-                Text("Wallmotion").font(.title2.weight(.semibold))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Wallmotion").font(.title2.weight(.bold))
+                    Text("DESKTOP STUDIO").font(.system(size: 9, weight: .semibold, design: .monospaced)).tracking(2).foregroundStyle(.secondary)
+                }
             }.padding(.top, 18).padding(.bottom, 8)
+            Label("SEU CENÁRIO", systemImage: "circle.hexagongrid.fill").font(.caption2.weight(.bold)).foregroundStyle(Color.accentColor)
             Text("MONITORES").font(.caption.weight(.semibold)).tracking(1).foregroundStyle(.secondary)
                 .accessibilityAddTraits(.isHeader)
             if model.displays.isEmpty {
@@ -298,7 +322,7 @@ struct LibraryView: View {
                         }
                     }
                     .padding(12)
-                    .background(selectedDisplay == display.id ? Color.accentColor.opacity(0.14) : .clear, in: RoundedRectangle(cornerRadius: 10))
+                    .background(selectedDisplay == display.id ? BrandTheme.selection(for: colorScheme).opacity(0.14) : .clear, in: RoundedRectangle(cornerRadius: 10))
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -343,15 +367,7 @@ struct LibraryView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 18) {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text("Sua biblioteca").font(.largeTitle.weight(.bold)).accessibilityAddTraits(.isHeader)
-                    Spacer()
-                    Text("WALLMOTION").font(.caption2.weight(.semibold)).tracking(2).foregroundStyle(.secondary)
-                }
-                Text("\(model.state.wallpapers.count) \(model.state.wallpapers.count == 1 ? "mídia" : "mídias") · fotos, GIFs e vídeos")
-                    .font(.callout).foregroundStyle(.secondary)
-            }
+            LibraryHero(count: model.state.wallpapers.count)
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 16) {
                     monitorContext
