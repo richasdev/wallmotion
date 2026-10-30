@@ -1,5 +1,22 @@
 # Relatório de Performance e Análise de Segurança Rust (#9)
 
+## Coletor local por processo (#19)
+
+`scripts/collect-performance.py` coleta snapshots de CPU, RSS e tempo do processo Wallmotion no macOS, sem privilégios. Informe o PID, o intervalo e a duração explicitamente. Para reproduzir uma coleta de 15 minutos a cada 5 segundos:
+
+```sh
+pgrep -x Wallmotion
+python3 scripts/collect-performance.py --pid 12345 --interval 5 --duration 900 --format csv --output wallmotion.csv
+```
+
+Substitua `12345` pelo PID retornado por `pgrep` (ou pelo PID exibido no Activity Monitor). JSON pode ser selecionado com `--format json`. A saída JSON inclui os limites; em CSV, o relatório é escrito em stderr para manter o arquivo CSV legível. CPU vem de `ps %cpu` e pode exceder 100% em sistemas multicore; RSS é o residente amostrado convertido de KiB para bytes. A ferramenta não coleta GPU ou potência: `ps` não fornece aqui uma métrica por processo com unidade verificada. Amostras podem perder picos entre intervalos. O coletor valida que o PID existe, pertence ao usuário atual e é Wallmotion; não usa sudo nem acessa dados de outros processos.
+
+Os testes de parsing e argumentos podem ser executados sem iniciar o app:
+
+```sh
+python3 -m unittest discover -s tests -p 'test_collect_performance.py'
+```
+
 **Data:** Outubro de 2026  
 **Autor:** Antigravity (Performance & Architecture Research Agent)  
 **Destinatário:** Codex Coordenador & Equipe Wallmotion  
