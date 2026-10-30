@@ -44,6 +44,11 @@ public final class LibraryProcessLock {
         defer { gate.unlock() }
         guard let file = descriptor else { return }
         descriptor = nil
+        // A transient fork/exec child can still hold a duplicate reference until
+        // CLOEXEC runs. Explicit unlock releases our shared open description now.
+        while flock(file, LOCK_UN) != 0 {
+            if errno != EINTR { break }
+        }
         _ = close(file)
     }
 
