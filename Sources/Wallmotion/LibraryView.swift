@@ -98,8 +98,8 @@ struct LibraryView: View {
                         Image(systemName: "display").font(.title3)
                         VStack(alignment: .leading, spacing: 4) {
                             Text(display.name).lineLimit(1)
-                            Text(model.state.assignments[display.id] == nil ? "Wallpaper do sistema" : "Wallpaper aplicado")
-                                .font(.caption).foregroundStyle(.secondary)
+                            Text(model.remotePlaybackStates[display.id]?.description ?? (model.state.assignments[display.id] == nil ? "Wallpaper do sistema" : "Wallpaper aplicado"))
+                                .font(.caption).foregroundStyle(.secondary).lineLimit(2)
                         }
                         Spacer(minLength: 0)
                     }
@@ -134,7 +134,7 @@ struct LibraryView: View {
                 HStack {
                     Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
                     Spacer()
-                    Button("Tentar novamente") { model.refreshPlayback() }
+                    Button("Tentar novamente") { model.retryPlayback(displayID: selectedDisplay) }
                 }.font(.callout)
             }
         }

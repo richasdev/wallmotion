@@ -68,12 +68,12 @@ final class WallpaperRenderer {
     private var statusObserver: NSKeyValueObservation?
     private var currentItemObserver: NSKeyValueObservation?
     private var loopObserver: NSKeyValueObservation?
-    private var endObserver: NSObjectProtocol?
+    private var remotePlayback: RemoteVideoPlayback?
+    var remotePlaybackState: RemotePlaybackState? { remotePlayback?.state }
     private var failureObserver: NSObjectProtocol?
-    private var paused = true
     private var stopped = false
 
-    init(wallpaper: Wallpaper, url: URL, screen: NSScreen, onError: @escaping @MainActor (String) -> Void) throws {
+    init(wallpaper: Wallpaper, url: URL, screen: NSScreen, onState: @escaping @MainActor (RemotePlaybackState) -> Void = { _ in }, onError: @escaping @MainActor (String) -> Void) throws {
         if wallpaper.kind == .image || wallpaper.kind == .gif {
             let image: NSImage
             if wallpaper.kind == .gif {
@@ -102,12 +102,11 @@ final class WallpaperRenderer {
             window = DesktopWindow(screen: screen, view: view)
         } else {
             if url.isFileURL, !FileManager.default.isReadableFile(atPath: url.path) { throw RendererError.missingFile }
-            let item = AVPlayerItem(url: url)
             let mediaPlayer: AVPlayer
             if url.isFileURL {
                 mediaPlayer = AVQueuePlayer()
             } else {
-                mediaPlayer = AVPlayer(playerItem: item)
+                mediaPlayer = AVPlayer()
             }
             mediaPlayer.isMuted = true
             mediaPlayer.preventsDisplaySleepDuringVideoPlayback = false
@@ -116,32 +115,22 @@ final class WallpaperRenderer {
             imageView = nil
             window = DesktopWindow(screen: screen, view: VideoSurface(player: mediaPlayer))
             if let queue = mediaPlayer as? AVQueuePlayer {
-                looper = AVPlayerLooper(player: queue, templateItem: item)
+                looper = AVPlayerLooper(player: queue, templateItem: AVPlayerItem(url: url))
                 loopObserver = looper?.observe(\.status, options: [.initial, .new]) { looper, _ in
                     guard looper.status == .failed else { return }
                     let message = looper.error?.localizedDescription ?? "Não foi possível repetir o vídeo."
                     Task { @MainActor in onError(message) }
                 }
+                // The looper plays copies of its template; observe its current item.
+                currentItemObserver = mediaPlayer.observe(\.currentItem, options: [.initial, .new]) { [weak self] _, _ in
+                    Task { @MainActor [weak self] in self?.observeCurrentItem(onError: onError) }
+                }
             } else {
                 mediaPlayer.actionAtItemEnd = .pause
-                endObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
-                    Task { @MainActor [weak self] in
-                        guard let self else { return }
-                        self.player?.seek(to: .zero) { [weak self] finished in
-                            Task { @MainActor [weak self] in
-                                guard let self, !self.stopped else { return }
-                                guard finished else { onError("Não foi possível reiniciar o vídeo remoto. Tente recarregar a reprodução."); return }
-                                guard !self.paused else { return }
-                                self.player?.play()
-                            }
-                        }
-                    }
+                remotePlayback = RemoteVideoPlayback(player: mediaPlayer, url: url) { state in
+                    onState(state)
+                    if case .error(let message) = state { onError(message) }
                 }
-            }
-            // The looper plays copies of its template; observe the current item,
-            // rather than the template, to receive errors from the actual decoder.
-            currentItemObserver = mediaPlayer.observe(\.currentItem, options: [.initial, .new]) { [weak self] _, _ in
-                Task { @MainActor [weak self] in self?.observeCurrentItem(onError: onError) }
             }
         }
     }
@@ -164,23 +153,22 @@ final class WallpaperRenderer {
 
     func setPaused(_ value: Bool) {
         guard !stopped else { return }
-        paused = value
         imageView?.animates = !value
-        if value { player?.pause() } else { player?.play() }
+        if let remotePlayback { remotePlayback.setPaused(value) }
+        else if value { player?.pause() } else { player?.play() }
         window.orderBack(nil)
     }
 
     func stop() {
         stopped = true
-        paused = true
         statusObserver?.invalidate()
         statusObserver = nil
         currentItemObserver?.invalidate()
         currentItemObserver = nil
         loopObserver?.invalidate()
         loopObserver = nil
-        if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
-        endObserver = nil
+        remotePlayback?.stop()
+        remotePlayback = nil
         if let failureObserver { NotificationCenter.default.removeObserver(failureObserver) }
         failureObserver = nil
         looper?.disableLooping()
@@ -218,7 +206,7 @@ final class DesktopCoordinator {
     }
     private var renderers: [String: Entry] = [:]
 
-    func rebuild(state: LibraryState, store: LibraryStore, paused: Bool, force: Bool = false, onError: @escaping @MainActor (String, String) -> Void) {
+    func rebuild(state: LibraryState, store: LibraryStore, paused: Bool, force: Bool = false, onState: @escaping @MainActor (String, RemotePlaybackState) -> Void = { _, _ in }, onError: @escaping @MainActor (String, String) -> Void) {
         if force { stop() }
         let connected = Set(NSScreen.screens.compactMap(Display.identify))
         for id in Array(renderers.keys) where !connected.contains(id) || state.assignments[id] == nil {
@@ -235,20 +223,29 @@ final class DesktopCoordinator {
             renderers.removeValue(forKey: displayID)?.renderer.stop()
             let token = UUID()
             do {
-                let renderer = try WallpaperRenderer(wallpaper: wallpaper, url: store.resolvedURL(for: wallpaper), screen: screen) { [weak self] message in
+                let renderer = try WallpaperRenderer(wallpaper: wallpaper, url: store.resolvedURL(for: wallpaper), screen: screen, onState: { [weak self] state in
+                    guard self?.renderers[displayID]?.token == token else { return }
+                    onState(displayID, state)
+                }) { [weak self] message in
                     guard self?.renderers[displayID]?.token == token else { return }
                     onError(displayID, message)
                 }
                 renderers[displayID] = Entry(wallpaperID: wallpaperID, frame: screen.frame, token: token, renderer: renderer)
                 renderer.setPaused(paused)
+                if let state = renderer.remotePlaybackState { onState(displayID, state) }
             } catch { onError(displayID, error.localizedDescription) }
         }
+    }
+
+    func invalidate(displayID: String) {
+        renderers.removeValue(forKey: displayID)?.renderer.stop()
     }
 
     func setPaused(_ value: Bool) { renderers.values.forEach { $0.renderer.setPaused(value) } }
 
     func stop() {
-        renderers.values.forEach { $0.renderer.stop() }
+        let previous = Array(renderers.values)
         renderers.removeAll()
+        previous.forEach { $0.renderer.stop() }
     }
 }

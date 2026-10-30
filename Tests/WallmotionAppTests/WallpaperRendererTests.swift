@@ -250,6 +250,101 @@ final class WallpaperRendererTests: XCTestCase {
         XCTAssertFalse(renderer.window.isVisible)
     }
 
+    func testRemoteAdapterWithVideoFixtureReplacesStalledItemAndCancelsOnPauseAndStop() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("WallmotionRemoteFixture-\(UUID())", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("fixture.mp4")
+        try await writeShortVideo(at: url)
+        let clock = ManualRecoveryScheduler()
+        let player = AVPlayer()
+        player.isMuted = true
+        player.actionAtItemEnd = .pause
+        // Exercise the remote adapter with a deterministic file fixture. No HTTP
+        // server, DNS or external network is needed by the standard suite.
+        var states: [RemotePlaybackState] = []
+        let playback = RemoteVideoPlayback(player: player, url: url, scheduler: clock) { states.append($0) }
+        defer { playback.stop() }
+        playback.setPaused(false)
+        guard try await eventually({ playback.state == .playing }) else { return XCTFail("Fixture não reproduziu") }
+        let original = try XCTUnwrap(player.currentItem)
+        NotificationCenter.default.post(name: .AVPlayerItemPlaybackStalled, object: original)
+        guard try await eventually({ playback.state == .buffering }) else { return XCTFail("Stall não observado") }
+        XCTAssertEqual(clock.active.count, 1)
+        clock.fireNext()
+        XCTAssertFalse(player.currentItem === original)
+        NotificationCenter.default.post(name: .AVPlayerItemFailedToPlayToEndTime, object: original)
+        playback.setPaused(true)
+        for _ in 0..<5 { await Task.yield() }
+        XCTAssertEqual(playback.state, .paused)
+        XCTAssertEqual(player.rate, 0)
+        XCTAssertTrue(clock.active.isEmpty)
+        XCTAssertFalse(states.contains { if case .error = $0 { return true }; return false })
+        playback.setPaused(false)
+        guard try await eventually({ playback.state == .playing }) else { return XCTFail("Fixture não retomou") }
+        let stoppedItem = try XCTUnwrap(player.currentItem)
+        NotificationCenter.default.post(name: .AVPlayerItemFailedToPlayToEndTime, object: stoppedItem, userInfo: [
+            AVPlayerItemFailedToPlayToEndTimeErrorKey: NSError(domain: NSURLErrorDomain, code: NSURLErrorNetworkConnectionLost)
+        ])
+        guard try await eventually({ playback.state == .buffering }) else { return XCTFail("Erro transitório não observado") }
+        XCTAssertEqual(clock.active.count, 1)
+        playback.stop()
+        NotificationCenter.default.post(name: .AVPlayerItemPlaybackStalled, object: stoppedItem)
+        playback.setPaused(false)
+        for _ in 0..<5 { await Task.yield() }
+        XCTAssertEqual(playback.state, .stopped)
+        XCTAssertNil(player.currentItem)
+        XCTAssertEqual(player.rate, 0)
+        XCTAssertTrue(clock.active.isEmpty)
+    }
+
+    func testRemoteAdapterLoopsFiniteFixtureAndEndNotificationCannotUndoPause() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("WallmotionRemoteLoop-\(UUID())", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("fixture.mp4")
+        try await writeShortVideo(at: url)
+        let player = AVPlayer()
+        player.isMuted = true
+        player.actionAtItemEnd = .pause
+        let playback = RemoteVideoPlayback(player: player, url: url) { _ in }
+        defer { playback.stop() }
+        let item = try XCTUnwrap(player.currentItem)
+        playback.setPaused(false)
+        guard try await eventually({ player.currentTime().seconds > 0.7 }) else { return XCTFail("Fixture não avançou") }
+        guard try await eventually({ player.currentTime().seconds < 0.4 && player.rate > 0 }) else { return XCTFail("Vídeo finito não repetiu") }
+        XCTAssertTrue(player.currentItem === item)
+        NotificationCenter.default.post(name: .AVPlayerItemDidPlayToEndTime, object: item)
+        playback.setPaused(true)
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(player.rate, 0)
+        XCTAssertEqual(playback.state, .paused)
+    }
+
+    func testRemoteAdapterTerminalFailureReleasesItemAndDoesNotResume() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("WallmotionRemoteError-\(UUID())", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("fixture.mp4")
+        try await writeShortVideo(at: url)
+        let clock = ManualRecoveryScheduler()
+        let player = AVPlayer()
+        let playback = RemoteVideoPlayback(player: player, url: url, scheduler: clock) { _ in }
+        defer { playback.stop() }
+        let item = try XCTUnwrap(player.currentItem)
+        NotificationCenter.default.post(name: .AVPlayerItemFailedToPlayToEndTime, object: item, userInfo: [
+            AVPlayerItemFailedToPlayToEndTimeErrorKey: NSError(domain: NSURLErrorDomain, code: NSURLErrorUserAuthenticationRequired)
+        ])
+        guard try await eventually({ if case .error = playback.state { return true }; return false }) else {
+            return XCTFail("Erro terminal não observado")
+        }
+        XCTAssertNil(player.currentItem)
+        playback.setPaused(false)
+        XCTAssertEqual(player.rate, 0)
+        XCTAssertNil(player.currentItem)
+        XCTAssertTrue(clock.active.isEmpty)
+    }
+
     func testOptInRemoteStreamBecomesReadyAndAdvances() async throws {
         guard let text = ProcessInfo.processInfo.environment["WALLMOTION_REMOTE_TEST_URL"], !text.isEmpty else {
             throw XCTSkip("Defina WALLMOTION_REMOTE_TEST_URL para testar reprodução remota com rede.")
@@ -283,7 +378,9 @@ final class WallpaperRendererTests: XCTestCase {
             return XCTFail("O stream ficou pronto, mas o tempo de reprodução não avançou em 15 segundos.")
         }
         XCTAssertGreaterThan(player.rate, 0)
+        XCTAssertEqual(renderer.remotePlaybackState, .playing)
         renderer.setPaused(true)
+        XCTAssertEqual(renderer.remotePlaybackState, .paused)
         XCTAssertEqual(player.rate, 0)
         renderer.stop()
         XCTAssertNil(surface.playerLayer.player)
