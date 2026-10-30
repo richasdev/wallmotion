@@ -313,7 +313,9 @@ final class LibraryModel {
         guard canEdit, mode != state.displayMode else { return }
         var next = state
         if mode.isShared {
-            next.mirroredWallpaperID = activeWallpaperID(on: sourceDisplayID)
+            let sourceID = activeWallpaperID(on: sourceDisplayID)
+            let source = state.wallpapers.first { $0.id == sourceID }
+            next.mirroredWallpaperID = mode == .spanned && source?.supportsPanorama != true ? nil : sourceID
             next.mirroredMediaFit = mediaFit(on: sourceDisplayID)
         }
         next.displayMode = mode
@@ -341,6 +343,20 @@ final class LibraryModel {
         var next = state
         next.settings.audioVolume = value
         if update(next) { refreshPlayback(force: false) }
+    }
+
+    func applicationRestriction(for item: Wallpaper, on displayID: String) -> String? {
+        guard canEdit else { return "A biblioteca está indisponível para edição." }
+        guard let current = state.wallpapers.first(where: { $0.id == item.id }) else {
+            return "Esta mídia não está mais na biblioteca."
+        }
+        guard displays.contains(where: { $0.id == displayID }) else {
+            return "Selecione um monitor conectado para aplicar o fundo."
+        }
+        if state.displayMode == .spanned, !current.supportsPanorama {
+            return "O modo panorâmico aceita apenas fotos locais."
+        }
+        return nil
     }
 
     func apply(_ item: Wallpaper, to displayID: String) {

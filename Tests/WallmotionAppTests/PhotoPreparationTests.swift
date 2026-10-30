@@ -29,6 +29,62 @@ final class PhotoPreparationTests: XCTestCase {
         PhotoDecodeRequest(url: URL(fileURLWithPath: "/tmp/" + name), mediaFit: .fit, viewportWidth: 20, viewportHeight: 20)
     }
 
+    func testBatchBudgetPreservesAcceptedResultsAndRejectsExcessUniqueBitmap() async throws {
+        let first = try photo()
+        let second = try photo()
+        let bytes = first.image.bytesPerRow * first.image.height
+        let finished = expectation(description: "bounded batch")
+        let firstRequest = request("first")
+        let loader = PhotoPreparation(maximumRetainedBytes: bytes, decode: { value in
+            value == firstRequest ? first : second
+        })
+        loader.submit(["a": firstRequest, "b": firstRequest, "c": request("second")]) { results in
+            XCTAssertTrue((try? results["a"]?.get().image) === first.image)
+            XCTAssertTrue((try? results["b"]?.get().image) === first.image)
+            guard case .failure(let error) = results["c"] else { XCTFail("Excess bitmap retained"); finished.fulfill(); return }
+            guard case PhotoDecodingError.batchOverBudget = error else { XCTFail("Unexpected error"); finished.fulfill(); return }
+            finished.fulfill()
+        }
+        await fulfillment(of: [finished], timeout: 2)
+        // A fresh batch receives a fresh allowance, independent of its predecessor.
+        let next = expectation(description: "next batch")
+        loader.submit(["c": request("second")]) { results in
+            XCTAssertTrue((try? results["c"]?.get().image) === second.image)
+            next.fulfill()
+        }
+        await fulfillment(of: [next], timeout: 2)
+        loader.cancel()
+    }
+
+    func testDifferentRequestsSharingExactCGImageAreChargedOnce() async throws {
+        let image = try photo()
+        let bytes = image.image.bytesPerRow * image.image.height
+        let finished = expectation(description: "shared bitmap")
+        let loader = PhotoPreparation(maximumRetainedBytes: bytes, decode: { _ in image })
+        loader.submit(["a": request("one"), "b": request("two")]) { results in
+            XCTAssertTrue((try? results["a"]?.get().image) === image.image)
+            XCTAssertTrue((try? results["b"]?.get().image) === image.image)
+            finished.fulfill()
+        }
+        await fulfillment(of: [finished], timeout: 2)
+        loader.cancel()
+    }
+
+    func testBudgetUsesRowStrideAndRejectsInsufficientAllowance() async throws {
+        let image = try photo()
+        let bytes = image.image.bytesPerRow * image.image.height
+        XCTAssertGreaterThanOrEqual(bytes, image.image.width * image.image.height * 4)
+        let finished = expectation(description: "insufficient allowance")
+        let loader = PhotoPreparation(maximumRetainedBytes: bytes - 1, decode: { _ in image })
+        loader.submit(["a": request("one")]) { results in
+            guard case .failure(let error) = results["a"] else { XCTFail("Stride bytes exceed allowance"); finished.fulfill(); return }
+            guard case PhotoDecodingError.batchOverBudget = error else { XCTFail("Unexpected error"); finished.fulfill(); return }
+            finished.fulfill()
+        }
+        await fulfillment(of: [finished], timeout: 2)
+        loader.cancel()
+    }
+
     func testReplacingPendingSelectionPublishesOnlyNewestBatch() async throws {
         let gate = PhotoTestGate()
         let oldEntered = expectation(description: "old decode entered")

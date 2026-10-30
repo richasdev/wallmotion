@@ -34,6 +34,11 @@ public struct Wallpaper: Identifiable, Codable, Equatable, Sendable {
         self.addedAt = addedAt
     }
 
+    public var supportsPanorama: Bool {
+        guard kind == .image, case .local = source else { return false }
+        return true
+    }
+
     public static func remote(_ text: String) throws -> Wallpaper {
         let url = try MediaURL.validate(text)
         let last = url.lastPathComponent
