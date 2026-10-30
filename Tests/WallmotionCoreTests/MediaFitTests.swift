@@ -92,9 +92,31 @@ struct MediaFitTests {
         // Literal fixture with no new field; does not rely on today's encoder.
         let json = #"{"version":1,"wallpapers":[{"id":"11111111-1111-1111-1111-111111111111","title":"Old photo","kind":"image","source":{"local":{"filename":"old.png"}},"addedAt":0}],"assignments":{"display":"11111111-1111-1111-1111-111111111111"},"settings":{"pauseOnLowPower":true,"isManuallyPaused":false}}"#
         let state = try JSONDecoder().decode(LibraryState.self, from: Data(json.utf8)).validated()
-        #expect(state.version == 1)
+        #expect(state.version == 2)
         #expect(state.mediaFits.isEmpty)
         #expect(state.mediaFit(for: state.wallpapers[0].id, on: "display") == .fit)
+    }
+
+    @Test func legacyRemoteAndSavedFillSurviveVersionTwoMigration() throws {
+        // Persistence-only fixture: no network or playback certification.
+        let json = #"{"version":1,"wallpapers":[{"id":"11111111-1111-1111-1111-111111111111","title":"Legacy remote","kind":"video","source":{"remote":{"url":"https://www.youtube-nocookie.com/embed/M7lc1UVf-VE"}},"addedAt":0}],"assignments":{"display":"11111111-1111-1111-1111-111111111111"},"settings":{"pauseOnLowPower":true,"isManuallyPaused":true},"mediaFits":{"display":{"11111111-1111-1111-1111-111111111111":"fill"}}}"#
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let store = LibraryStore(rootURL: root)
+        let bytes = Data(json.utf8)
+        try bytes.write(to: store.stateURL)
+        let loaded = try store.load()
+        let item = try #require(loaded.wallpapers.first)
+        #expect(loaded.version == 2)
+        #expect(loaded.mediaFit(for: item.id, on: "display") == .fill)
+        #expect(loaded.mediaFit(for: item.id, on: "other") == .fit)
+        #expect(item.source == .remote(url: URL(string: "https://www.youtube-nocookie.com/embed/M7lc1UVf-VE")!))
+        #expect(loaded.assignments["display"] == item.id)
+        #expect(loaded.settings.isManuallyPaused)
+        #expect(try Data(contentsOf: store.stateURL) == bytes)
+        try store.save(loaded)
+        #expect(try store.load() == loaded)
     }
 
     @Test func preferencesRoundTripByWallpaperAndDisplayAndAreRemovedWithMedia() throws {

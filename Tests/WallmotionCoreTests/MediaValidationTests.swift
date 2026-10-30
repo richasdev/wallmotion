@@ -54,6 +54,8 @@ struct MediaValidationTests {
 
     @Test(arguments: [
         "https://youtube.com/watch?v=123", "https://www.YouTube.com/watch?v=123",
+        "https://youtube-nocookie.com/embed/M7lc1UVf-VE",
+        "https://www.YouTube-NoCookie.com/embed/M7lc1UVf-VE",
         "https://youtu.be/123", "https://player.vimeo.com/video/123",
         "https://dailymotion.com/video/123", "https://www.twitch.tv/channel",
         "https://example.com/watch.HTML", "https://example.com/watch.php?id=123",
@@ -66,6 +68,23 @@ struct MediaValidationTests {
 
     @Test func hostBlocklistUsesDomainBoundaries() throws {
         #expect(try MediaURL.validate("https://notyoutube.com/video.mp4").host == "notyoutube.com")
+        #expect(try MediaURL.validate("https://notyoutube-nocookie.com/video.mp4").host == "notyoutube-nocookie.com")
+    }
+
+    @Test func newDirectSourceStillRejectsNoCookieEmbed() {
+        #expect(throws: LibraryError.webPageURL) {
+            try Wallpaper.remote("https://www.youtube-nocookie.com/embed/M7lc1UVf-VE")
+        }
+    }
+
+    @Test(arguments: [
+        "http://cdn.example.com/video.mp4", "https://user:secret@cdn.example.com/video.mp4",
+        "https://youtube.com/watch?v=M7lc1UVf-VE", "https://vimeo.com/76979871",
+        "https://cdn.example.com/page.html"
+    ]) func persistedRemoteSourcesStillRejectPreviouslyInvalidURLs(_ text: String) throws {
+        let item = Wallpaper(title: "Invalid", kind: .video, source: .remote(url: try #require(URL(string: text))))
+        #expect(throws: (any Error).self) { try LibraryState(wallpapers: [item]).validated() }
+        #expect(throws: (any Error).self) { try LibraryStore().resolvedURL(for: item) }
     }
 
     @Test func remoteWallpaperHasVideoKindAndPreservesSignedURL() throws {

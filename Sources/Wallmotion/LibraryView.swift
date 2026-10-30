@@ -6,6 +6,7 @@ struct LibraryView: View {
     @State private var selectedDisplay = ""
     @State private var search = ""
     @State private var showingURL = false
+    @State private var isWebSource = false
     @State private var urlText = ""
     @State private var urlError: String?
     @State private var pendingRemoval: Wallpaper?
@@ -27,6 +28,12 @@ struct LibraryView: View {
     private func appliedWallpaper(on displayID: String) -> Wallpaper? {
         guard let id = model.state.assignments[displayID] else { return nil }
         return model.state.wallpapers.first(where: { $0.id == id })
+    }
+
+    private var supportsMediaFit: Bool {
+        guard let wallpaper = appliedWallpaper(on: selectedDisplay) else { return false }
+        if case .web = wallpaper.source { return false }
+        return true
     }
 
     var body: some View {
@@ -64,7 +71,7 @@ struct LibraryView: View {
     private var detail: some View {
         VStack(alignment: .leading, spacing: 24) {
             header
-            if let wallpaperID = model.state.assignments[selectedDisplay] {
+            if let wallpaperID = model.state.assignments[selectedDisplay], supportsMediaFit {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Exibição neste monitor").font(.callout.weight(.semibold))
                     Picker("Exibição neste monitor", selection: Binding(
@@ -169,6 +176,9 @@ struct LibraryView: View {
                             Text(display.name).font(.callout.weight(.medium)).lineLimit(2)
                             Text(appliedWallpaper(on: display.id)?.title ?? "Fundo do sistema")
                                 .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            if let state = model.remotePlaybackStates[display.id] {
+                                Text(state.description).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+                            }
                         }
                         Spacer(minLength: 0)
                         if selectedDisplay == display.id {
@@ -228,7 +238,7 @@ struct LibraryView: View {
                 HStack {
                     Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
                     Spacer()
-                    Button("Tentar novamente") { model.refreshPlayback() }
+                    Button("Tentar novamente") { model.retryPlayback(displayID: selectedDisplay) }
                 }
                 .font(.callout).padding(12)
                 .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
@@ -258,9 +268,11 @@ struct LibraryView: View {
     private var urlSheet: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text("Adicionar vídeo por URL").font(.title2.weight(.semibold))
-            Text("Cole um link HTTPS direto de vídeo ou HLS (.m3u8). Links de páginas como YouTube ainda não são suportados.")
+            Toggle("Fonte web (YouTube ou Vimeo)", isOn: $isWebSource)
+                .onChange(of: isWebSource) { _, _ in urlError = nil }
+            Text(isWebSource ? "Cole a URL de um vídeo individual público. Autoplay e incorporação dependem do provedor; login e DRM não são suportados." : "Cole um link HTTPS direto de vídeo ou HLS (.m3u8).")
                 .foregroundStyle(.secondary)
-            TextField("https://exemplo.com/video.mp4", text: $urlText)
+            TextField(isWebSource ? "https://www.youtube.com/watch?v=…" : "https://exemplo.com/video.mp4", text: $urlText)
                 .textFieldStyle(.roundedBorder)
                 .onChange(of: urlText) { _, _ in urlError = nil }
                 .onSubmit { submitURL() }
@@ -278,7 +290,7 @@ struct LibraryView: View {
     }
 
     private func submitURL() {
-        if model.addURL(urlText) {
+        if model.addURL(urlText, web: isWebSource) {
             urlText = ""
             urlError = nil
             showingURL = false
@@ -311,6 +323,7 @@ struct WallpaperCard: View {
             Text(item.title).font(.headline).lineLimit(1).help(item.title)
             HStack {
                 Text(kindLabel).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                if case .web(let embed) = item.source { Text(embed.provider == .youtube ? "YouTube" : "Vimeo").font(.caption).foregroundStyle(.secondary) }
                 if case .remote = item.source { Label("URL", systemImage: "link").font(.caption).foregroundStyle(.secondary) }
                 Spacer()
                 Button(role: .destructive, action: onRemove) { Image(systemName: "trash") }

@@ -16,6 +16,7 @@ public enum MediaKind: String, Codable, Sendable, CaseIterable {
 public enum MediaSource: Codable, Equatable, Sendable {
     case local(filename: String)
     case remote(url: URL)
+    case web(embed: WebEmbed)
 }
 
 public struct Wallpaper: Identifiable, Codable, Equatable, Sendable {
@@ -43,6 +44,17 @@ public struct Wallpaper: Identifiable, Codable, Equatable, Sendable {
 
 public enum MediaURL {
     public static func validate(_ text: String) throws -> URL {
+        let url = try validatePersisted(text)
+        let host = url.host?.lowercased() ?? ""
+        guard host != "youtube-nocookie.com", !host.hasSuffix(".youtube-nocookie.com") else {
+            throw LibraryError.webPageURL
+        }
+        return url
+    }
+
+    /// Preserve the original remote-source contract for stored data, including
+    /// after migration to v2. New entries must use validate instead.
+    static func validatePersisted(_ text: String) throws -> URL {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty,
               !trimmed.contains(where: { $0.isWhitespace }),
@@ -62,13 +74,14 @@ public enum MediaURL {
 }
 
 public enum LibraryError: LocalizedError, Equatable {
-    case unsupportedFile, invalidURL, webPageURL, invalidLocalPath, notRegularFile, unsupportedVersion, invalidState, invalidGIF, gifTooLarge
+    case unsupportedFile, invalidURL, webPageURL, invalidLocalPath, notRegularFile, unsupportedVersion, invalidState, invalidGIF, gifTooLarge, unsupportedEmbed
 
     public var errorDescription: String? {
         switch self {
         case .unsupportedFile: "Formato não suportado. Use uma foto, GIF ou vídeo MP4, MOV ou M4V."
         case .invalidURL: "Informe uma URL HTTPS válida, sem espaços ou credenciais."
-        case .webPageURL: "Use o link direto do vídeo ou stream HLS. Páginas como YouTube ainda não são suportadas."
+        case .webPageURL: "Use um link direto de vídeo/HLS ou adicione YouTube/Vimeo como fonte web."
+        case .unsupportedEmbed: "Use uma URL HTTPS de vídeo individual do YouTube ou Vimeo. Playlists, login e DRM não são suportados."
         case .invalidLocalPath: "A referência do arquivo na biblioteca é inválida."
         case .notRegularFile: "Selecione um arquivo de mídia comum."
         case .unsupportedVersion: "Esta biblioteca foi criada por uma versão incompatível do Wallmotion."

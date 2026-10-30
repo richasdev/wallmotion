@@ -26,7 +26,7 @@ O script compila o scanner Rust como biblioteca estática e depois o app Swift. 
 
 Entre rodadas de validação, use `sh scripts/clean-builds.sh` para remover os artefatos Rust de desenvolvimento, preservando a biblioteca release. Para limpar também os builds release/Swift, com os compiladores parados, use `sh scripts/clean-builds.sh --all` e depois `sh scripts/build-native.sh` antes de compilar novamente. O `.app` em `dist/` é preservado; os caches globais de Cargo e de outros projetos não são alterados.
 
-URLs de páginas (YouTube, Vimeo etc.) e conteúdo com DRM não são fontes de vídeo direto e não fazem parte do MVP. Arquivos HEIC/JPEG/PNG/TIFF/BMP/GIF e vídeos MP4/MOV/M4V são reconhecidos; a decodificação depende do suporte do macOS ao codec.
+YouTube e Vimeo podem ser adicionados explicitamente como fontes web de vídeo individual, usando embeds oficiais em WKWebView. A disponibilidade depende do provedor; login, DRM, playlists e páginas web arbitrárias não são suportados. Pausar descarta a view; retomar reinicia o embed. Veja [fontes web e limites](docs/WEB-SOURCES.md). Arquivos HEIC/JPEG/PNG/TIFF/BMP/GIF e vídeos MP4/MOV/M4V são reconhecidos; a decodificação depende do suporte do macOS ao codec.
 
 ## Performance
 

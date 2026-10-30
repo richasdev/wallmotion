@@ -15,7 +15,7 @@ public struct LibraryStore: Sendable {
     }
 
     public func save(_ state: LibraryState) throws {
-        _ = try state.validated()
+        let state = try state.validated()
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(state)
@@ -41,7 +41,10 @@ public struct LibraryStore: Sendable {
         case .local(let filename):
             try Self.validateFilename(filename)
             return mediaDirectory.appendingPathComponent(filename)
-        case .remote(let url): return try MediaURL.validate(url.absoluteString)
+        case .web(let embed):
+            try embed.validate()
+            return embed.pageURL
+        case .remote(let url): return try MediaURL.validatePersisted(url.absoluteString)
         }
     }
 

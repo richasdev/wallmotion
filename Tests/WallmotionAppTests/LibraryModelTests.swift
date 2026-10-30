@@ -284,6 +284,26 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(engine.gifBudget.totalBytes, 0)
     }
 
+    func testNativeFitPreferenceDoesNotChangeOfficialWebEmbedState() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        guard let screen = NSScreen.screens.first, let displayID = Display.identify(screen) else {
+            throw XCTSkip("É necessário um display para validar a seleção.")
+        }
+        let store = LibraryStore(rootURL: directory.appendingPathComponent("Library"))
+        let item = try Wallpaper.web("https://youtu.be/M7lc1UVf-VE")
+        let initial = LibraryState(wallpapers: [item], assignments: [displayID: item.id],
+                                   settings: .init(isManuallyPaused: true))
+        try store.save(initial)
+        let bytes = try Data(contentsOf: store.stateURL)
+        let model = LibraryModel(store: store)
+        defer { model.stop() }
+        model.refreshPlayback(force: false)
+        model.setMediaFit(.fill, on: displayID)
+        XCTAssertEqual(model.state, initial)
+        XCTAssertEqual(try Data(contentsOf: store.stateURL), bytes)
+    }
+
     func testOptionalLibraryViewSnapshotUsesOnlyTemporaryFixtures() async throws {
         guard let path = ProcessInfo.processInfo.environment["WALLMOTION_SNAPSHOT_PATH"], !path.isEmpty else {
             throw XCTSkip("Defina WALLMOTION_SNAPSHOT_PATH para exportar o snapshot de QA.")
