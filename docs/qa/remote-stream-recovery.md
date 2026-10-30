@@ -50,3 +50,11 @@ O adaptador remoto delega recargas ao `applyPlaybackState` do renderer e fim de 
 - A fixture isolada do adaptador foi ajustada para deixar transporte com seu chamador, e o HLS deixou de fixar visibilidade em true para poder simular oclusão. As falhas intermediárias dessas fixtures foram corrigidas antes da rodada final.
 
 `docs/QA.md` permanece byte a byte conforme main. Os resultados históricos acima foram movidos para este arquivo sem remover instruções/limites do recurso. CI continua bloqueado por billing (#11); oclusão física/WindowServer, sleep/rede físicos, expiração real de URL e memória/energia prolongados ainda requerem QA manual. Recarga reinicia a origem, sem promessa de performance medida.
+
+## Main final em 35a9885 (#38 e #24 incluídos)
+
+A integração seguinte preservou o visual nativo do #38 e o login item do #24. A sidebar mantém nome do monitor/título da mídia e acrescenta apenas o estado remoto; o retry continua específico do monitor selecionado. Não houve alteração no recurso de login, thumbnails ou importação.
+
+Rodada final: `WALLMOTION_REMOTE_TEST_URL=https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_adv_example_hevc/master.m3u8 WALLMOTION_SNAPSHOT_PATH=/tmp/wallmotion-issue21-main39-library.png swift test -j 2` — **41 XCTest e 46 Swift Testing aprovados, zero falhas/ignorados**, incluindo regressões do #39, HLS real, fixtures de recuperação, importação concorrente, login item com abstração de teste, thumbnails e snapshot inspecionado. Rust permanece com 7 testes e Clippy aprovados conforme a rodada acima (fontes Rust sem alterações adicionais).
+
+`git diff --check` aprovado. `docs/QA.md` foi comparado byte a byte com `origin/main` em 35a9885 e é idêntico. Os demais documentos de recursos foram preservados.
