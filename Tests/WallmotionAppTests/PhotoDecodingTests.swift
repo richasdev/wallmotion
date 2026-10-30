@@ -17,7 +17,7 @@ final class PhotoDecodingTests: XCTestCase {
         return url
     }
 
-    func testWorkerDecodesOutsideMainAndPreservesOrientedSourceGeometry() async throws {
+    @MainActor func testWorkerDecodesOutsideMainAndPreservesOrientedSourceGeometry() async throws {
         let url = try fixture()
         defer { try? FileManager.default.removeItem(at: url) }
         let worker = PhotoDecodeWorker(decodeImage: { request in

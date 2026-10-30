@@ -12,7 +12,7 @@ final class PhotoPreparation {
     private var token = UUID()
     private var completion: (@MainActor (Results) -> Void)?
 
-    init(decode: @escaping Decode = { try await PhotoDecodeWorker.shared.decode($0) }) {
+    init(decode: @escaping Decode = PhotoDecodeWorker.prepare) {
         self.decode = decode
     }
 

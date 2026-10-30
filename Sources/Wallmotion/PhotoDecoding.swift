@@ -20,6 +20,10 @@ struct DecodedPhoto: Sendable {
 /// call already in progress; it prevents queued work and publishing stale output.
 actor PhotoDecodeWorker {
     static let shared = PhotoDecodeWorker()
+    nonisolated static func prepare(_ request: PhotoDecodeRequest) async throws -> DecodedPhoto {
+        try await shared.decode(request)
+    }
+
     private let decodeImage: @Sendable (PhotoDecodeRequest) throws -> DecodedPhoto
 
     init(decodeImage: @escaping @Sendable (PhotoDecodeRequest) throws -> DecodedPhoto = PhotoDecodeWorker.decodeImage) {
