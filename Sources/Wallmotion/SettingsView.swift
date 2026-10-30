@@ -1,7 +1,9 @@
 import SwiftUI
+import AppKit
 
 struct SettingsView: View {
     @State private var controller: LoginItemController
+    @Environment(\.scenePhase) private var scenePhase
 
     init(controller: LoginItemController = LoginItemController()) {
         _controller = State(initialValue: controller)
@@ -28,6 +30,12 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .frame(width: 440, height: controller.status == .requiresApproval ? 230 : 170)
         .onAppear { controller.refreshStatus() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { controller.refreshStatus() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            controller.refreshStatus()
+        }
     }
 
     private var statusDescription: String {

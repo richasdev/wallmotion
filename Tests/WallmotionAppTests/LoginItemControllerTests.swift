@@ -43,6 +43,18 @@ final class LoginItemControllerTests: XCTestCase {
         XCTAssertEqual(controller.status, .notRegistered)
         XCTAssertNotNil(controller.errorMessage)
     }
+
+    func testRefreshPicksUpExternalServiceStatusChange() {
+        let service = FakeLoginItemService(status: .requiresApproval)
+        let controller = LoginItemController(service: service)
+        XCTAssertEqual(controller.status, .requiresApproval)
+
+        service.simulateExternalStatusChange(to: .enabled)
+        controller.refreshStatus()
+
+        XCTAssertEqual(controller.status, .enabled)
+        XCTAssertTrue(controller.status.isEnabled)
+    }
 }
 
 @MainActor
@@ -70,6 +82,8 @@ private final class FakeLoginItemService: LoginItemServicing {
         if let failure { throw failure }
         if let nextStatus { status = nextStatus }
     }
+
+    func simulateExternalStatusChange(to status: LoginItemStatus) { self.status = status }
 }
 
 private enum TestError: Error { case failed }
