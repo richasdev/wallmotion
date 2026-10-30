@@ -140,7 +140,7 @@ struct LibraryView: View {
             } description: {
                 Text("Tente outro tipo de mídia ou ajuste a busca.")
             } actions: {
-                Button("Limpar filtros") { search = ""; mediaFilter = .all }
+                Button("Limpar filtros", action: clearQuery)
             }
         } else {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 230), spacing: 16)], spacing: 16) {
@@ -165,13 +165,26 @@ struct LibraryView: View {
                 .accessibilityLabel("Ordenação da biblioteca")
                 .help("Ordenar as mídias da biblioteca")
         }
-            Text("\(filteredItems.count) de \(model.state.wallpapers.count) mídias")
-                .font(.caption).foregroundStyle(.secondary)
-                .accessibilityLabel("\(filteredItems.count) de \(model.state.wallpapers.count) mídias exibidas")
+            HStack {
+                Text("\(filteredItems.count) de \(model.state.wallpapers.count) mídias")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .accessibilityLabel("\(filteredItems.count) de \(model.state.wallpapers.count) mídias exibidas")
+                Spacer()
+                if mediaFilter != .all || !search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Button("Limpar filtros", systemImage: "xmark.circle", action: clearQuery)
+                        .buttonStyle(.borderless).font(.caption)
+                        .accessibilityLabel("Limpar busca e filtro de tipo")
+                }
+            }
         }
         .controlSize(.regular)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Filtros da biblioteca")
+    }
+
+    private func clearQuery() {
+        search = ""
+        mediaFilter = .all
     }
 
     private var mediaFilterPicker: some View {
