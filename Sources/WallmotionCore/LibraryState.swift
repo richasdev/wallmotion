@@ -1,12 +1,14 @@
 import Foundation
 
 public struct PlaybackSettings: Codable, Equatable, Sendable {
+    public var pauseOnThermalPressure: Bool
     public var pauseOnLowPower: Bool
     public var isManuallyPaused: Bool
     public var audioDisplayID: String?
     public var audioVolume: Double
 
-    public init(pauseOnLowPower: Bool = true, isManuallyPaused: Bool = false, audioDisplayID: String? = nil, audioVolume: Double = 1) {
+    public init(pauseOnLowPower: Bool = true, isManuallyPaused: Bool = false, audioDisplayID: String? = nil, audioVolume: Double = 1, pauseOnThermalPressure: Bool = true) {
+        self.pauseOnThermalPressure = pauseOnThermalPressure
         self.pauseOnLowPower = pauseOnLowPower
         self.isManuallyPaused = isManuallyPaused
         self.audioDisplayID = audioDisplayID
@@ -14,11 +16,12 @@ public struct PlaybackSettings: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case pauseOnLowPower, isManuallyPaused, audioDisplayID, audioVolume
+        case pauseOnLowPower, isManuallyPaused, audioDisplayID, audioVolume, pauseOnThermalPressure
     }
 
     public init(from decoder: any Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
+        pauseOnThermalPressure = try values.decodeIfPresent(Bool.self, forKey: .pauseOnThermalPressure) ?? true
         pauseOnLowPower = try values.decodeIfPresent(Bool.self, forKey: .pauseOnLowPower) ?? true
         isManuallyPaused = try values.decodeIfPresent(Bool.self, forKey: .isManuallyPaused) ?? false
         audioDisplayID = try values.decodeIfPresent(String.self, forKey: .audioDisplayID)

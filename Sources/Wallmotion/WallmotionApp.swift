@@ -66,7 +66,7 @@ struct WallpaperMenu: View {
             openWindow(id: "library")
             NSApp.activate(ignoringOtherApps: true)
         }
-        Button(model.state.settings.isManuallyPaused ? "Retomar wallpapers" : "Pausar wallpapers") { model.togglePause() }
+        Button(model.manualPauseActionTitle) { model.togglePause() }
             .disabled(!model.canEdit)
         Menu("Volume · \(Int((model.state.settings.audioVolume * 100).rounded()))%") {
             ForEach([0, 25, 50, 75, 100], id: \.self) { percent in

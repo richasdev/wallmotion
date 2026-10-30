@@ -12,6 +12,7 @@ final class LibraryModel {
     private(set) var playbackErrors: [String: String] = [:]
     private(set) var remotePlaybackStates: [String: RemotePlaybackState] = [:]
     var errorMessage: String?
+    @ObservationIgnored private let thermalState: @MainActor () -> ThermalPausePolicy.Pressure
     private let store: LibraryStore
     private let engine: DesktopCoordinator
     private let connectedDisplays: @MainActor () -> [Display]
@@ -25,6 +26,15 @@ final class LibraryModel {
     @ObservationIgnored private let beforeRollbackCleanup: (@MainActor () async -> Void)?
 
     init(
+        thermalState: @escaping @MainActor () -> ThermalPausePolicy.Pressure = {
+            switch ProcessInfo.processInfo.thermalState {
+            case .nominal: .nominal
+            case .fair: .fair
+            case .serious: .serious
+            case .critical: .critical
+            @unknown default: .serious
+            }
+        },
         store: LibraryStore = LibraryStore(),
         engine: DesktopCoordinator = DesktopCoordinator(),
         connectedDisplays: @escaping @MainActor () -> [Display] = {
@@ -34,6 +44,7 @@ final class LibraryModel {
         },
         beforeRollbackCleanup: (@MainActor () async -> Void)? = nil
     ) {
+        self.thermalState = thermalState
         self.store = store
         self.engine = engine
         self.connectedDisplays = connectedDisplays
@@ -44,9 +55,23 @@ final class LibraryModel {
     var queuedImportCount: Int { pendingImportURLs.count }
 
     var isPaused: Bool { screenLocked || policy.isPaused(settings: state.settings, lowPower: lowPower) }
+    private var isAutomaticallyPaused: Bool {
+        var settings = state.settings
+        settings.isManuallyPaused = false
+        return screenLocked || policy.isPaused(settings: settings, lowPower: lowPower)
+    }
+
+    var manualPauseActionTitle: String {
+        if isAutomaticallyPaused {
+            return state.settings.isManuallyPaused ? "Liberar pausa manual" : "Manter pausado"
+        }
+        return state.settings.isManuallyPaused ? "Retomar" : "Pausar"
+    }
+
     var playbackDescription: String {
         if state.settings.isManuallyPaused { return "Pausado por você" }
         if screenLocked || policy.sleeping || policy.screenAsleep || policy.sessionInactive { return "Pausado pelo sistema" }
+        if state.settings.pauseOnThermalPressure && policy.thermal.isPaused { return "Pausado · pressão térmica" }
         if lowPower && state.settings.pauseOnLowPower { return "Pausado · baixo consumo" }
         return "Reprodução ativa"
     }
@@ -75,7 +100,17 @@ final class LibraryModel {
             $0.lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
             $0.applyPolicy()
         }
+        // Reading thermalState before registering is required by Foundation.
+        refreshThermalState()
+        observe(ProcessInfo.thermalStateDidChangeNotification, in: .default) { $0.refreshThermalState() }
+        // Re-read after registration so a transition during setup cannot be lost.
+        refreshThermalState()
         refreshPlayback()
+    }
+
+    func refreshThermalState() {
+        policy.thermal.update(thermalState(), enabled: state.settings.pauseOnThermalPressure)
+        if started { applyPolicy() }
     }
 
     private func observe(_ name: Notification.Name, in center: NotificationCenter, action: @escaping @MainActor (LibraryModel) -> Void) {
@@ -107,6 +142,7 @@ final class LibraryModel {
             canEdit = false
             errorMessage = "A biblioteca não pôde ser aberta e foi preservada em \(store.stateURL.path). \(error.localizedDescription)"
         }
+        refreshThermalState()
         if started { refreshPlayback() }
     }
 
@@ -286,6 +322,13 @@ final class LibraryModel {
         var next = state
         next.settings.pauseOnLowPower = value
         if update(next) { engine.setPaused(isPaused) }
+    }
+
+    func setPauseOnThermalPressure(_ value: Bool) {
+        guard value != state.settings.pauseOnThermalPressure else { return }
+        var next = state
+        next.settings.pauseOnThermalPressure = value
+        if update(next) { refreshThermalState() }
     }
 
     func retryPlayback(displayID: String) {
