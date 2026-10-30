@@ -74,6 +74,7 @@ public enum MediaURL {
 }
 
 public enum LibraryError: LocalizedError, Equatable {
+    case gifTooComplex
     case emptyMedia, mediaChanged
     case notRegularLibrary, libraryTooLarge
     case unsupportedFile, invalidURL, webPageURL, invalidLocalPath, notRegularFile, unsupportedVersion, invalidState, invalidGIF, gifTooLarge, unsupportedEmbed
@@ -92,6 +93,7 @@ public enum LibraryError: LocalizedError, Equatable {
         case .notRegularFile: "Selecione um arquivo de mídia comum."
         case .unsupportedVersion: "Esta biblioteca foi criada por uma versão incompatível do Wallmotion."
         case .invalidState: "A biblioteca contém seleções ou identificadores inválidos."
+        case .gifTooComplex: "A estrutura deste GIF exige trabalho demais para ser verificada. Converta a animação para MP4 ou use uma cópia mais simples."
         case .invalidGIF: "O arquivo GIF está incompleto ou tem uma estrutura inválida."
         case .gifTooLarge: "Este GIF ultrapassa o orçamento estimado de 256 MiB de frames. Converta a animação para MP4 ou reduza a resolução."
         }

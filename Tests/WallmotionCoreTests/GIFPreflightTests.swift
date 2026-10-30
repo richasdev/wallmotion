@@ -151,4 +151,20 @@ struct GIFPreflightTests {
             #expect(try Data(contentsOf: source) == bytes)
         }
     }
+    @Test func excessiveExtensionWorkHasDistinctDataAndFileError() throws {
+        let ordinary = fixture()
+        var complex = Data(ordinary.prefix(19))
+        complex.reserveCapacity(1_500_100)
+        for _ in 0..<500_000 { complex.append(contentsOf: [0x21, 0xfe, 0]) }
+        complex.append(ordinary.dropFirst(19))
+        #expect(throws: LibraryError.gifTooComplex) { try GIFPreflight.inspect(data: complex) }
+        try withTemporaryDirectory { root in
+            let url = root.appendingPathComponent("complex.gif")
+            try complex.write(to: url)
+            #expect(throws: LibraryError.gifTooComplex) { try GIFPreflight.inspect(url: url) }
+            let store = LibraryStore(rootURL: root.appendingPathComponent("Library"))
+            #expect(throws: LibraryError.gifTooComplex) { try store.importFile(at: url) }
+            #expect(!FileManager.default.fileExists(atPath: store.mediaDirectory.path))
+        }
+    }
 }
