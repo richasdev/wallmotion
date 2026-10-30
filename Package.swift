@@ -11,6 +11,7 @@ let package = Package(
     targets: [
         .target(name: "WallmotionCore"),
         .executableTarget(name: "Wallmotion", dependencies: ["WallmotionCore"]),
-        .testTarget(name: "WallmotionCoreTests", dependencies: ["WallmotionCore"])
+        .testTarget(name: "WallmotionCoreTests", dependencies: ["WallmotionCore"]),
+        .testTarget(name: "WallmotionAppTests", dependencies: ["Wallmotion"])
     ]
 )
