@@ -85,7 +85,17 @@ struct LibraryView: View {
                 if let item = pendingRemoval { model.remove(item) }
                 pendingRemoval = nil
             }
-        } message: { Text("A cópia importada será apagada e removida dos monitores. Seu arquivo original será preservado.") }
+        } message: { Text(removalMessage) }
+    }
+
+    private var removalMessage: String {
+        guard let item = pendingRemoval else { return "" }
+        switch item.source {
+        case .local:
+            return "A cópia importada será apagada e removida dos monitores. Seu arquivo original será preservado."
+        case .remote, .web:
+            return "O link será removido da biblioteca e dos monitores."
+        }
     }
 
     private var detail: some View {
