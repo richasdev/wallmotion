@@ -158,7 +158,7 @@ final class WallpaperRenderer {
     private let isWindowVisible: @MainActor (NSWindow) -> Bool
     private let seekToStart: @MainActor (AVPlayer, @escaping @MainActor @Sendable (Bool) -> Void) -> Void
 
-    init(wallpaper: Wallpaper, url: URL, screen: NSScreen, mediaFit: MediaFit = .fit, preparedPhoto: DecodedPhoto? = nil, targetFrame: CGRect? = nil, targetScale: CGFloat? = nil, panorama: PanoramaLayout? = nil, webDocument: String? = nil,
+    init(wallpaper: Wallpaper, url: URL, screen: NSScreen, mediaFit: MediaFit = .fit, preparedPhoto: DecodedPhoto? = nil, targetFrame: CGRect? = nil, targetScale: CGFloat? = nil, panorama: PanoramaLayout? = nil, webDocument: String? = nil, hlsResolution: HLSResolution = .automatic,
          isWindowVisible: @escaping @MainActor (NSWindow) -> Bool = { $0.occlusionState.contains(.visible) },
          makePlayer: @MainActor (AVPlayerItem, Bool) -> AVPlayer = { item, local in
              local ? AVQueuePlayer() : AVPlayer(playerItem: item)
@@ -238,7 +238,7 @@ final class WallpaperRenderer {
                 }
             } else {
                 mediaPlayer.actionAtItemEnd = .pause
-                remotePlayback = RemoteVideoPlayback(player: mediaPlayer, url: url, scheduler: recoveryScheduler,
+                remotePlayback = RemoteVideoPlayback(player: mediaPlayer, url: url, hlsResolution: hlsResolution, scheduler: recoveryScheduler,
                     onPlaybackRequested: { [weak self] in self?.applyPlaybackState() },
                     onRestart: { [weak self] in self?.restartRemotePlayback(onError: onError) },
                     onState: { state in
@@ -300,6 +300,11 @@ final class WallpaperRenderer {
             failureObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemFailedToPlayToEndTime, object: item, queue: .main) { _ in
                 Task { @MainActor in onError("A reprodução falhou. Confira a rede e o formato do vídeo.") }
             }
+    }
+
+    func setHLSResolution(_ value: HLSResolution) {
+        guard !playbackState.isStopped else { return }
+        remotePlayback?.setHLSResolution(value)
     }
 
     func setAudioEnabled(_ enabled: Bool) {
@@ -466,6 +471,7 @@ final class DesktopCoordinator {
             entry.renderer.setAudioEnabled(false)
         }
         for (id, entry) in renderers {
+            entry.renderer.setHLSResolution(state.settings.hlsResolution)
             entry.renderer.setPaused(paused)
             entry.renderer.setAudioPolicy(enabled: state.settings.audioDisplayID == id && assignments[id] == entry.wallpaperID, volume: state.settings.audioVolume)
         }
@@ -551,6 +557,7 @@ final class DesktopCoordinator {
             let mediaFit = state.mediaFit(for: wallpaperID, on: displayID)
             if !force, !reloadRequested, let entry = renderers[displayID], entry.wallpaperID == wallpaperID, entry.frame == target.frame,
                entry.mediaFit == mediaFit, entry.backingScale == target.backingScale, entry.panorama == layout {
+                entry.renderer.setHLSResolution(state.settings.hlsResolution)
                 entry.renderer.setPaused(paused)
                 entry.renderer.setAudioPolicy(enabled: state.settings.audioDisplayID == displayID, volume: state.settings.audioVolume)
                 continue
@@ -563,7 +570,7 @@ final class DesktopCoordinator {
                     guard let result = preparedPhotos[displayID] else { throw PhotoDecodingError.unreadable }
                     photo = try result.get()
                 } else { photo = nil }
-                let renderer = try WallpaperRenderer(wallpaper: wallpaper, url: store.resolvedURL(for: wallpaper), screen: screen, mediaFit: mediaFit, preparedPhoto: photo, targetFrame: target.frame, targetScale: target.backingScale, panorama: layout, webDocument: webDocument,
+                let renderer = try WallpaperRenderer(wallpaper: wallpaper, url: store.resolvedURL(for: wallpaper), screen: screen, mediaFit: mediaFit, preparedPhoto: photo, targetFrame: target.frame, targetScale: target.backingScale, panorama: layout, webDocument: webDocument, hlsResolution: state.settings.hlsResolution,
                                                      isWindowVisible: isWindowVisible, onState: { [weak self] state in
                     guard self?.renderers[displayID]?.token == token else { return }
                     onState(displayID, state)

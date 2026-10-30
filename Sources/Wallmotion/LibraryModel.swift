@@ -275,6 +275,13 @@ final class LibraryModel {
         if update(next) { refreshPlayback(force: false) }
     }
 
+    func setHLSResolution(_ value: HLSResolution) {
+        guard value != state.settings.hlsResolution else { return }
+        var next = state
+        next.settings.hlsResolution = value
+        if update(next) { refreshPlayback(force: false) }
+    }
+
     func setAudioVolume(_ value: Double) {
         guard value.isFinite, (0...1).contains(value), value != state.settings.audioVolume else { return }
         var next = state

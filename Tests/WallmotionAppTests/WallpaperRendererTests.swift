@@ -492,24 +492,35 @@ final class WallpaperRendererTests: XCTestCase {
         // Exercise the remote adapter with a deterministic file fixture. No HTTP
         // server, DNS or external network is needed by the standard suite.
         var states: [RemotePlaybackState] = []
-        let playback = RemoteVideoPlayback(player: player, url: url, scheduler: clock,
+        let playback = RemoteVideoPlayback(player: player, url: url, hlsResolution: .fullHD1080, scheduler: clock,
                                            onPlaybackRequested: { player.play() }) { states.append($0) }
         defer { playback.stop() }
         playback.setPaused(false)
         player.play() // Standalone adapter fixture supplies the transport decision.
         guard try await eventually({ playback.state == .playing }) else { return XCTFail("Fixture não reproduziu") }
         let original = try XCTUnwrap(player.currentItem)
+        XCTAssertEqual(original.preferredMaximumResolution, CGSize(width: 1920, height: 1080))
+        playback.setHLSResolution(.hd720)
+        XCTAssertTrue(player.currentItem === original, "Preference changes must preserve the item and transport.")
+        XCTAssertEqual(original.preferredMaximumResolution, CGSize(width: 1280, height: 720))
+        XCTAssertGreaterThan(player.rate, 0)
         NotificationCenter.default.post(name: .AVPlayerItemPlaybackStalled, object: original)
         guard try await eventually({ playback.state == .buffering }) else { return XCTFail("Stall não observado") }
         XCTAssertEqual(clock.active.count, 1)
         clock.fireNext()
         XCTAssertFalse(player.currentItem === original)
+        XCTAssertEqual(player.currentItem?.preferredMaximumResolution, CGSize(width: 1280, height: 720), "Retry inherits the latest preference.")
         NotificationCenter.default.post(name: .AVPlayerItemFailedToPlayToEndTime, object: original)
         playback.setPaused(true)
         player.pause()
         for _ in 0..<5 { await Task.yield() }
         XCTAssertEqual(playback.state, .paused)
         XCTAssertEqual(player.rate, 0)
+        let pausedItem = player.currentItem
+        playback.setHLSResolution(.automatic)
+        XCTAssertTrue(player.currentItem === pausedItem)
+        XCTAssertEqual(player.currentItem?.preferredMaximumResolution, .zero)
+        XCTAssertEqual(player.rate, 0, "Quality changes must not resume a policy-paused player.")
         XCTAssertTrue(clock.active.isEmpty)
         XCTAssertFalse(states.contains { if case .error = $0 { return true }; return false })
         playback.setPaused(false)
@@ -525,6 +536,7 @@ final class WallpaperRendererTests: XCTestCase {
         playback.stop()
         NotificationCenter.default.post(name: .AVPlayerItemPlaybackStalled, object: stoppedItem)
         playback.setPaused(false)
+        playback.setHLSResolution(.uhd2160)
         for _ in 0..<5 { await Task.yield() }
         XCTAssertEqual(playback.state, .stopped)
         XCTAssertNil(player.currentItem)

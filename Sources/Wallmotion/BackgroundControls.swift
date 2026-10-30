@@ -73,6 +73,20 @@ struct BackgroundControls: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     VStack(alignment: .leading, spacing: 8) {
+                        Picker("Qualidade de links HLS", selection: Binding(
+                            get: { model.state.settings.hlsResolution },
+                            set: { model.setHLSResolution($0) }
+                        )) {
+                            Text("Automática · sem limite preferido").tag(HLSResolution.automatic)
+                            Text("HD · 1280 × 720").tag(HLSResolution.hd720)
+                            Text("Full HD · 1920 × 1080").tag(HLSResolution.fullHD1080)
+                            Text("4K · 3840 × 2160").tag(HLSResolution.uhd2160)
+                        }.frame(maxWidth: 420, alignment: .leading)
+                        Text("Preferência para transmissões HLS no player nativo; o servidor e o macOS definem a resolução disponível. YouTube, Vimeo e arquivos locais mantêm suas próprias regras de qualidade.")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
                         Picker(selection: Binding(
                             get: { audioSelection },
                             set: { model.setAudioDisplayID($0.isEmpty ? nil : $0) }
