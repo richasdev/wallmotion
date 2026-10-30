@@ -416,6 +416,11 @@ final class DesktopCoordinator {
         let available = Set(state.wallpapers.map(\.id))
         let assignments = state.effectiveAssignments(for: currentTargets.map(\.id))
         let assigned = Set(assignments.filter { available.contains($0.value) }.keys)
+        // Removed targets must stop even when a newly connected mirror exceeds its budget.
+        for id in Array(renderers.keys) where !connected.contains(id) || !assigned.contains(id) {
+            renderers.removeValue(forKey: id)?.renderer.stop()
+        }
+        gifBudget = gifBudget.retaining(displays: Set(renderers.keys))
         // Silence every existing player before any display receives audio ownership.
         renderers.values.forEach { $0.renderer.setAudioEnabled(false) }
         let proposed: GIFPlaybackBudget
@@ -426,10 +431,6 @@ final class DesktopCoordinator {
             return
         }
         pendingReloads.formIntersection(connected.intersection(assigned))
-        for id in Array(renderers.keys) where !connected.contains(id) || !assigned.contains(id) {
-            renderers.removeValue(forKey: id)?.renderer.stop()
-        }
-        gifBudget = gifBudget.retaining(displays: Set(renderers.keys))
         // Release shrinking charges first so a valid whole-state transition is
         // never rejected merely because a growing display was visited first.
         let orderedTargets = currentTargets.sorted {

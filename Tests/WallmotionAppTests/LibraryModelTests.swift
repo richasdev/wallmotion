@@ -23,6 +23,11 @@ private actor TestAsyncGate {
 
 @MainActor
 final class LibraryModelTests: XCTestCase {
+    @MainActor private final class TestDisplays {
+        var values: [Display]
+        init(_ values: [Display]) { self.values = values }
+    }
+
     private func temporaryDirectory() throws -> URL {
         _ = NSApplication.shared
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("WallmotionModelTests-\(UUID())", isDirectory: true)
@@ -356,8 +361,8 @@ final class LibraryModelTests: XCTestCase {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = LibraryStore(rootURL: directory)
-        var connected = [Display(id: "one", name: "One"), Display(id: "two", name: "Two")]
-        let model = LibraryModel(store: store, engine: DesktopCoordinator(targets: { [] }), connectedDisplays: { connected })
+        let connected = TestDisplays([Display(id: "one", name: "One"), Display(id: "two", name: "Two")])
+        let model = LibraryModel(store: store, engine: DesktopCoordinator(targets: { [] }), connectedDisplays: { connected.values })
         defer { model.stop() }
         model.refreshPlayback(force: false)
         XCTAssertNil(model.state.settings.audioDisplayID)
@@ -365,16 +370,16 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertNil(model.state.settings.audioDisplayID)
         model.setAudioDisplayID("two")
         XCTAssertEqual(model.state.settings.audioDisplayID, "two")
-        connected.removeLast()
+        connected.values.removeLast()
         model.refreshPlayback(force: false)
         XCTAssertEqual(model.state.settings.audioDisplayID, "two")
         model.setAudioDisplayID("unknown")
         XCTAssertEqual(model.state.settings.audioDisplayID, "two")
-        let restored = LibraryModel(store: store, engine: DesktopCoordinator(targets: { [] }), connectedDisplays: { connected })
+        let restored = LibraryModel(store: store, engine: DesktopCoordinator(targets: { [] }), connectedDisplays: { connected.values })
         defer { restored.stop() }
         restored.refreshPlayback(force: false)
         XCTAssertEqual(restored.state.settings.audioDisplayID, "two")
-        connected.append(Display(id: "two", name: "Two"))
+        connected.values.append(Display(id: "two", name: "Two"))
         restored.refreshPlayback(force: false)
         XCTAssertEqual(restored.state.settings.audioDisplayID, "two")
         restored.setAudioDisplayID(nil)
@@ -423,7 +428,9 @@ final class LibraryModelTests: XCTestCase {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = LibraryStore(rootURL: directory.appendingPathComponent("Library", isDirectory: true))
-        let model = LibraryModel(store: store)
+        let model = LibraryModel(store: store, engine: DesktopCoordinator(targets: { [] }), connectedDisplays: {
+            [Display(id: "fixture-left", name: "Monitor principal"), Display(id: "fixture-right", name: "Monitor externo")]
+        })
         defer { model.stop() }
         let photo = directory.appendingPathComponent("Montanhas ao amanhecer.png")
         _ = try writePhoto(to: photo)
@@ -436,8 +443,15 @@ final class LibraryModelTests: XCTestCase {
             model.apply(photo, to: display.id)
             model.setMediaFit(.fill, on: display.id)
         }
-        let bounds = NSRect(x: 0, y: 0, width: 1120, height: 760)
+        let environment = ProcessInfo.processInfo.environment
+        let compact = environment["WALLMOTION_SNAPSHOT_COMPACT"] == "1"
+        if environment["WALLMOTION_SNAPSHOT_MIRRORED"] == "1", let display = model.displays.first {
+            model.setDisplayMode(.mirrored, sourceDisplayID: display.id)
+        }
+        let bounds = NSRect(x: 0, y: 0, width: compact ? 820 : 1120, height: compact ? 560 : 760)
+        let appearance: NSAppearance.Name = environment["WALLMOTION_SNAPSHOT_LIGHT"] == "1" ? .aqua : .darkAqua
         let hosting = NSHostingView(rootView: LibraryView(model: model))
+        hosting.appearance = NSAppearance(named: appearance)
         hosting.frame = bounds
         let window = NSWindow(contentRect: bounds, styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

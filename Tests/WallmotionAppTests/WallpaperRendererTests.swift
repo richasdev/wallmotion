@@ -263,6 +263,36 @@ final class WallpaperRendererTests: XCTestCase {
         }
     }
 
+    func testDisconnectedWindowStopsEvenWhenReplacementMirrorsExceedBudget() throws {
+        let screen = try availableScreen()
+        try withTemporaryDirectory { directory in
+            let store = LibraryStore(rootURL: directory.appendingPathComponent("Library"))
+            let url = directory.appendingPathComponent("animation.gif")
+            try writeImage(at: url, animated: true)
+            let item = try store.importFile(at: url)
+            let bytes = try GIFPreflight.inspect(url: url).decodedBytes
+            let visibility = TestWindowVisibility()
+            let connected = TestScreens([screen])
+            let engine = DesktopCoordinator(gifBudgetLimit: bytes, targets: {
+                connected.values.isEmpty
+                    ? [DesktopTarget(id: "new-left", screen: screen), DesktopTarget(id: "new-right", screen: screen)]
+                    : [DesktopTarget(id: "removed", screen: screen)]
+            }, isWindowVisible: { visibility.isVisible($0) })
+            defer { engine.stop() }
+            let state = LibraryState(wallpapers: [item], displayMode: .mirrored, mirroredWallpaperID: item.id)
+            engine.rebuild(state: state, store: store, paused: false) { _, error in XCTFail(error) }
+            let original = try XCTUnwrap(visibility.windows.first)
+            XCTAssertEqual(engine.gifBudget.totalBytes, bytes)
+            connected.values = []
+            var errors: [String] = []
+            engine.rebuild(state: state, store: store, paused: false) { _, error in errors.append(error) }
+            XCTAssertEqual(errors.count, 2)
+            XCTAssertFalse(original.isVisible)
+            XCTAssertFalse(try XCTUnwrap(original.contentView as? ImageSurface).imageView.animates)
+            XCTAssertEqual(engine.gifBudget.totalBytes, 0)
+        }
+    }
+
     func testBudgetRejectionAndDecoderFailurePreserveRendererThenReleaseQuota() throws {
         let screen = try availableScreen()
         let displayID = try XCTUnwrap(Display.identify(screen))

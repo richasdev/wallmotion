@@ -46,9 +46,12 @@ struct BackgroundControls: View {
                                     Text(fitTitle(fit)).tag(fit)
                                 }
                             }.pickerStyle(.segmented).labelsHidden()
+                                .accessibilityLabel("Enquadramento do fundo")
                             Text(fitDescription(model.mediaFit(on: selectedDisplay)))
                                 .font(.caption).foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
+                            Text("Fotos muito grandes usam resolução reduzida para limitar memória.")
+                                .font(.caption2).foregroundStyle(.secondary)
                         }
                     } else if let id = model.activeWallpaperID(on: selectedDisplay),
                               model.state.wallpapers.contains(where: { $0.id == id && $0.source.isWebEmbed }) {
@@ -91,6 +94,7 @@ struct BackgroundControls: View {
             Text("Separado por monitor").tag(DisplayMode.independent)
             Text("Mesmo fundo em todos").tag(DisplayMode.mirrored)
         }.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 380)
+            .accessibilityLabel("Organização dos monitores")
     }
 
     private var audioHelp: String {
