@@ -1,6 +1,6 @@
 # Wallmotion
 
-Um aplicativo de fundos animados nativo para macOS 14 ou superior. Fotos, GIFs animados, vídeos locais e URLs diretas HTTPS de vídeo/HLS como fundo de tela, com uma seleção por monitor.
+Um aplicativo de fundos animados nativo para macOS 14 ou superior. Fotos, GIFs animados, vídeos locais e URLs diretas HTTPS de vídeo/HLS como fundo de tela, com seleção por monitor, repetição em todas as telas ou panorama de foto entre elas.
 
 **Em desenvolvimento:** veja o [plano de entregas](docs/PLAN.md), a [arquitetura](docs/ARCHITECTURE.md) e as [issues](https://github.com/richasdev/wallmotion/issues).
 
@@ -30,14 +30,15 @@ YouTube e Vimeo podem ser adicionados explicitamente como fontes web de vídeo i
 
 ## Performance
 
-Vídeos usam AVFoundation; fotos são decodificadas com ImageIO até a resolução do monitor. O scanner Rust inspeciona a estrutura dos GIFs sem decodificar pixels e calcula um orçamento conservador de frames antes da importação e exibição. GIFs acima de 256 MiB estimados por arquivo são rejeitados. A reprodução soma até 512 MiB estimados entre monitores conectados, contando cada view separadamente (inclusive pausada); uma seleção que exceda o teto é rejeitada com mensagem e mantém os wallpapers atuais; prefira MP4 para animações longas. Importação/cópia roda fora da thread da interface, e mudar um monitor preserva os players dos demais.
+Vídeos usam AVFoundation; fotos são preparadas serialmente fora da interface com ImageIO e um orçamento de saída conservador. No panorama, uma imagem preparada é compartilhada entre as telas; o recorte segue a disposição dos monitores, incluindo posições negativas e espaços. Ajustar, Preencher, Centralizar e Esticar também se aplicam ao conjunto. Vídeos e GIFs ainda não atravessam telas. Veja [panorama e limites de qualidade](docs/qa/photo-panorama.md). O scanner Rust inspeciona a estrutura dos GIFs sem decodificar pixels e calcula um orçamento conservador de frames antes da importação e exibição. GIFs acima de 256 MiB estimados por arquivo são rejeitados. A reprodução soma até 512 MiB estimados entre monitores conectados, contando cada view separadamente (inclusive pausada); uma seleção que exceda o teto é rejeitada com mensagem e mantém os wallpapers atuais; prefira MP4 para animações longas. Importação/cópia roda fora da thread da interface, e mudar um monitor preserva os players dos demais.
 
 O app pausa em repouso de tela/sistema, troca de sessão e, opcionalmente, modo de baixo consumo, preservando a pausa manual. Sinais de bloqueio de tela complementam essa política em melhor esforço. Veja [medições e limites](docs/PERFORMANCE.md) e o [roteiro de QA](docs/QA.md).
 
 ## Equipe de agentes
 
-- **Codex coordenador:** implementação, integração, issues e commits por entrega.
-- **Codex testes:** testes do núcleo, separado dos arquivos do app.
-- **Antigravity (`agy`):** estudo de arquitetura e revisão independente, sem alterações concorrentes no código do app.
+- **Codex:** implementação e testes em branches isoladas, commits e PRs por entrega.
+- **Antigravity (`agy`):** estudo, issues, revisão do HEAD e merge protegido.
+
+O fluxo atual usa apenas esses dois agentes, conforme [a política de revisão](docs/REVIEW-POLICY.md).
 
 Os resultados e limitações das revisões ficam em `docs/`.

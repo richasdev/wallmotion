@@ -4,7 +4,7 @@ import Testing
 
 @Suite("Display mode and audio persistence")
 struct DisplayModeTests {
-    @Test(arguments: [1, 2])
+    @Test(arguments: [1, 2, 3])
     func legacyJSONMigratesOnlyInMemory(_ version: Int) throws {
         let json = """
         {"version":\(version),"wallpapers":[{"id":"11111111-1111-1111-1111-111111111111","title":"Old","kind":"image","source":{"local":{"filename":"old.png"}},"addedAt":0}],"assignments":{"offline":"11111111-1111-1111-1111-111111111111"},"settings":{"pauseOnLowPower":false,"isManuallyPaused":true},"mediaFits":{"offline":{"11111111-1111-1111-1111-111111111111":"fill"}}}
@@ -16,7 +16,7 @@ struct DisplayModeTests {
         let bytes = Data(json.utf8)
         try bytes.write(to: store.stateURL)
         let state = try store.load()
-        #expect(state.version == 3)
+        #expect(state.version == 4)
         #expect(state.displayMode == .independent)
         #expect(state.mirroredWallpaperID == nil)
         #expect(state.mirroredMediaFit == .fit)
@@ -66,11 +66,11 @@ struct DisplayModeTests {
         #expect(try LibraryState(settings: .init(audioDisplayID: "offline")).validated().settings.audioDisplayID == "offline")
     }
 
-    @Test(arguments: [2, 3])
+    @Test(arguments: [2, 3, 4])
     func webSourcesRemainValid(_ version: Int) throws {
         let web = try Wallpaper.web("https://youtu.be/M7lc1UVf-VE")
         let state = try LibraryState(version: version, wallpapers: [web]).validated()
-        #expect(state.version == 3)
+        #expect(state.version == 4)
         #expect(state.wallpapers == [web])
     }
 

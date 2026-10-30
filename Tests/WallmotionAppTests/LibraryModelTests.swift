@@ -341,6 +341,39 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertNil(model.errorMessage)
     }
 
+    func testPanoramaRejectsVideoWithoutSavingAndRestoresIndependentAssignments() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = LibraryStore(rootURL: directory)
+        let photo = Wallpaper(title: "Photo", kind: .image, source: .local(filename: "photo.png"))
+        let video = try Wallpaper.remote("https://example.com/first.mp4")
+        let initial = LibraryState(wallpapers: [photo, video], assignments: ["one": video.id, "two": photo.id])
+        try store.save(initial)
+        let model = LibraryModel(store: store, engine: DesktopCoordinator(targets: { [] }),
+                                 connectedDisplays: { [Display(id: "one", name: "One"), Display(id: "two", name: "Two")] })
+        defer { model.stop() }
+        model.refreshPlayback(force: false)
+        let bytes = try Data(contentsOf: store.stateURL)
+        model.setDisplayMode(.spanned, sourceDisplayID: "one")
+        XCTAssertEqual(model.state, initial)
+        XCTAssertEqual(try Data(contentsOf: store.stateURL), bytes)
+        XCTAssertTrue(model.errorMessage?.contains("foto") == true)
+        model.setDisplayMode(.spanned, sourceDisplayID: "two")
+        XCTAssertEqual(model.activeWallpaperID(on: "one"), photo.id)
+        model.setMediaFit(.stretch, on: "one")
+        XCTAssertEqual(model.mediaFit(on: "two"), .stretch)
+        let panoramaBytes = try Data(contentsOf: store.stateURL)
+        model.apply(video, to: "two")
+        XCTAssertEqual(model.activeWallpaperID(on: "one"), photo.id)
+        XCTAssertEqual(try Data(contentsOf: store.stateURL), panoramaBytes)
+        model.clear(displayID: "one")
+        XCTAssertNil(model.activeWallpaperID(on: "two"))
+        model.setDisplayMode(.independent, sourceDisplayID: "one")
+        XCTAssertEqual(model.state.assignments, initial.assignments)
+        XCTAssertEqual(model.activeWallpaperID(on: "one"), video.id)
+        XCTAssertEqual(model.activeWallpaperID(on: "two"), photo.id)
+    }
+
     func testMirrorSeedUsesSelectedEmptyDisplayRatherThanOtherAssignment() throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -466,6 +499,9 @@ final class LibraryModelTests: XCTestCase {
         let compact = environment["WALLMOTION_SNAPSHOT_COMPACT"] == "1"
         if environment["WALLMOTION_SNAPSHOT_MIRRORED"] == "1", let display = model.displays.first {
             model.setDisplayMode(.mirrored, sourceDisplayID: display.id)
+        }
+        if environment["WALLMOTION_SNAPSHOT_PANORAMA"] == "1", let display = model.displays.first {
+            model.setDisplayMode(.spanned, sourceDisplayID: display.id)
         }
         let bounds = NSRect(x: 0, y: 0, width: compact ? 820 : 1120, height: compact ? 560 : 760)
         let appearance: NSAppearance.Name = environment["WALLMOTION_SNAPSHOT_LIGHT"] == "1" ? .aqua : .darkAqua

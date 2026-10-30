@@ -133,7 +133,7 @@ struct LibraryView: View {
 
     private func card(for item: Wallpaper) -> some View {
         let applied = model.activeWallpaperID(on: selectedDisplay) == item.id
-        return WallpaperCard(item: item, localURL: model.localMediaURL(for: item), isApplied: applied, appliesToAll: model.state.displayMode == .mirrored, onApply: {
+        return WallpaperCard(item: item, localURL: model.localMediaURL(for: item), isApplied: applied, appliesToAll: model.state.displayMode.isShared, onApply: {
             model.apply(item, to: selectedDisplay)
         }, onRemove: {
             pendingRemoval = item
@@ -262,7 +262,7 @@ struct LibraryView: View {
         HStack(spacing: 12) {
             Image(systemName: "display").font(.title2).foregroundStyle(Color.accentColor)
             VStack(alignment: .leading, spacing: 4) {
-                Text(model.state.displayMode == .mirrored ? "Todos os monitores · mesmo fundo" : targetDisplayName)
+                Text(model.state.displayMode.isShared ? (model.state.displayMode == .spanned ? "Foto panorâmica · todas as telas" : "Todos os monitores · mesmo fundo") : targetDisplayName)
                     .font(.callout.weight(.semibold)).lineLimit(2)
                 Text(appliedWallpaper(on: selectedDisplay).map { "Fundo: \($0.title)" } ?? "Escolha uma mídia para este monitor")
                     .font(.caption).foregroundStyle(.secondary).lineLimit(2)
@@ -275,7 +275,7 @@ struct LibraryView: View {
             Label("Fundo do sistema", systemImage: "arrow.uturn.backward")
         }
         .disabled(!model.canEdit || model.activeWallpaperID(on: selectedDisplay) == nil)
-        .help(model.state.displayMode == .mirrored ? "Revelar o fundo do macOS em todos os monitores" : "Revelar o fundo do macOS neste monitor")
+        .help(model.state.displayMode.isShared ? "Revelar o fundo do macOS em todos os monitores" : "Revelar o fundo do macOS neste monitor")
     }
 
     private var urlSheet: some View {

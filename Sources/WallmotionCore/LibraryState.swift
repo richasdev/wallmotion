@@ -37,7 +37,7 @@ public struct LibraryState: Codable, Equatable, Sendable {
     // Display UUID → wallpaper UUID → proportional presentation mode.
     public var mediaFits: [String: [String: MediaFit]]
 
-    public init(version: Int = 3, wallpapers: [Wallpaper] = [], assignments: [String: UUID] = [:], settings: PlaybackSettings = .init(), mediaFits: [String: [String: MediaFit]] = [:], displayMode: DisplayMode = .independent, mirroredWallpaperID: UUID? = nil, mirroredMediaFit: MediaFit = .fit) {
+    public init(version: Int = 4, wallpapers: [Wallpaper] = [], assignments: [String: UUID] = [:], settings: PlaybackSettings = .init(), mediaFits: [String: [String: MediaFit]] = [:], displayMode: DisplayMode = .independent, mirroredWallpaperID: UUID? = nil, mirroredMediaFit: MediaFit = .fit) {
         self.version = version
         self.wallpapers = wallpapers
         self.assignments = assignments
@@ -69,18 +69,18 @@ public struct LibraryState: Codable, Equatable, Sendable {
         case .independent:
             let connected = Set(displayIDs)
             return assignments.filter { connected.contains($0.key) }
-        case .mirrored:
+        case .mirrored, .spanned:
             guard let mirroredWallpaperID else { return [:] }
             return Dictionary(displayIDs.map { ($0, mirroredWallpaperID) }, uniquingKeysWith: { first, _ in first })
         }
     }
 
     public func mediaFit(for wallpaperID: UUID, on displayID: String) -> MediaFit {
-        displayMode == .mirrored ? mirroredMediaFit : mediaFits[displayID]?[wallpaperID.uuidString] ?? .fit
+        displayMode.isShared ? mirroredMediaFit : mediaFits[displayID]?[wallpaperID.uuidString] ?? .fit
     }
 
     public mutating func setMediaFit(_ fit: MediaFit, for wallpaperID: UUID, on displayID: String) {
-        if displayMode == .mirrored { mirroredMediaFit = fit }
+        if displayMode.isShared { mirroredMediaFit = fit }
         else { mediaFits[displayID, default: [:]][wallpaperID.uuidString] = fit }
     }
 
@@ -95,13 +95,17 @@ public struct LibraryState: Codable, Equatable, Sendable {
     }
 
     public func validated() throws -> LibraryState {
-        guard (1...3).contains(version) else { throw LibraryError.unsupportedVersion }
+        guard (1...4).contains(version) else { throw LibraryError.unsupportedVersion }
         let ids = Set(wallpapers.map(\.id))
         guard ids.count == wallpapers.count,
               mirroredWallpaperID.map(ids.contains) != false,
               settings.audioDisplayID?.isEmpty != true,
               settings.audioVolume.isFinite, (0...1).contains(settings.audioVolume),
               assignments.allSatisfy({ !$0.key.isEmpty && ids.contains($0.value) }) else { throw LibraryError.invalidState }
+        if displayMode == .spanned, let mirroredWallpaperID,
+           let item = wallpapers.first(where: { $0.id == mirroredWallpaperID }) {
+            guard item.kind == .image, case .local = item.source else { throw LibraryError.invalidState }
+        }
         let fitIDs = Set(wallpapers.map { $0.id.uuidString })
         guard mediaFits.allSatisfy({ display, fits in
             !display.isEmpty && fits.keys.allSatisfy { fitIDs.contains($0) }
@@ -118,7 +122,7 @@ public struct LibraryState: Codable, Equatable, Sendable {
             }
         }
         var migrated = self
-        migrated.version = 3
+        migrated.version = 4
         return migrated
     }
 }
