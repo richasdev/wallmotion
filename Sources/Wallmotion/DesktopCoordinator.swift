@@ -50,14 +50,40 @@ final class DesktopWindow: NSWindow {
 }
 
 @MainActor
+final class ImageSurface: NSView {
+    let imageView: NSImageView
+    let mediaFit: MediaFit
+
+    init(image: NSImage, mediaFit: MediaFit) {
+        imageView = NSImageView(image: image)
+        self.mediaFit = mediaFit
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.black.cgColor
+        layer?.masksToBounds = true
+        imageView.imageScaling = .scaleProportionallyUpOrDown
+        imageView.animates = false
+        addSubview(imageView)
+    }
+
+    required init?(coder: NSCoder) { fatalError("Not supported") }
+
+    override func layout() {
+        super.layout()
+        imageView.frame = mediaFit.frame(for: imageView.image?.size ?? .zero, in: bounds)
+    }
+}
+
+@MainActor
 final class VideoSurface: NSView {
     let playerLayer = AVPlayerLayer()
 
-    init(player: AVPlayer) {
+    init(player: AVPlayer, mediaFit: MediaFit = .fit) {
         super.init(frame: .zero)
         wantsLayer = true
         playerLayer.player = player
-        playerLayer.videoGravity = .resizeAspect
+        playerLayer.videoGravity = mediaFit == .fill ? .resizeAspectFill : .resizeAspect
+        layer?.masksToBounds = true
         layer?.addSublayer(playerLayer)
     }
 
@@ -88,7 +114,7 @@ final class WallpaperRenderer {
     private let isWindowVisible: @MainActor (NSWindow) -> Bool
     private let seekToStart: @MainActor (AVPlayer, @escaping @MainActor @Sendable (Bool) -> Void) -> Void
 
-    init(wallpaper: Wallpaper, url: URL, screen: NSScreen,
+    init(wallpaper: Wallpaper, url: URL, screen: NSScreen, mediaFit: MediaFit = .fit,
          isWindowVisible: @escaping @MainActor (NSWindow) -> Bool = { $0.occlusionState.contains(.visible) },
          makePlayer: @MainActor (AVPlayerItem, Bool) -> AVPlayer = { item, local in
              local ? AVQueuePlayer() : AVPlayer(playerItem: item)
@@ -108,23 +134,37 @@ final class WallpaperRenderer {
                 guard let animated = NSImage(contentsOf: url), animated.isValid else { throw RendererError.unreadableImage }
                 image = animated
             } else {
-                // Decode only enough pixels for this display; never retain the full
-                // resolution bitmap of a large imported photo.
-                let maxPixels = Int(ceil(max(screen.frame.width, screen.frame.height) * screen.backingScaleFactor))
+                // Decode only the pixels required by this display and crop mode,
+                // accounting for orientation and Retina backing scale.
                 guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
-                      let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                      let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+                      let width = properties[kCGImagePropertyPixelWidth] as? NSNumber,
+                      let height = properties[kCGImagePropertyPixelHeight] as? NSNumber else { throw RendererError.unreadableImage }
+                let orientation = (properties[kCGImagePropertyOrientation] as? NSNumber)?.intValue ?? 1
+                let rotated = (5...8).contains(orientation)
+                let size = CGSize(width: rotated ? height.doubleValue : width.doubleValue,
+                                  height: rotated ? width.doubleValue : height.doubleValue)
+                let viewport = CGSize(width: screen.frame.width * screen.backingScaleFactor,
+                                      height: screen.frame.height * screen.backingScaleFactor)
+                let maxPixels = mediaFit.decodePixelLimit(for: size, viewport: viewport)
+                guard let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, [
                         kCGImageSourceCreateThumbnailFromImageAlways: true,
                         kCGImageSourceCreateThumbnailWithTransform: true,
                         kCGImageSourceThumbnailMaxPixelSize: maxPixels,
+                        kCGImageSourceShouldAllowFloat: false,
                         kCGImageSourceShouldCacheImmediately: true
                       ] as CFDictionary) else { throw RendererError.unreadableImage }
+                // Defense in depth if a codec returns an unexpected layout. Use division
+                // to avoid overflow, and check before retaining or handing it to AppKit.
+                guard thumbnail.width <= maxPixels, thumbnail.height <= maxPixels,
+                      thumbnail.height > 0,
+                      thumbnail.bytesPerRow <= PhotoDecodeBudget.maximumBytes / thumbnail.height else {
+                    throw RendererError.photoTooLarge
+                }
                 image = NSImage(cgImage: thumbnail, size: NSSize(width: thumbnail.width, height: thumbnail.height))
             }
-            let view = NSImageView(image: image)
-            view.imageScaling = .scaleProportionallyUpOrDown
-            view.animates = false
-            view.canDrawSubviewsIntoLayer = true
-            imageView = view
+            let view = ImageSurface(image: image, mediaFit: mediaFit)
+            imageView = view.imageView
             player = nil
             window = DesktopWindow(screen: screen, view: view)
         } else {
@@ -136,7 +176,7 @@ final class WallpaperRenderer {
             mediaPlayer.automaticallyWaitsToMinimizeStalling = true
             player = mediaPlayer
             imageView = nil
-            window = DesktopWindow(screen: screen, view: VideoSurface(player: mediaPlayer))
+            window = DesktopWindow(screen: screen, view: VideoSurface(player: mediaPlayer, mediaFit: mediaFit))
             if let queue = mediaPlayer as? AVQueuePlayer {
                 looper = AVPlayerLooper(player: queue, templateItem: item)
                 loopObserver = looper?.observe(\.status, options: [.initial, .new]) { looper, _ in
@@ -244,10 +284,11 @@ final class WallpaperRenderer {
 }
 
 enum RendererError: LocalizedError {
-    case unreadableImage, missingFile
+    case unreadableImage, missingFile, photoTooLarge
     var errorDescription: String? {
         switch self {
         case .unreadableImage: "Não foi possível decodificar a imagem ou GIF."
+        case .photoTooLarge: "A foto decodificada excedeu o limite de memória. Use uma cópia com resolução menor."
         case .missingFile: "O vídeo importado não está mais disponível. Importe o arquivo novamente."
         }
     }
@@ -258,6 +299,8 @@ final class DesktopCoordinator {
     private struct Entry {
         let wallpaperID: UUID
         let frame: CGRect
+        let mediaFit: MediaFit
+        let backingScale: CGFloat
         let token: UUID
         let renderer: WallpaperRenderer
     }
@@ -303,14 +346,16 @@ final class DesktopCoordinator {
             let displayID = target.id
             guard let wallpaperID = state.assignments[displayID],
                   let wallpaper = state.wallpapers.first(where: { $0.id == wallpaperID }) else { continue }
-            if !force, let entry = renderers[displayID], entry.wallpaperID == wallpaperID, entry.frame == screen.frame {
+            let mediaFit = state.mediaFit(for: wallpaperID, on: displayID)
+            if !force, let entry = renderers[displayID], entry.wallpaperID == wallpaperID, entry.frame == screen.frame,
+               entry.mediaFit == mediaFit, entry.backingScale == screen.backingScaleFactor {
                 entry.renderer.setPaused(paused)
                 continue
             }
             let token = UUID()
             do {
                 let nextBudget = try proposal(for: wallpaper, displayID: displayID, store: store, budget: gifBudget)
-                let renderer = try WallpaperRenderer(wallpaper: wallpaper, url: store.resolvedURL(for: wallpaper), screen: screen,
+                let renderer = try WallpaperRenderer(wallpaper: wallpaper, url: store.resolvedURL(for: wallpaper), screen: screen, mediaFit: mediaFit,
                                                      isWindowVisible: isWindowVisible) { [weak self] message in
                     guard self?.renderers[displayID]?.token == token else { return }
                     onError(displayID, message)
@@ -318,7 +363,7 @@ final class DesktopCoordinator {
                 // Keep the previous renderer and charge intact on any failure.
                 renderers.removeValue(forKey: displayID)?.renderer.stop()
                 gifBudget = nextBudget
-                renderers[displayID] = Entry(wallpaperID: wallpaperID, frame: screen.frame, token: token, renderer: renderer)
+                renderers[displayID] = Entry(wallpaperID: wallpaperID, frame: screen.frame, mediaFit: mediaFit, backingScale: screen.backingScaleFactor, token: token, renderer: renderer)
                 renderer.setPaused(paused)
             } catch {
                 renderers[displayID]?.renderer.setPaused(paused)
