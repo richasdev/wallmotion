@@ -69,6 +69,7 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(restored.state, persisted)
         XCTAssertTrue(restored.isPaused)
         XCTAssertEqual(restored.state.wallpapers.first?.source, .remote(url: URL(string: "https://cdn.example.com/live.m3u8?token=a%2Fb")!))
+        XCTAssertNil(restored.localMediaURL(for: try XCTUnwrap(restored.state.wallpapers.first)))
     }
 
     func testAsyncImportAndRemovalOnlyDeleteTheLibraryCopy() async throws {
@@ -86,6 +87,7 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(model.state.wallpapers.count, 1)
         let imported = try XCTUnwrap(model.state.wallpapers.first)
         let copy = try store.resolvedURL(for: imported)
+        XCTAssertEqual(model.localMediaURL(for: imported), copy)
         XCTAssertNotEqual(copy, source)
         XCTAssertEqual(copy.deletingLastPathComponent(), store.mediaDirectory)
         XCTAssertEqual(try Data(contentsOf: copy), originalBytes)
