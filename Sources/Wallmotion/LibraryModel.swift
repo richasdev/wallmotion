@@ -303,6 +303,25 @@ final class LibraryModel {
         if update(next) { refreshPlayback(force: false) }
     }
 
+    @discardableResult func rename(id: UUID, title: String) -> Bool {
+        guard canEdit else { return false }
+        guard let index = state.wallpapers.firstIndex(where: { $0.id == id }) else {
+            errorMessage = "Esta mídia não está mais na biblioteca."
+            return false
+        }
+        do {
+            let title = try MediaTitle.normalized(title)
+            guard title != state.wallpapers[index].title else { return true }
+            var next = state
+            next.wallpapers[index].title = title
+            // Title-only editing must not rebuild or restart an active renderer.
+            return update(next)
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
     func remove(_ item: Wallpaper) {
         var next = state
         next.remove(id: item.id)

@@ -65,6 +65,7 @@ final class LibraryModelTests: XCTestCase {
         model.togglePause()
         model.setPauseOnLowPower(false)
         model.setPauseOnThermalPressure(false)
+        XCTAssertFalse(model.rename(id: UUID(), title: "Preserved"))
         XCTAssertTrue(model.state.wallpapers.isEmpty)
         XCTAssertEqual(model.state.settings, PlaybackSettings())
         XCTAssertEqual(try Data(contentsOf: store.stateURL), original)
