@@ -36,6 +36,8 @@ struct RemotePlaybackFailure: Equatable {
 final class RemoteVideoPlayback {
     private let player: AVPlayer
     private let url: URL
+    private let onPlaybackRequested: @MainActor () -> Void
+    private let onRestart: @MainActor () -> Void
     private let onState: @MainActor (RemotePlaybackState) -> Void
     private var recovery: RemotePlaybackRecovery!
     private var timeObserver: NSKeyValueObservation?
@@ -44,54 +46,55 @@ final class RemoteVideoPlayback {
     private var monitor: NWPathMonitor?
     private var monitorGeneration = 0
     private var itemGeneration = 0
-    private var transportGeneration = 0
     private var stopped = false
 
     var state: RemotePlaybackState { recovery.state }
+    var canPlay: Bool { recovery.canPlay }
 
-    init(player: AVPlayer, url: URL, scheduler: any RecoveryScheduling = RecoveryScheduler(), onState: @escaping @MainActor (RemotePlaybackState) -> Void) {
+    init(player: AVPlayer, url: URL, scheduler: any RecoveryScheduling = RecoveryScheduler(),
+         onPlaybackRequested: @escaping @MainActor () -> Void = {},
+         onRestart: @escaping @MainActor () -> Void = {},
+         onState: @escaping @MainActor (RemotePlaybackState) -> Void) {
         self.player = player
         self.url = url
         self.onState = onState
+        self.onPlaybackRequested = onPlaybackRequested
+        self.onRestart = onRestart
         recovery = RemotePlaybackRecovery(scheduler: scheduler, retry: { [weak self] in self?.replaceItem() }, onState: { [weak self] state in
             guard let self else { return }
             if case .error = state {
-                self.player.pause()
                 self.itemGeneration += 1
                 self.removeItemObservers()
                 self.player.replaceCurrentItem(with: nil)
                 self.stopMonitoring()
             }
             self.onState(state)
+            if case .error = state { self.onPlaybackRequested() }
         })
         timeObserver = player.observe(\.timeControlStatus, options: [.new]) { [weak self] _, _ in
             Task { @MainActor [weak self] in self?.readTransport() }
         }
-        replaceItem()
+        replaceItem(initial: true)
     }
 
     func setPaused(_ value: Bool) {
         guard !stopped else { return }
-        // Invalidates seek completions even if pause is followed rapidly by resume.
-        if value { transportGeneration += 1 }
         recovery.setPaused(value)
         if value {
-            player.pause()
             stopMonitoring()
         } else if recovery.canPlay {
             startMonitoring()
-            player.play()
             readTransport()
         }
     }
 
-    private func replaceItem() {
+    private func replaceItem(initial: Bool = false) {
         guard !stopped else { return }
         removeItemObservers()
         itemGeneration += 1
         let ticket = itemGeneration
-        let item = AVPlayerItem(url: url)
-        player.replaceCurrentItem(with: item)
+        let item = initial ? (player.currentItem ?? AVPlayerItem(url: url)) : AVPlayerItem(url: url)
+        if player.currentItem !== item { player.replaceCurrentItem(with: item) }
         statusObserver = item.observe(\.status, options: [.initial, .new]) { [weak self] _, _ in
             Task { @MainActor [weak self] in
                 guard let self, !self.stopped, self.itemGeneration == ticket else { return }
@@ -109,24 +112,15 @@ final class RemoteVideoPlayback {
                 self.readFailure(error: error)
             }
         })
-        observe(.AVPlayerItemDidPlayToEndTime, item: item, ticket: ticket) { owner in
-            let transportTicket = owner.transportGeneration
-            owner.player.seek(to: .zero) { [weak owner] finished in
-                Task { @MainActor [weak owner] in
-                    guard let owner, !owner.stopped, owner.itemGeneration == ticket,
-                          owner.transportGeneration == transportTicket, owner.recovery.canPlay else { return }
-                    if finished { owner.player.play() }
-                    else { owner.recovery.failed(transient: false, message: "Não foi possível reiniciar o vídeo remoto. Tente novamente.") }
-                }
-            }
-        }
-        if recovery.canPlay { player.play() }
+        observe(.AVPlayerItemDidPlayToEndTime, item: item, ticket: ticket) { $0.onRestart() }
+        // The renderer resamples current pause/visibility/seek state before play.
+        if recovery.canPlay { onPlaybackRequested() }
     }
 
     private func observe(_ name: Notification.Name, item: AVPlayerItem, ticket: Int,
                          action: @escaping @MainActor (RemoteVideoPlayback) -> Void) {
         notifications.append(NotificationCenter.default.addObserver(forName: name, object: item, queue: .main) { [weak self] _ in
-            Task { @MainActor [weak self] in
+            MainActor.assumeIsolated {
                 guard let self, !self.stopped, self.itemGeneration == ticket else { return }
                 action(self)
             }
@@ -190,7 +184,6 @@ final class RemoteVideoPlayback {
         timeObserver?.invalidate()
         timeObserver = nil
         removeItemObservers()
-        player.pause()
         player.replaceCurrentItem(with: nil)
     }
 }

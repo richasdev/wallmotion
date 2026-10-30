@@ -19,12 +19,22 @@ final class LibraryModel {
     private var screenLocked = false
     private var lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
     private var observers: [(NotificationCenter, NSObjectProtocol)] = []
+    private var pendingImportURLs: [URL] = []
+    private var importWaiters: [CheckedContinuation<Void, Never>] = []
+    @ObservationIgnored private let beforeRollbackCleanup: (@MainActor () async -> Void)?
 
-    init(store: LibraryStore = LibraryStore(), engine: DesktopCoordinator = DesktopCoordinator()) {
+    init(
+        store: LibraryStore = LibraryStore(),
+        engine: DesktopCoordinator = DesktopCoordinator(),
+        beforeRollbackCleanup: (@MainActor () async -> Void)? = nil
+    ) {
         self.store = store
         self.engine = engine
+        self.beforeRollbackCleanup = beforeRollbackCleanup
         load()
     }
+
+    var queuedImportCount: Int { pendingImportURLs.count }
 
     var isPaused: Bool { screenLocked || policy.isPaused(settings: state.settings, lowPower: lowPower) }
     var playbackDescription: String {
@@ -32,6 +42,11 @@ final class LibraryModel {
         if screenLocked || policy.sleeping || policy.screenAsleep || policy.sessionInactive { return "Pausado pelo sistema" }
         if lowPower && state.settings.pauseOnLowPower { return "Pausado · baixo consumo" }
         return "Reprodução ativa"
+    }
+
+    func localMediaURL(for wallpaper: Wallpaper) -> URL? {
+        guard case .local = wallpaper.source else { return nil }
+        return try? store.resolvedURL(for: wallpaper)
     }
 
     func start() {
@@ -115,27 +130,50 @@ final class LibraryModel {
     }
 
     func importFiles(_ urls: [URL]) async {
-        guard canEdit, !isImporting else { return }
+        guard canEdit, !urls.isEmpty else { return }
+        pendingImportURLs.append(contentsOf: urls)
+        if isImporting {
+            await withCheckedContinuation { importWaiters.append($0) }
+            return
+        }
         isImporting = true
-        defer { isImporting = false }
+        defer {
+            isImporting = false
+            let waiters = importWaiters
+            importWaiters.removeAll(keepingCapacity: true)
+            waiters.forEach { $0.resume() }
+        }
         var failures: [String] = []
         var imported: [Wallpaper] = []
-        for url in urls {
-            let scoped = url.startAccessingSecurityScopedResource()
-            do {
-                let store = store
-                let item = try await Task.detached(priority: .userInitiated) { try store.importFile(at: url) }.value
-                imported.append(item)
-            } catch { failures.append("\(url.lastPathComponent): \(error.localizedDescription)") }
-            if scoped { url.stopAccessingSecurityScopedResource() }
-        }
-        if !imported.isEmpty {
+        while true {
+            while !pendingImportURLs.isEmpty {
+                let batch = pendingImportURLs
+                pendingImportURLs.removeAll(keepingCapacity: true)
+                for url in batch {
+                    let scoped = url.startAccessingSecurityScopedResource()
+                    do {
+                        let store = store
+                        let item = try await Task.detached(priority: .userInitiated) { try store.importFile(at: url) }.value
+                        imported.append(item)
+                    } catch { failures.append("\(url.lastPathComponent): \(error.localizedDescription)") }
+                    if scoped { url.stopAccessingSecurityScopedResource() }
+                }
+            }
+
+            guard !imported.isEmpty else {
+                break
+            }
             var next = state
             next.wallpapers.append(contentsOf: imported)
             if !update(next) {
+                let rollback = imported
+                imported.removeAll(keepingCapacity: true)
+                await beforeRollbackCleanup?()
                 let store = store
-                await Task.detached { imported.forEach { try? store.deleteMedia(for: $0) } }.value
+                await Task.detached { rollback.forEach { try? store.deleteMedia(for: $0) } }.value
             }
+            imported.removeAll(keepingCapacity: true)
+            if pendingImportURLs.isEmpty { break }
         }
         if !failures.isEmpty { errorMessage = failures.joined(separator: "\n") }
     }

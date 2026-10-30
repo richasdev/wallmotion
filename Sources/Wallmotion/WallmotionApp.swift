@@ -32,6 +32,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.start()
     }
 
+    func application(_ application: NSApplication, open urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.windows.first(where: { $0.title == "Wallmotion" })?.makeKeyAndOrderFront(nil)
+        Task { @MainActor [weak model] in await model?.importFiles(urls) }
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func applicationWillTerminate(_ notification: Notification) { model.stop() }
 

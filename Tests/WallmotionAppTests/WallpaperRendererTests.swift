@@ -14,6 +14,28 @@ final class WallpaperRendererTests: XCTestCase {
         init(_ values: [NSScreen]) { self.values = values }
     }
 
+    @MainActor private final class TestVisibility {
+        var visible = false
+    }
+
+    @MainActor private final class TestSeeks {
+        var completions: [@MainActor @Sendable (Bool) -> Void] = []
+    }
+
+    @MainActor private final class TestWindowVisibility {
+        var windows: [NSWindow] = []
+        var visible: [ObjectIdentifier: Bool] = [:]
+
+        func isVisible(_ window: NSWindow) -> Bool {
+            let key = ObjectIdentifier(window)
+            if visible[key] == nil {
+                windows.append(window)
+                visible[key] = true
+            }
+            return visible[key] == true
+        }
+    }
+
     private func eventually(timeout: Duration = .seconds(5), _ predicate: @MainActor () -> Bool) async throws -> Bool {
         let deadline = ContinuousClock.now.advanced(by: timeout)
         while ContinuousClock.now < deadline {
@@ -140,7 +162,11 @@ final class WallpaperRendererTests: XCTestCase {
             let item = try store.importFile(at: url)
             let bytes = try GIFPreflight.inspect(url: url).decodedBytes
             let connectedScreens = TestScreens([screen])
-            let engine = DesktopCoordinator(gifBudgetLimit: bytes, screens: { connectedScreens.values })
+            let engine = DesktopCoordinator(gifBudgetLimit: bytes, targets: {
+                connectedScreens.values.compactMap { screen in
+                    Display.identify(screen).map { DesktopTarget(id: $0, screen: screen) }
+                }
+            })
             defer { engine.stop() }
             var state = LibraryState(wallpapers: [item], assignments: [displayID: item.id])
             engine.rebuild(state: state, store: store, paused: false) { _, message in XCTFail(message) }
@@ -246,7 +272,7 @@ final class WallpaperRendererTests: XCTestCase {
             let source = try XCTUnwrap(CGImageSourceCreateWithURL(url as CFURL, nil))
             XCTAssertEqual(CGImageSourceGetCount(source), 2)
             let wallpaper = Wallpaper(title: "Animation", kind: .gif, source: .local(filename: "animation.gif"))
-            let renderer = try WallpaperRenderer(wallpaper: wallpaper, url: url, screen: screen) {
+            let renderer = try WallpaperRenderer(wallpaper: wallpaper, url: url, screen: screen, isWindowVisible: { _ in true }) {
                 XCTFail("Um GIF válido não deve gerar erro: \($0)")
             }
             defer { renderer.stop() }
@@ -299,7 +325,7 @@ final class WallpaperRendererTests: XCTestCase {
         let url = directory.appendingPathComponent("short.mp4")
         try await writeShortVideo(at: url)
         let wallpaper = Wallpaper(title: "Short video", kind: .video, source: .local(filename: "short.mp4"))
-        let renderer = try WallpaperRenderer(wallpaper: wallpaper, url: url, screen: screen) {
+        let renderer = try WallpaperRenderer(wallpaper: wallpaper, url: url, screen: screen, isWindowVisible: { _ in true }) {
             XCTFail("Falha reproduzindo vídeo H.264 gerado pelo teste: \($0)")
         }
         defer { renderer.stop() }
@@ -344,9 +370,11 @@ final class WallpaperRendererTests: XCTestCase {
         // Exercise the remote adapter with a deterministic file fixture. No HTTP
         // server, DNS or external network is needed by the standard suite.
         var states: [RemotePlaybackState] = []
-        let playback = RemoteVideoPlayback(player: player, url: url, scheduler: clock) { states.append($0) }
+        let playback = RemoteVideoPlayback(player: player, url: url, scheduler: clock,
+                                           onPlaybackRequested: { player.play() }) { states.append($0) }
         defer { playback.stop() }
         playback.setPaused(false)
+        player.play() // Standalone adapter fixture supplies the transport decision.
         guard try await eventually({ playback.state == .playing }) else { return XCTFail("Fixture não reproduziu") }
         let original = try XCTUnwrap(player.currentItem)
         NotificationCenter.default.post(name: .AVPlayerItemPlaybackStalled, object: original)
@@ -356,12 +384,14 @@ final class WallpaperRendererTests: XCTestCase {
         XCTAssertFalse(player.currentItem === original)
         NotificationCenter.default.post(name: .AVPlayerItemFailedToPlayToEndTime, object: original)
         playback.setPaused(true)
+        player.pause()
         for _ in 0..<5 { await Task.yield() }
         XCTAssertEqual(playback.state, .paused)
         XCTAssertEqual(player.rate, 0)
         XCTAssertTrue(clock.active.isEmpty)
         XCTAssertFalse(states.contains { if case .error = $0 { return true }; return false })
         playback.setPaused(false)
+        player.play() // Standalone adapter fixture supplies the transport decision.
         guard try await eventually({ playback.state == .playing }) else { return XCTFail("Fixture não retomou") }
         let stoppedItem = try XCTUnwrap(player.currentItem)
         NotificationCenter.default.post(name: .AVPlayerItemFailedToPlayToEndTime, object: stoppedItem, userInfo: [
@@ -369,6 +399,7 @@ final class WallpaperRendererTests: XCTestCase {
         ])
         guard try await eventually({ playback.state == .buffering }) else { return XCTFail("Erro transitório não observado") }
         XCTAssertEqual(clock.active.count, 1)
+        player.pause() // Transport is owned by the caller, as in WallpaperRenderer.
         playback.stop()
         NotificationCenter.default.post(name: .AVPlayerItemPlaybackStalled, object: stoppedItem)
         playback.setPaused(false)
@@ -379,27 +410,67 @@ final class WallpaperRendererTests: XCTestCase {
         XCTAssertTrue(clock.active.isEmpty)
     }
 
+    func testRemoteRecoveryReloadResamplesVisibilityBeforePlaying() async throws {
+        let screen = try availableScreen()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("WallmotionRecoveryVisibility-\(UUID())", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("fixture.mp4")
+        try await writeShortVideo(at: url)
+        let wallpaper = Wallpaper(title: "Recovery", kind: .video, source: .local(filename: "fixture.mp4"))
+        let visibility = TestVisibility()
+        visibility.visible = true
+        let clock = ManualRecoveryScheduler()
+        let renderer = try WallpaperRenderer(wallpaper: wallpaper, url: url, screen: screen,
+            isWindowVisible: { _ in visibility.visible }, makePlayer: { item, _ in AVPlayer(playerItem: item) },
+            recoveryScheduler: clock) { XCTFail($0) }
+        defer { renderer.stop() }
+        let surface = try XCTUnwrap(renderer.window.contentView as? VideoSurface)
+        let player = try XCTUnwrap(surface.playerLayer.player)
+        renderer.setPaused(false)
+        guard try await eventually({ renderer.remotePlaybackState == .playing }) else { return XCTFail("Fixture não reproduziu") }
+        let original = try XCTUnwrap(player.currentItem)
+        NotificationCenter.default.post(name: .AVPlayerItemPlaybackStalled, object: original)
+        XCTAssertEqual(clock.active.count, 1)
+        // No notification: retry must resample visibility through #39's gate.
+        visibility.visible = false
+        clock.fireNext()
+        XCTAssertFalse(player.currentItem === original)
+        XCTAssertEqual(player.rate, 0)
+        XCTAssertEqual(renderer.remotePlaybackState, .paused)
+        XCTAssertTrue(clock.active.isEmpty)
+        renderer.setPaused(true)
+        visibility.visible = true
+        NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: renderer.window)
+        XCTAssertEqual(player.rate, 0)
+        XCTAssertTrue(clock.active.isEmpty)
+    }
+
     func testRemoteAdapterLoopsFiniteFixtureAndEndNotificationCannotUndoPause() async throws {
+        let screen = try availableScreen()
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("WallmotionRemoteLoop-\(UUID())", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let url = directory.appendingPathComponent("fixture.mp4")
         try await writeShortVideo(at: url)
-        let player = AVPlayer()
-        player.isMuted = true
-        player.actionAtItemEnd = .pause
-        let playback = RemoteVideoPlayback(player: player, url: url) { _ in }
-        defer { playback.stop() }
+        let wallpaper = Wallpaper(title: "Finite stream fixture", kind: .video, source: .local(filename: "fixture.mp4"))
+        // Use a plain AVPlayer to exercise remote recovery while the renderer
+        // owns the central visibility, pause and restart-token policy from #39.
+        let renderer = try WallpaperRenderer(wallpaper: wallpaper, url: url, screen: screen,
+            isWindowVisible: { _ in true }, makePlayer: { item, _ in AVPlayer(playerItem: item) }) { XCTFail($0) }
+        defer { renderer.stop() }
+        let surface = try XCTUnwrap(renderer.window.contentView as? VideoSurface)
+        let player = try XCTUnwrap(surface.playerLayer.player)
         let item = try XCTUnwrap(player.currentItem)
-        playback.setPaused(false)
+        renderer.setPaused(false)
         guard try await eventually({ player.currentTime().seconds > 0.7 }) else { return XCTFail("Fixture não avançou") }
         guard try await eventually({ player.currentTime().seconds < 0.4 && player.rate > 0 }) else { return XCTFail("Vídeo finito não repetiu") }
         XCTAssertTrue(player.currentItem === item)
         NotificationCenter.default.post(name: .AVPlayerItemDidPlayToEndTime, object: item)
-        playback.setPaused(true)
+        renderer.setPaused(true)
         try await Task.sleep(for: .milliseconds(100))
         XCTAssertEqual(player.rate, 0)
-        XCTAssertEqual(playback.state, .paused)
+        XCTAssertEqual(renderer.remotePlaybackState, .paused)
     }
 
     func testRemoteAdapterTerminalFailureReleasesItemAndDoesNotResume() async throws {
@@ -433,7 +504,9 @@ final class WallpaperRendererTests: XCTestCase {
         let screen = try availableScreen()
         let url = try MediaURL.validate(text)
         let wallpaper = try Wallpaper.remote(text)
-        let renderer = try WallpaperRenderer(wallpaper: wallpaper, url: url, screen: screen) {
+        let visibility = TestVisibility()
+        visibility.visible = true
+        let renderer = try WallpaperRenderer(wallpaper: wallpaper, url: url, screen: screen, isWindowVisible: { _ in visibility.visible }) {
             XCTFail("Falha no stream remoto: \($0)")
         }
         defer { renderer.stop() }
@@ -462,11 +535,13 @@ final class WallpaperRendererTests: XCTestCase {
         XCTAssertEqual(renderer.remotePlaybackState, .playing)
         // Occlusion must pause through the remote recovery policy, not merely
         // set AVPlayer.rate while leaving recovery free to restart playback.
+        visibility.visible = false
         renderer.window.orderOut(nil)
         NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: renderer.window)
         XCTAssertEqual(renderer.remotePlaybackState, .paused)
         XCTAssertEqual(player.rate, 0)
         renderer.setPaused(true)
+        visibility.visible = true
         renderer.window.orderBack(nil)
         NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: renderer.window)
         XCTAssertEqual(renderer.remotePlaybackState, .paused)
@@ -536,48 +611,185 @@ final class WallpaperRendererTests: XCTestCase {
         }
     }
 
-    func testOcclusionPausesAnimationAndVisibilityPreservesManualPause() throws {
+    func testCoveredGIFStaysPausedAcrossManualPolicyResumeAndStop() throws {
         let screen = try availableScreen()
         try withTemporaryDirectory { directory in
-            let url = directory.appendingPathComponent("occlusion.gif")
+            let url = directory.appendingPathComponent("animation.gif")
             try writeImage(at: url, animated: true)
-            let wallpaper = Wallpaper(title: "Occlusion", kind: .gif, source: .local(filename: "occlusion.gif"))
-            let renderer = try WallpaperRenderer(wallpaper: wallpaper, url: url, screen: screen) { XCTFail($0) }
+            let item = Wallpaper(title: "Animation", kind: .gif, source: .local(filename: "animation.gif"))
+            let visibility = TestVisibility()
+            let renderer = try WallpaperRenderer(wallpaper: item, url: url, screen: screen,
+                                                 isWindowVisible: { _ in visibility.visible }) { XCTFail($0) }
             defer { renderer.stop() }
             let view = try XCTUnwrap(renderer.window.contentView as? NSImageView)
+            XCTAssertFalse(renderer.playbackState.isVisible, "Initialization samples injected visibility.")
+            XCTAssertFalse(view.animates)
             renderer.setPaused(false)
+            XCTAssertFalse(view.animates)
+            visibility.visible = true
+            NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: renderer.window)
             XCTAssertTrue(view.animates)
-            renderer.window.orderOut(nil)
+            visibility.visible = false
             NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: renderer.window)
             XCTAssertFalse(view.animates)
             renderer.setPaused(true)
-            renderer.window.orderBack(nil)
+            renderer.setPaused(false)
+            XCTAssertFalse(view.animates, "Manual resume cannot override unchanged occlusion.")
+            var policy = PlaybackPolicy()
+            policy.sleeping = true
+            renderer.setPaused(policy.isPaused(settings: PlaybackSettings(), lowPower: false))
+            policy.sleeping = false
+            renderer.setPaused(policy.isPaused(settings: PlaybackSettings(), lowPower: false))
+            renderer.setPaused(policy.isPaused(settings: PlaybackSettings(), lowPower: true))
+            renderer.setPaused(policy.isPaused(settings: PlaybackSettings(), lowPower: false))
+            XCTAssertFalse(view.animates, "Wake and low-power resume cannot override occlusion.")
+            // Becoming visible must preserve manual pause until explicitly resumed.
+            renderer.setPaused(true)
+            visibility.visible = true
             NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: renderer.window)
             XCTAssertFalse(view.animates)
+            renderer.setPaused(false)
+            XCTAssertTrue(view.animates)
             renderer.stop()
+            renderer.setPaused(false)
             NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: renderer.window)
             XCTAssertFalse(view.animates)
+            XCTAssertFalse(renderer.window.isVisible)
         }
     }
 
-    func testWindowOcclusionNotificationDoesNotCrashOrCorruptWindow() throws {
+    func testOtherDisplayAssignmentRefreshCannotResumePreservedCoveredGIF() throws {
         let screen = try availableScreen()
-        let displayID = try XCTUnwrap(Display.identify(screen))
         try withTemporaryDirectory { directory in
             let store = LibraryStore(rootURL: directory.appendingPathComponent("Library"))
-            let url = directory.appendingPathComponent("photo.png")
-            try writeImage(at: url, animated: false)
-            let item = try store.importFile(at: url)
-            let state = LibraryState(wallpapers: [item], assignments: [displayID: item.id])
-            let engine = DesktopCoordinator()
+            let url = directory.appendingPathComponent("animation.gif")
+            try writeImage(at: url, animated: true)
+            let first = try store.importFile(at: url)
+            let second = try store.importFile(at: url)
+            var state = LibraryState(wallpapers: [first, second], assignments: ["left": first.id, "right": first.id])
+            let visibility = TestWindowVisibility()
+            // Two actual renderers on logical targets backed by the test screen.
+            let engine = DesktopCoordinator(targets: {
+                [DesktopTarget(id: "left", screen: screen), DesktopTarget(id: "right", screen: screen)]
+            }, isWindowVisible: { visibility.isVisible($0) })
             defer { engine.stop() }
-            let existing = Set(NSApplication.shared.windows.map(ObjectIdentifier.init))
+            engine.rebuild(state: state, store: store, paused: false) { _, message in XCTFail(message) }
+            XCTAssertEqual(visibility.windows.count, 2)
+            let left = try XCTUnwrap(visibility.windows.first)
+            let right = visibility.windows[1]
+            let view = try XCTUnwrap(left.contentView as? NSImageView)
+            XCTAssertTrue(view.animates)
+            visibility.visible[ObjectIdentifier(left)] = false
+            NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: left)
+            XCTAssertFalse(view.animates)
+            state.assignments["right"] = second.id
             engine.rebuild(state: state, store: store, paused: false, force: false) { _, message in XCTFail(message) }
-            let windows = NSApplication.shared.windows.compactMap { $0 as? DesktopWindow }
-                .filter { !existing.contains(ObjectIdentifier($0)) && $0.isVisible }
-            let window = try XCTUnwrap(windows.first)
-            NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: window)
-            XCTAssertTrue(window.isVisible)
+            XCTAssertEqual(visibility.windows.count, 3, "Only the changed target gets a new renderer.")
+            XCTAssertTrue(left.contentView === view)
+            XCTAssertTrue(left.isVisible)
+            XCTAssertFalse(right.isVisible)
+            XCTAssertFalse(view.animates, "Refreshing the right display must not resume the covered left display.")
+            let changedView = try XCTUnwrap(visibility.windows.last?.contentView as? NSImageView)
+            XCTAssertTrue(changedView.animates, "The changed visible display can play independently.")
+            engine.setPaused(true)
+            engine.setPaused(false)
+            XCTAssertFalse(view.animates)
+            XCTAssertTrue(changedView.animates)
+            // Re-sample even without an occlusion notification before rebuild.
+            visibility.visible[ObjectIdentifier(left)] = true
+            engine.rebuild(state: state, store: store, paused: false, force: false) { _, message in XCTFail(message) }
+            XCTAssertTrue(view.animates)
+            visibility.visible[ObjectIdentifier(left)] = false
+            engine.rebuild(state: state, store: store, paused: false, force: false) { _, message in XCTFail(message) }
+            XCTAssertFalse(view.animates)
+            XCTAssertTrue(changedView.animates)
         }
+    }
+
+    func testVideoAndRemoteSeekUseCurrentVisibilityPauseAndTerminalStop() async throws {
+        let screen = try availableScreen()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("WallmotionSeekTests-\(UUID())", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("short.mp4")
+        try await writeShortVideo(at: url)
+        let item = Wallpaper(title: "Video", kind: .video, source: .local(filename: "short.mp4"))
+        let visibility = TestVisibility()
+        let seeks = TestSeeks()
+        var errors: [String] = []
+        // A plain AVPlayer with a local fixture exercises the remote restart path
+        // without a network dependency or real asynchronous seek timing.
+        let renderer = try WallpaperRenderer(wallpaper: item, url: url, screen: screen,
+            isWindowVisible: { _ in visibility.visible },
+            makePlayer: { item, _ in AVPlayer(playerItem: item) },
+            seekToStart: { _, completion in seeks.completions.append(completion) },
+            onError: { errors.append($0) })
+        defer { renderer.stop() }
+        let surface = try XCTUnwrap(renderer.window.contentView as? VideoSurface)
+        let player = try XCTUnwrap(surface.playerLayer.player)
+        let playerItem = try XCTUnwrap(player.currentItem)
+        guard try await eventually({ playerItem.status == .readyToPlay }) else {
+            return XCTFail("A fixture de vídeo não ficou pronta.")
+        }
+        XCTAssertFalse(renderer.playbackState.isVisible)
+        XCTAssertEqual(player.rate, 0)
+        renderer.setPaused(false)
+        XCTAssertEqual(player.rate, 0)
+        visibility.visible = true
+        NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: renderer.window)
+        XCTAssertEqual(player.rate, 1)
+        visibility.visible = false
+        NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: renderer.window)
+        renderer.setPaused(true)
+        renderer.setPaused(false)
+        XCTAssertEqual(player.rate, 0, "Manual/policy resume must not play a covered video.")
+
+        for paused in [false, true] {
+            for visible in [false, true] {
+                NotificationCenter.default.post(name: .AVPlayerItemDidPlayToEndTime, object: playerItem)
+                let completion = try XCTUnwrap(seeks.completions.last)
+                let count = seeks.completions.count
+                NotificationCenter.default.post(name: .AVPlayerItemDidPlayToEndTime, object: playerItem)
+                XCTAssertEqual(seeks.completions.count, count, "Coalesce duplicate end notifications while seeking.")
+                visibility.visible = !visible
+                renderer.setPaused(paused)
+                NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: renderer.window)
+                XCTAssertEqual(player.rate, 0, "Even visible/unpaused must wait for seek completion.")
+                // Visibility changes again without a notification: the seek
+                // completion must sample the current value, not a cached one.
+                visibility.visible = visible
+                completion(true)
+                XCTAssertNil(renderer.playbackState.pendingRestart)
+                XCTAssertEqual(player.rate, !paused && visible ? 1 : 0)
+                completion(true) // Duplicate completions cannot change the decision.
+                XCTAssertEqual(player.rate, !paused && visible ? 1 : 0)
+            }
+        }
+        visibility.visible = true
+        renderer.setPaused(false)
+        NotificationCenter.default.post(name: .AVPlayerItemDidPlayToEndTime, object: playerItem)
+        let failed = try XCTUnwrap(seeks.completions.last)
+        failed(false)
+        XCTAssertEqual(errors.count, 1)
+        renderer.setPaused(false)
+        XCTAssertEqual(player.rate, 0, "An unsuccessful seek must not restart playback.")
+        NotificationCenter.default.post(name: .AVPlayerItemDidPlayToEndTime, object: playerItem)
+        let pending = try XCTUnwrap(seeks.completions.last)
+        failed(true) // An old completion cannot finish the newer seek.
+        XCTAssertNotNil(renderer.playbackState.pendingRestart)
+        XCTAssertEqual(player.rate, 0)
+        renderer.stop()
+        pending(true)
+        pending(false)
+        renderer.setPaused(false)
+        NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: renderer.window)
+        let count = seeks.completions.count
+        NotificationCenter.default.post(name: .AVPlayerItemDidPlayToEndTime, object: playerItem)
+        XCTAssertEqual(seeks.completions.count, count)
+        XCTAssertEqual(errors.count, 1, "Stopped/stale seeks must not publish a new error.")
+        XCTAssertEqual(player.rate, 0)
+        XCTAssertNil(player.currentItem)
+        XCTAssertNil(surface.playerLayer.player)
+        XCTAssertFalse(renderer.window.isVisible)
     }
 }
