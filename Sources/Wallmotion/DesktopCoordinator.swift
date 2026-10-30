@@ -70,6 +70,7 @@ final class WallpaperRenderer {
     private var loopObserver: NSKeyValueObservation?
     private var endObserver: NSObjectProtocol?
     private var failureObserver: NSObjectProtocol?
+    private var occlusionObserver: NSObjectProtocol?
     private var paused = true
     private var stopped = false
 
@@ -144,6 +145,24 @@ final class WallpaperRenderer {
                 Task { @MainActor [weak self] in self?.observeCurrentItem(onError: onError) }
             }
         }
+
+        occlusionObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didChangeOcclusionStateNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, !self.stopped else { return }
+                let isOccluded = !self.window.occlusionState.contains(.visible)
+                if isOccluded {
+                    self.player?.pause()
+                    self.imageView?.animates = false
+                } else if !self.paused {
+                    self.player?.play()
+                    self.imageView?.animates = true
+                }
+            }
+        }
     }
 
     private func observeCurrentItem(onError: @escaping @MainActor (String) -> Void) {
@@ -183,6 +202,8 @@ final class WallpaperRenderer {
         endObserver = nil
         if let failureObserver { NotificationCenter.default.removeObserver(failureObserver) }
         failureObserver = nil
+        if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
+        occlusionObserver = nil
         looper?.disableLooping()
         looper = nil
         player?.pause()
