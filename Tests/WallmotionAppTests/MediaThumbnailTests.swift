@@ -45,7 +45,7 @@ final class MediaThumbnailTests: XCTestCase {
     func testAspectFillDecodeSizeUsesCardGeometryAndSourceAspectRatio() {
         XCTAssertEqual(
             MediaThumbnailDecoding.aspectFillMaximumPixelSize(sourceWidth: 1000, sourceHeight: 2000, targetWidth: 900, targetHeight: 240),
-            1800
+            1024 // Portrait output is reduced to the conservative thumbnail budget.
         )
         XCTAssertEqual(
             MediaThumbnailDecoding.aspectFillMaximumPixelSize(sourceWidth: 4000, sourceHeight: 2000, targetWidth: 800, targetHeight: 240),

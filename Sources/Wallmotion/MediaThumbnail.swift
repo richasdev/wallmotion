@@ -42,8 +42,8 @@ struct MediaThumbnail: View {
         .frame(maxWidth: .infinity)
     }
 
-    private func pixelDimensions(for size: CGSize) -> (width: Int, height: Int) {
-        (max(1, Int((size.width * displayScale).rounded(.up))), max(1, Int((size.height * displayScale).rounded(.up))))
+    private func pixelDimensions(for size: CGSize) -> ThumbnailPixelSize {
+        ThumbnailPixelSize(points: size, scale: displayScale)
     }
 
     private var fallbackSymbol: String {
@@ -85,8 +85,9 @@ struct MediaThumbnail: View {
                 generation.cancel()
             }
             try Task.checkCancellation()
+            guard let cost = ThumbnailBudget.cost(of: cgImage) else { throw ThumbnailError.unavailable }
             let result = NSImage(cgImage: cgImage, size: .zero)
-            ThumbnailCache.images.setObject(result, forKey: cacheKey, cost: cgImage.bytesPerRow * cgImage.height)
+            ThumbnailCache.images.setObject(result, forKey: cacheKey, cost: cost)
             image = result
         } catch is CancellationError {
             // A recycled or resized card no longer needs this result.
@@ -105,33 +106,30 @@ private struct ThumbnailRequest: Hashable {
 
 enum MediaThumbnailDecoding {
     static func imageThumbnail(url: URL, targetWidth: Int, targetHeight: Int) -> CGImage? {
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
+        guard url.isFileURL, [nil, "", "localhost"].contains(url.host),
+              let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
               CGImageSourceGetCount(source) > 0,
               let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-              let sourceWidth = properties[kCGImagePropertyPixelWidth] as? Int,
-              let sourceHeight = properties[kCGImagePropertyPixelHeight] as? Int else { return nil }
+              let sourceWidth = properties[kCGImagePropertyPixelWidth] as? NSNumber,
+              let sourceHeight = properties[kCGImagePropertyPixelHeight] as? NSNumber else { return nil }
         let orientation = properties[kCGImagePropertyOrientation] as? Int ?? 1
         let swapsAxes = (5...8).contains(orientation)
-        let orientedWidth = swapsAxes ? sourceHeight : sourceWidth
-        let orientedHeight = swapsAxes ? sourceWidth : sourceHeight
-        let maximumPixelSize = aspectFillMaximumPixelSize(
-            sourceWidth: orientedWidth, sourceHeight: orientedHeight,
-            targetWidth: targetWidth, targetHeight: targetHeight
-        )
-        return CGImageSourceCreateThumbnailAtIndex(source, 0, [
+        let orientedSize = CGSize(width: swapsAxes ? sourceHeight.doubleValue : sourceWidth.doubleValue,
+                                  height: swapsAxes ? sourceWidth.doubleValue : sourceHeight.doubleValue)
+        guard ThumbnailBudget.validSource(orientedSize) else { return nil }
+        let maximumPixelSize = ThumbnailBudget.pixelLimit(source: orientedSize, target: CGSize(width: targetWidth, height: targetHeight))
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
             kCGImageSourceThumbnailMaxPixelSize: maximumPixelSize,
-            kCGImageSourceShouldCacheImmediately: true
-        ] as CFDictionary)
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceShouldAllowFloat: false
+        ] as CFDictionary), ThumbnailBudget.cost(of: image) != nil else { return nil }
+        return image
     }
 
     static func aspectFillMaximumPixelSize(sourceWidth: Int, sourceHeight: Int, targetWidth: Int, targetHeight: Int) -> Int {
-        guard sourceWidth > 0, sourceHeight > 0, targetWidth > 0, targetHeight > 0 else { return 1 }
-        let scale = max(Double(targetWidth) / Double(sourceWidth), Double(targetHeight) / Double(sourceHeight))
-        let desired = Double(max(sourceWidth, sourceHeight)) * scale
-        guard desired < 4096 else { return 4096 }
-        return max(1, min(max(sourceWidth, sourceHeight), Int(desired.rounded(.up))))
+        ThumbnailBudget.pixelLimit(source: CGSize(width: sourceWidth, height: sourceHeight), target: CGSize(width: targetWidth, height: targetHeight))
     }
 }
 
@@ -155,15 +153,17 @@ private final class VideoThumbnailGenerator: @unchecked Sendable {
             let naturalSize = try await track.load(.naturalSize)
             let transform = try await track.load(.preferredTransform)
             let size = CGRect(origin: .zero, size: naturalSize.applying(transform)).standardized.size
-            let maximumPixelSize = MediaThumbnailDecoding.aspectFillMaximumPixelSize(
-                sourceWidth: Int(abs(size.width)), sourceHeight: Int(abs(size.height)),
-                targetWidth: targetWidth, targetHeight: targetHeight
-            )
+            guard ThumbnailBudget.validSource(size) else { throw ThumbnailError.unavailable }
+            let maximumPixelSize = ThumbnailBudget.pixelLimit(source: size, target: CGSize(width: targetWidth, height: targetHeight))
             generator.maximumSize = CGSize(width: maximumPixelSize, height: maximumPixelSize)
         } else {
-            generator.maximumSize = CGSize(width: max(targetWidth, targetHeight), height: max(targetWidth, targetHeight))
+            let fallback = ThumbnailBudget.pixelLimit(source: CGSize(width: ThumbnailBudget.maximumDimension, height: ThumbnailBudget.maximumDimension),
+                target: CGSize(width: targetWidth, height: targetHeight))
+            generator.maximumSize = CGSize(width: fallback, height: fallback)
         }
-        return try await generator.image(at: .zero).image
+        let image = try await generator.image(at: .zero).image
+        guard ThumbnailBudget.cost(of: image) != nil else { throw ThumbnailError.unavailable }
+        return image
     }
     func cancel() { generator.cancelAllCGImageGeneration() }
 }
