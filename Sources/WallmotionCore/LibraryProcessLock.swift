@@ -6,9 +6,10 @@ import Darwin
 public final class LibraryProcessLock {
     private let gate = NSLock()
     private var descriptor: Int32?
+    private let rootURL: URL
     public static let filename = "wallmotion.lock"
 
-    private init(descriptor: Int32) { self.descriptor = descriptor }
+    private init(descriptor: Int32, rootURL: URL) { self.descriptor = descriptor; self.rootURL = rootURL }
     deinit { release() }
 
     /// nil means another cooperating process holds this inode's lock.
@@ -35,7 +36,22 @@ public final class LibraryProcessLock {
         guard fchmod(file, mode_t(0o600)) == 0 else { throw posixError() }
         try validate(file: file, directory: directory)
         transferred = true
-        return LibraryProcessLock(descriptor: file)
+        return LibraryProcessLock(descriptor: file, rootURL: root)
+    }
+
+    /// Publish only while this lease is held. A separate atomic identity file
+    /// avoids exposing a partially written PID. Readers must still verify OS
+    /// identity and liveness rather than trusting a persisted record.
+    public func publishIdentity(_ identity: LibraryProcessIdentity) throws {
+        gate.lock()
+        defer { gate.unlock() }
+        guard let file = descriptor else { throw LibraryLockError.notHeld }
+        let directory = open(rootURL.path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+        guard directory >= 0 else { throw Self.posixError() }
+        defer { close(directory) }
+        try Self.validate(file: file, directory: directory)
+        try identity.validated()
+        try LibraryStateFile.write(JSONEncoder().encode(identity), at: rootURL.appendingPathComponent(LibraryProcessIdentity.filename))
     }
 
     /// Idempotent. Never unlink the inode used by other cooperating openers.
@@ -66,6 +82,11 @@ public final class LibraryProcessLock {
 }
 
 public enum LibraryLockError: LocalizedError, Equatable {
-    case invalidFile
-    public var errorDescription: String? { "O arquivo de controle da biblioteca precisa ser um arquivo comum desta conta, sem links." }
+    case invalidFile, notHeld
+    public var errorDescription: String? {
+        switch self {
+        case .invalidFile: "O arquivo de controle da biblioteca precisa ser um arquivo comum desta conta, sem links."
+        case .notHeld: "A trava da biblioteca já foi liberada."
+        }
+    }
 }

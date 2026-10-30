@@ -7,51 +7,81 @@ struct WallmotionApp: App {
 
     var body: some Scene {
         Window("Wallmotion", id: "library") {
-            LibraryView(model: delegate.model)
+            LibraryWindowContent(session: delegate.session, events: delegate.events, onRetry: delegate.retryStartup)
                 .frame(minWidth: 820, minHeight: 560)
         }
         .defaultSize(width: 1040, height: 700)
         Settings {
-            SettingsView()
+            ApplicationSettingsContent(session: delegate.session, events: delegate.events, onRetry: delegate.retryStartup)
         }
         .commands {
             CommandGroup(replacing: .newItem) {
-                Button("Importar mídia…") { delegate.model.chooseFiles() }
-                    .keyboardShortcut("o")
+                ImportMediaCommand(session: delegate.session)
             }
         }
         MenuBarExtra("Wallmotion", systemImage: "play.rectangle.on.rectangle") {
-            WallpaperMenu(model: delegate.model)
+            ApplicationMenuContent(session: delegate.session)
         }
     }
 }
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    let model = LibraryModel()
+    let session = ApplicationSession()
+    private lazy var workspace = InstanceWorkspace(rootURL: session.rootURL,
+        bundleIdentifier: Bundle.main.bundleIdentifier ?? "dev.richas.wallmotion")
+    lazy var events = LaunchEventRouter(
+        isPrimary: { [weak self] in self?.session.model != nil },
+        isBusy: { [weak self] in self?.session.phase == .busy },
+        importURLs: { [weak self] urls in self?.importIntoPrimary(urls) },
+        activateOwner: { [weak self] in
+            guard let self else { throw InstanceWorkspace.Failure.ownerUnavailable }
+            try await self.workspace.activate()
+        },
+        forward: { [weak self] urls in
+            guard let self else { throw InstanceWorkspace.Failure.ownerUnavailable }
+            try await self.workspace.forward(urls)
+        },
+        terminate: { NSApp.terminate(nil) })
+
+    func applicationWillFinishLaunching(_ notification: Notification) { session.prepare() }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
-        // Read the packaged icon explicitly so a development build uses its current identity.
         if let iconURL = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
-           let icon = NSImage(contentsOf: iconURL) {
-            NSApp.applicationIconImage = icon
-        }
-        model.start()
+           let icon = NSImage(contentsOf: iconURL) { NSApp.applicationIconImage = icon }
+        // Keep a fallback for direct/test launch paths which omit willFinish.
+        if session.phase == .preparing { session.prepare() }
+        session.finishLaunching()
+        let isDefault = notification.userInfo?[NSApplication.launchIsDefaultUserInfoKey] as? Bool ?? false
+        events.finishLaunching(isDefaultLaunch: isDefault)
     }
 
-    func application(_ application: NSApplication, open urls: [URL]) {
-        guard !urls.isEmpty else { return }
-        NSApp.activate(ignoringOtherApps: true)
-        NSApp.windows.first(where: { $0.title == "Wallmotion" })?.makeKeyAndOrderFront(nil)
+    func application(_ application: NSApplication, open urls: [URL]) { events.receive(urls) }
+
+    private func importIntoPrimary(_ urls: [URL]) {
+        guard let model = session.model else { return }
+        showLibrary()
         Task { @MainActor [weak model] in await model?.importFiles(urls) }
     }
 
+    func retryStartup() {
+        guard !events.isForwarding else { return }
+        session.prepare()
+        events.retry()
+    }
+
+    private func showLibrary() {
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.windows.first(where: { $0.title == "Wallmotion" })?.makeKeyAndOrderFront(nil)
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
-    func applicationWillTerminate(_ notification: Notification) { model.stop() }
+    func applicationWillTerminate(_ notification: Notification) { session.stop() }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !flag { NSApp.windows.first(where: { $0.title == "Wallmotion" })?.makeKeyAndOrderFront(nil) }
+        if !flag { showLibrary() }
+        if session.model == nil { events.retry() }
         return true
     }
 }
