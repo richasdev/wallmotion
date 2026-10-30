@@ -42,7 +42,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { throw InstanceWorkspace.Failure.ownerUnavailable }
             try await self.workspace.forward(urls)
         },
-        terminate: { NSApp.terminate(nil) })
+        terminate: { NSApp.terminate(nil) },
+        onRejection: { [weak self] message in
+            guard let self, let model = self.session.model else { return }
+            model.errorMessage = message
+            self.showLibrary()
+        })
 
     func applicationWillFinishLaunching(_ notification: Notification) { session.prepare() }
 

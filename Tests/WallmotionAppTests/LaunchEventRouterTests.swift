@@ -129,4 +129,94 @@ final class LaunchEventRouterTests: XCTestCase {
         XCTAssertNotNil(router.errorMessage)
         XCTAssertFalse(router.errorMessage?.contains("PRIVATE_TOKEN") == true)
     }
+    func testStartupBoundaryRejectsOnlyNewBatchAndPrimaryReceivesWarningOnce() {
+        let values = Values()
+        let accepted = Array(repeating: URL(fileURLWithPath: "/temporary/accepted.png"), count: 256)
+        let rejected = URL(fileURLWithPath: "/temporary/PRIVATE_TOKEN.png")
+        var batches: [[URL]] = []
+        var notices: [String] = []
+        let router = LaunchEventRouter(isPrimary: { values.primary }, isBusy: { false }, importURLs: { batches.append($0) }, activateOwner: {}, forward: { _ in }, terminate: {}, onRejection: { notices.append($0) })
+        XCTAssertTrue(router.receive(accepted))
+        XCTAssertFalse(router.receive([rejected]))
+        XCTAssertEqual(router.pendingURLs, accepted)
+        XCTAssertTrue(router.hasRejectedURLs)
+        XCTAssertFalse(router.errorMessage?.contains("PRIVATE_TOKEN") == true)
+        values.primary = true
+        router.finishLaunching(isDefaultLaunch: false)
+        XCTAssertEqual(batches, [accepted])
+        XCTAssertEqual(notices.count, 1)
+        XCTAssertFalse(router.hasRejectedURLs)
+        XCTAssertTrue(router.receive([rejected])) // Space was drained; a valid later event does not repeat the warning.
+        XCTAssertEqual(batches.count, 2)
+        XCTAssertEqual(notices.count, 1)
+    }
+
+    func testInFlightReservationAndFailedRequeueStayWithinLimitUntilExplicitAcknowledgement() async throws {
+        let gate = Gate()
+        let values = Values()
+        let active = Array(repeating: URL(fileURLWithPath: "/temporary/active.png"), count: 200)
+        let queued = Array(repeating: URL(fileURLWithPath: "/temporary/queued.png"), count: 56)
+        var forwards: [[URL]] = []
+        var terminated = 0
+        let router = LaunchEventRouter(isPrimary: { false }, isBusy: { true }, importURLs: { _ in XCTFail("Secondary imported") }, activateOwner: {}, forward: { batch in
+            forwards.append(batch)
+            if values.fail { await gate.wait(); throw NSError(domain: "PRIVATE_TOKEN", code: 1) }
+        }, terminate: { terminated += 1 })
+        router.receive(active)
+        router.finishLaunching(isDefaultLaunch: false)
+        try await waitUntil { forwards.count == 1 }
+        XCTAssertTrue(router.receive(queued))
+        XCTAssertFalse(router.receive([URL(fileURLWithPath: "/temporary/excess.png")]))
+        XCTAssertEqual(router.pendingURLs, queued)
+        gate.open()
+        try await waitUntil { !router.isForwarding }
+        XCTAssertEqual(router.pendingURLs, active + queued)
+        XCTAssertEqual(router.pendingURLs.count, 256)
+        XCTAssertEqual(terminated, 0)
+        XCTAssertFalse(router.errorMessage?.contains("PRIVATE_TOKEN") == true)
+        values.fail = false
+        router.retry()
+        try await waitUntil { forwards.count == 2 && !router.isForwarding }
+        XCTAssertEqual(forwards[1], active + queued)
+        XCTAssertTrue(router.pendingURLs.isEmpty)
+        XCTAssertTrue(router.hasRejectedURLs)
+        XCTAssertNotNil(router.errorMessage)
+        XCTAssertEqual(terminated, 0, "A successful dispatch must not hide a rejected-batch notice.")
+        router.activateAndClose()
+        try await waitUntil { terminated == 1 }
+        XCTAssertFalse(router.hasRejectedURLs)
+    }
+
+    func testOversizedInitialEventDoesNotMasqueradeAsWaitingForInitialFiles() async throws {
+        var terminated = 0
+        let router = LaunchEventRouter(isPrimary: { false }, isBusy: { true }, importURLs: { _ in XCTFail("Secondary imported") }, activateOwner: {}, forward: { _ in XCTFail("Rejected batch forwarded") }, terminate: { terminated += 1 })
+        XCTAssertFalse(router.receive(Array(repeating: URL(fileURLWithPath: "/temporary/large.png"), count: 257)))
+        router.finishLaunching(isDefaultLaunch: false)
+        try await waitUntil { !router.isForwarding }
+        XCTAssertTrue(router.pendingURLs.isEmpty)
+        XCTAssertFalse(router.waitingForInitialFiles)
+        XCTAssertTrue(router.hasRejectedURLs)
+        XCTAssertNotNil(router.errorMessage)
+        XCTAssertEqual(terminated, 0)
+    }
+
+    func testSuccessfulForwardReleasesReservationWhileRejectedNoticeKeepsSecondaryOpen() async throws {
+        let gate = Gate()
+        var forwards: [[URL]] = []
+        let batch = Array(repeating: URL(fileURLWithPath: "/temporary/file.png"), count: 256)
+        let router = LaunchEventRouter(isPrimary: { false }, isBusy: { true }, importURLs: { _ in }, activateOwner: {}, forward: { urls in
+            forwards.append(urls)
+            await gate.wait()
+        }, terminate: { XCTFail("Rejected notice must keep the secondary open") })
+        router.receive(batch)
+        router.finishLaunching(isDefaultLaunch: true)
+        try await waitUntil { forwards.count == 1 }
+        XCTAssertFalse(router.receive([URL(fileURLWithPath: "/temporary/excess.png")]))
+        gate.open()
+        try await waitUntil { !router.isForwarding }
+        XCTAssertTrue(router.receive(batch))
+        try await waitUntil { forwards.count == 2 && !router.isForwarding }
+        XCTAssertEqual(forwards, [batch, batch])
+    }
+
 }
