@@ -26,13 +26,9 @@ public struct LibraryStore: Sendable {
     public func importFile(at url: URL) throws -> Wallpaper {
         guard url.isFileURL else { throw LibraryError.notRegularFile }
         let kind = try MediaKind.classify(fileURL: url)
-        let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
-        guard values.isRegularFile == true, values.isSymbolicLink != true else { throw LibraryError.notRegularFile }
-        if kind == .gif { _ = try GIFPreflight.inspect(url: url) }
         let id = UUID()
         let filename = id.uuidString + "." + url.pathExtension.lowercased()
-        try FileManager.default.createDirectory(at: mediaDirectory, withIntermediateDirectories: true)
-        try FileManager.default.copyItem(at: url, to: mediaDirectory.appendingPathComponent(filename))
+        try ManagedMediaFiles.copy(from: url, filename: filename, kind: kind, root: rootURL)
         return Wallpaper(id: id, title: url.deletingPathExtension().lastPathComponent, kind: kind, source: .local(filename: filename))
     }
 
@@ -40,6 +36,7 @@ public struct LibraryStore: Sendable {
         switch wallpaper.source {
         case .local(let filename):
             try Self.validateFilename(filename)
+            try ManagedMediaFiles.validate(filename: filename, root: rootURL)
             return mediaDirectory.appendingPathComponent(filename)
         case .web(let embed):
             try embed.validate()
@@ -49,9 +46,9 @@ public struct LibraryStore: Sendable {
     }
 
     public func deleteMedia(for wallpaper: Wallpaper) throws {
-        guard case .local = wallpaper.source else { return }
-        let url = try resolvedURL(for: wallpaper)
-        if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
+        guard case .local(let filename) = wallpaper.source else { return }
+        try Self.validateFilename(filename)
+        try ManagedMediaFiles.remove(filename: filename, root: rootURL)
     }
 
     public static func validateFilename(_ filename: String) throws {

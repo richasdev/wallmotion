@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import CWallmotionMedia
 
 public struct GIFMetadata: Equatable, Sendable {
@@ -15,6 +16,19 @@ public enum GIFPreflight {
     public static func inspect(url: URL, maxDecodedBytes: UInt64 = defaultBudget) throws -> GIFMetadata {
         let data = try Data(contentsOf: url, options: .alwaysMapped)
         return try inspect(data: data, maxDecodedBytes: maxDecodedBytes)
+    }
+
+    /// Inspect the opened file rather than reopening a mutable source pathname.
+    static func inspect(descriptor: Int32, maxDecodedBytes: UInt64 = defaultBudget) throws -> GIFMetadata {
+        var info = stat()
+        guard fstat(descriptor, &info) == 0, info.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG),
+              info.st_size > 0, info.st_size <= Int.max else { throw LibraryError.invalidGIF }
+        let count = Int(info.st_size)
+        guard let bytes = mmap(nil, count, PROT_READ, MAP_PRIVATE, descriptor, 0), bytes != MAP_FAILED else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        defer { munmap(bytes, count) }
+        return try inspect(data: Data(bytesNoCopy: bytes, count: count, deallocator: .none), maxDecodedBytes: maxDecodedBytes)
     }
 
     public static func inspect(data: Data, maxDecodedBytes: UInt64 = defaultBudget) throws -> GIFMetadata {
