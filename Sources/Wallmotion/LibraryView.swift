@@ -153,8 +153,7 @@ struct LibraryView: View {
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 20) {
             HStack(spacing: 10) {
-                Image(systemName: "play.rectangle.on.rectangle.fill")
-                    .font(.title2).foregroundStyle(Color.accentColor)
+                BrandLogoView(size: 28)
                 Text("Wallmotion").font(.title2.weight(.semibold))
             }.padding(.top, 18).padding(.bottom, 8)
             Text("MONITORES").font(.caption.weight(.semibold)).tracking(1).foregroundStyle(.secondary)
@@ -325,6 +324,6 @@ struct WallpaperCard: View {
         }
         .padding(16)
         .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(isApplied ? Color.accentColor : .primary.opacity(0.07), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(isApplied ? BrandTheme.cyan : .primary.opacity(0.07), lineWidth: isApplied ? 1.5 : 1))
     }
 }

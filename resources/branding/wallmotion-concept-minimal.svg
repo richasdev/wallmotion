@@ -1,0 +1,133 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <!-- macOS Drop Shadows -->
+    <filter id="mac-drop-shadow" x="-10%" y="-10%" width="130%" height="135%" filterUnits="userSpaceOnUse">
+      <feGaussianBlur stdDeviation="30" in="SourceAlpha" result="blur1" />
+      <feOffset dx="0" dy="28" in="blur1" result="offset1" />
+      <feComponentTransfer in="offset1" result="shadow1">
+        <feFuncA type="linear" slope="0.32" />
+      </feComponentTransfer>
+      <feGaussianBlur stdDeviation="12" in="SourceAlpha" result="blur2" />
+      <feOffset dx="0" dy="12" in="blur2" result="offset2" />
+      <feComponentTransfer in="offset2" result="shadow2">
+        <feFuncA type="linear" slope="0.22" />
+      </feComponentTransfer>
+      <feMerge>
+        <feMergeNode in="shadow1" />
+        <feMergeNode in="shadow2" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+
+    <filter id="particle-glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="25" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+
+    <filter id="orbital-glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="14" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+
+    <!-- Gradients -->
+    <linearGradient id="bg-obsidian" x1="0.5" y1="0" x2="0.5" y2="1">
+      <stop offset="0%" stop-color="#161822" />
+      <stop offset="45%" stop-color="#0D0E15" />
+      <stop offset="100%" stop-color="#040508" />
+    </linearGradient>
+
+    <!-- Kinetic Torus Stroke Gradient -->
+    <linearGradient id="ring-flow" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#00F2FE" />
+      <stop offset="35%" stop-color="#4FACFE" />
+      <stop offset="70%" stop-color="#7000FF" />
+      <stop offset="100%" stop-color="#FF007F" stop-opacity="0" />
+    </linearGradient>
+
+    <linearGradient id="inner-ring-flow" x1="1" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#00F2FE" stop-opacity="0.8" />
+      <stop offset="50%" stop-color="#60A5FA" stop-opacity="0.3" />
+      <stop offset="100%" stop-color="#A855F7" stop-opacity="0" />
+    </linearGradient>
+
+    <radialGradient id="particle-radial" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0%" stop-color="#FFFFFF" />
+      <stop offset="40%" stop-color="#00F2FE" />
+      <stop offset="85%" stop-color="#007AFF" />
+      <stop offset="100%" stop-color="#0052D4" stop-opacity="0" />
+    </radialGradient>
+
+    <linearGradient id="rim-bevel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.40" />
+      <stop offset="15%" stop-color="#FFFFFF" stop-opacity="0.10" />
+      <stop offset="85%" stop-color="#FFFFFF" stop-opacity="0.02" />
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.10" />
+    </linearGradient>
+
+    <clipPath id="squircle-clip-d">
+      <rect x="100" y="100" width="824" height="824" rx="185" ry="185" />
+    </clipPath>
+  </defs>
+
+  <!-- Drop Shadow + Squircle Base -->
+  <g filter="url(#mac-drop-shadow)">
+    <rect x="100" y="100" width="824" height="824" rx="185" ry="185" fill="url(#bg-obsidian)" />
+  </g>
+
+  <!-- Contents Clipped to Squircle -->
+  <g clip-path="url(#squircle-clip-d)">
+    <!-- Concentric Dynamic Resonator / Wave Rings (Faint desktop wallpaper ripples) -->
+    <circle cx="512" cy="512" r="320" fill="none" stroke="#FFFFFF" stroke-width="1.5" opacity="0.06" stroke-dasharray="12 18" />
+    <circle cx="512" cy="512" r="260" fill="none" stroke="#FFFFFF" stroke-width="1.5" opacity="0.09" />
+    <circle cx="512" cy="512" r="200" fill="none" stroke="#FFFFFF" stroke-width="1.5" opacity="0.12" stroke-dasharray="6 12" />
+
+    <!-- Motion Vector Crosshairs (Precision Utility Cues) -->
+    <line x1="512" y1="180" x2="512" y2="230" stroke="#00F2FE" stroke-width="2" opacity="0.4" />
+    <line x1="512" y1="794" x2="512" y2="844" stroke="#00F2FE" stroke-width="2" opacity="0.4" />
+    <line x1="180" y1="512" x2="230" y2="512" stroke="#00F2FE" stroke-width="2" opacity="0.4" />
+    <line x1="794" y1="512" x2="844" y2="512" stroke="#00F2FE" stroke-width="2" opacity="0.4" />
+
+    <!-- Secondary Harmonic Orbital (Counter-rotation vibe) -->
+    <path d="M 512 282
+             A 230 230 0 1 1 292 580"
+          fill="none" stroke="url(#inner-ring-flow)" stroke-width="8" stroke-linecap="round" opacity="0.6" />
+
+    <!-- Primary Bold Kinetic Orbital Ring (sweeps 300 degrees around center) -->
+    <path d="M 512 212
+             A 300 300 0 1 1 222 620"
+          fill="none" stroke="url(#ring-flow)" stroke-width="36" stroke-linecap="round"
+          filter="url(#orbital-glow)" />
+
+    <!-- Main Luminous Kinetic Lead Particle / Energy Nexus -->
+    <circle cx="512" cy="212" r="42" fill="url(#particle-radial)" filter="url(#particle-glow)" />
+    <circle cx="512" cy="212" r="16" fill="#FFFFFF" />
+
+    <!-- Trailing Micro-Particles (High frame-rate motion feel) -->
+    <circle cx="630" cy="235" r="8" fill="#00F2FE" opacity="0.85" />
+    <circle cx="730" cy="300" r="6" fill="#38BDF8" opacity="0.75" />
+    <circle cx="800" cy="400" r="5" fill="#60A5FA" opacity="0.6" />
+    <circle cx="812" cy="512" r="4" fill="#818CF8" opacity="0.5" />
+    <circle cx="770" cy="630" r="3" fill="#A855F7" opacity="0.4" />
+
+    <!-- Center Play/Motion Glyphic Node (Minimalist desktop state) -->
+    <polygon points="502,482 536,512 502,542" fill="#FFFFFF" opacity="0.7" />
+
+    <!-- Tactile Glass Surface Sheen -->
+    <linearGradient id="min-glass" x1="0" y1="0" x2="0.8" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.10" />
+      <stop offset="40%" stop-color="#FFFFFF" stop-opacity="0.01" />
+      <stop offset="100%" stop-color="#000000" stop-opacity="0.25" />
+    </linearGradient>
+    <rect x="100" y="100" width="824" height="824" fill="url(#min-glass)" pointer-events="none" />
+  </g>
+
+  <!-- Precise Outer macOS Squircle Bevel Rim -->
+  <rect x="100.5" y="100.5" width="823" height="823" rx="184.5" ry="184.5" fill="none" stroke="url(#rim-bevel)" stroke-width="2" pointer-events="none" />
+</svg>
