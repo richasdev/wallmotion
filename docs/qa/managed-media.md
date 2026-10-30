@@ -4,7 +4,7 @@ Novas importações abrem a origem com `O_NOFOLLOW | O_NONBLOCK`, validam arquiv
 
 Media é aberto relativo ao descritor da raiz e rejeita symlink no seu componente final. Resolução verifica o componente final sem seguir symlinks e rejeita arquivos especiais; arquivo ausente mantém a URL para o tratamento normal de mídia removida. Exclusão usa `unlinkat` relativo ao diretório aberto: substituir a entrada por um symlink não faz a exclusão seguir seu alvo. Uma cópia incompleta é removida nesse mesmo diretório. Ao concluir a cópia, a identidade do diretório atual é conferida antes de publicar o item.
 
-GIFs são inspecionados pelo scanner Rust no descritor antes e depois da cópia, sem reabrir o nome da origem. O mapeamento não aloca uma cópia completa do arquivo em Data. Isso não torna o arquivo imutável: truncamento concorrente de um arquivo mapeado pode causar SIGBUS e precisa de tratamento em uma etapa própria para o preflight de URLs e descritores.
+GIFs são inspecionados pelo scanner Rust no descritor antes e depois da cópia, sem reabrir o nome da origem. O scanner usa read-ahead fixo de 8 KiB e pread, sem mapear páginas de arquivo nem carregar todo o conteúdo em Data. Truncamento que atinja bytes ainda necessários retorna erro de EOF/leitura; bytes já copiados no buffer continuam disponíveis. O conteúdo mutável não constitui snapshot coerente garantido. Veja [o roteiro do scanner em fluxo](gif-file-stream.md).
 
 ## Limites explícitos
 
