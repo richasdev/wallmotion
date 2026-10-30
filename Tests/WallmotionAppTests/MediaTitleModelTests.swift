@@ -56,9 +56,10 @@ final class MediaTitleModelTests: XCTestCase {
     func testOptionalRenameSheetSnapshot() async throws {
         guard let path = ProcessInfo.processInfo.environment["WALLMOTION_RENAME_SNAPSHOT_PATH"] else { throw XCTSkip("Opt-in rename sheet snapshot") }
         _ = NSApplication.shared
-        let bounds = NSRect(x: 0, y: 0, width: 496, height: 300)
-        let hosting = NSHostingView(rootView: RenameMediaSheet(title: "Céu de Tóquio", canSave: true, onSave: { _ in nil }, onCancel: {}))
-        hosting.appearance = NSAppearance(named: .darkAqua)
+        let bounds = NSRect(x: 0, y: 0, width: 496, height: 380)
+        let environment = ProcessInfo.processInfo.environment
+        let hosting = NSHostingView(rootView: RenameMediaSheet(title: environment["WALLMOTION_RENAME_SNAPSHOT_TITLE"] ?? "Céu de Tóquio", canSave: true, onSave: { _ in nil }, onCancel: {}))
+        hosting.appearance = NSAppearance(named: environment["WALLMOTION_RENAME_SNAPSHOT_LIGHT"] == "1" ? .aqua : .darkAqua)
         hosting.frame = bounds
         let window = NSWindow(contentRect: bounds, styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

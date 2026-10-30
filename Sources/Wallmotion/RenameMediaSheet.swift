@@ -2,7 +2,8 @@ import SwiftUI
 import WallmotionCore
 
 struct RenameMediaSheet: View {
-    @State private var title: String
+    @State private var draft: RenameDraft
+    @Environment(\.colorScheme) private var colorScheme
     @State private var saveError: String?
     @FocusState private var isFocused: Bool
     let canSave: Bool
@@ -10,15 +11,26 @@ struct RenameMediaSheet: View {
     let onCancel: () -> Void
 
     init(title: String, canSave: Bool, onSave: @escaping (String) -> String?, onCancel: @escaping () -> Void) {
-        _title = State(initialValue: title)
+        _draft = State(initialValue: RenameDraft(text: title))
         self.canSave = canSave
         self.onSave = onSave
         self.onCancel = onCancel
     }
 
-    private var validationError: String? {
-        do { _ = try MediaTitle.normalized(title); return nil }
-        catch { return error.localizedDescription }
+    private var counterCaption: String {
+        switch draft.counterState {
+        case .normal: "Até 200 caracteres"
+        case .nearLimit: "Perto do limite"
+        case .exceeded: "Limite excedido"
+        }
+    }
+
+    private var counterColor: Color {
+        switch draft.counterState {
+        case .normal: .secondary
+        case .nearLimit: colorScheme == .dark ? Color(red: 1, green: 0.72, blue: 0.25) : Color(red: 0.52, green: 0.29, blue: 0.04)
+        case .exceeded: colorScheme == .dark ? Color(red: 1, green: 0.52, blue: 0.55) : Color(red: 0.66, green: 0.12, blue: 0.16)
+        }
     }
 
     var body: some View {
@@ -26,23 +38,33 @@ struct RenameMediaSheet: View {
             Label("Renomear mídia", systemImage: "pencil").font(.title2.weight(.semibold))
             Text("O novo nome aparece na biblioteca e nos monitores. O arquivo e a reprodução atual são preservados.")
                 .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            TextField("Nome da mídia", text: $title)
+            TextField("Nome da mídia", text: Binding(get: { draft.text }, set: {
+                saveError = nil
+                draft.replace(with: $0)
+            }))
                 .textFieldStyle(.roundedBorder)
                 .focused($isFocused)
-                .onChange(of: title) { _, _ in saveError = nil }
                 .onSubmit(save)
-            if let error = saveError ?? validationError {
+            if let error = saveError ?? draft.validationError {
                 Label(error, systemImage: "exclamationmark.circle")
                     .font(.callout).foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Text("Até 200 caracteres").font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Text(counterCaption).accessibilityHidden(true)
+                Spacer()
+                Text("\(draft.characterCount)/\(MediaTitle.maximumCharacters)")
+                    .monospacedDigit()
+                    .accessibilityLabel("\(draft.characterCount) de \(MediaTitle.maximumCharacters) caracteres. \(counterCaption)")
+                    .help("Espaços no início e no fim não entram na contagem.")
+            }
+            .font(.caption).foregroundStyle(counterColor)
             HStack {
                 Spacer()
                 Button("Cancelar", action: onCancel).keyboardShortcut(.cancelAction)
                 Button("Salvar", action: save)
                     .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
-                    .disabled(!canSave || validationError != nil)
+                    .disabled(!canSave || draft.validationError != nil)
             }
         }
         .padding(28).frame(width: 440)
@@ -51,7 +73,7 @@ struct RenameMediaSheet: View {
     }
 
     private func save() {
-        guard canSave, validationError == nil else { return }
-        saveError = onSave(title)
+        guard canSave, draft.validationError == nil else { return }
+        saveError = onSave(draft.text)
     }
 }
