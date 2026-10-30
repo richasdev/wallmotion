@@ -38,6 +38,7 @@ struct InstanceWorkspace {
                 continuation.resume(returning: result.processIdentifier)
             }
         }
+        InstanceDiagnostics.log.info("Activation expectedPID=\(app.processIdentifier, privacy: .public) returnedPID=\(pid, privacy: .public)")
         try confirm(pid)
     }
 
@@ -50,6 +51,7 @@ struct InstanceWorkspace {
                 continuation.resume(returning: result.processIdentifier)
             }
         }
+        InstanceDiagnostics.log.info("Forward expectedPID=\(app.processIdentifier, privacy: .public) returnedPID=\(pid, privacy: .public)")
         try confirm(pid)
     }
 

@@ -44,6 +44,7 @@ final class LaunchEventRouter {
         // Unlike the documented single-file callback, general open-URL batches
         // are not assumed to have arrived before didFinishLaunching.
         waitingForInitialFiles = !isDefaultLaunch && pendingURLs.isEmpty
+        InstanceDiagnostics.log.info("Launch routing default=\(isDefaultLaunch, privacy: .public) pending=\(self.pendingURLs.count, privacy: .public)")
         route()
     }
 
@@ -83,8 +84,14 @@ final class LaunchEventRouter {
                         throw error
                     }
                 }
-                if !self.waitingForInitialFiles { self.terminate() }
+                if !self.waitingForInitialFiles {
+                    InstanceDiagnostics.log.info("Secondary dispatch acknowledged; requesting exit")
+                    self.terminate()
+                } else {
+                    InstanceDiagnostics.log.info("Secondary awaiting initial file event")
+                }
             } catch {
+                InstanceDiagnostics.log.info("Secondary dispatch unconfirmed; keeping queued events")
                 // Do not expose OS errors containing file URLs or provider tokens.
                 self.errorMessage = "Não foi possível confirmar o envio à outra instância. Confira a biblioteca aberta antes de tentar novamente."
             }

@@ -36,15 +36,21 @@ final class ApplicationSession {
         phase = .preparing
         errorMessage = nil
         do {
-            guard let acquired = try acquire() else { phase = .busy; return }
+            guard let acquired = try acquire() else {
+                phase = .busy
+                InstanceDiagnostics.log.info("Admission busy; no model constructed")
+                return
+            }
             do { try publish(acquired) }
             catch { acquired.release(); throw error }
             lease = acquired
             model = makeModel()
             phase = .primary
+            InstanceDiagnostics.log.info("Admission primary; model constructed under lease")
             if finishedLaunching { model?.start() }
         } catch {
             phase = .failed
+            InstanceDiagnostics.log.info("Admission failed; no model constructed")
             errorMessage = "Não foi possível obter acesso exclusivo à biblioteca. Feche outras instâncias e verifique os arquivos de controle antes de tentar novamente."
         }
     }
