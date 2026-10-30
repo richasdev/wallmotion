@@ -1,6 +1,8 @@
-//! Allocation-free GIF structure inspection. Compressed image data is skipped,
-//! never decoded. The estimate accounts for a full RGBA canvas for every frame.
+//! GIF structure inspection plus isolated frame composition/decoding modules.
+//! The probe APIs skip compressed pixels without allocation and estimate a full
+//! RGBA canvas per frame. The animation module separately decodes owned pixels.
 
+pub mod animation;
 pub mod compositor;
 
 #[cfg(unix)]
