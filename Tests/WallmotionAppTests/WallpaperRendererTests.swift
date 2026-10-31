@@ -188,7 +188,7 @@ final class WallpaperRendererTests: XCTestCase {
         XCTAssertTrue(player.isMuted)
     }
 
-    func testWholeStateGIFPreflightAllowsTransferAndChargesEveryMirror() throws {
+    func testWholeStateGIFPreflightAllowsTransferAndChargesSharedMirrorsOnce() throws {
         let screen = try availableScreen()
         try withTemporaryDirectory { directory in
             let store = LibraryStore(rootURL: directory.appendingPathComponent("Library"))
@@ -209,18 +209,22 @@ final class WallpaperRendererTests: XCTestCase {
             XCTAssertEqual(engine.gifBudget.bytesByDisplay, ["left": bytes])
             state.displayMode = .mirrored
             state.mirroredWallpaperID = item.id
-            XCTAssertThrowsError(try engine.validateAssignments(state: state, store: store))
+            XCTAssertNoThrow(try engine.validateAssignments(state: state, store: store))
             XCTAssertEqual(engine.gifBudget.bytesByDisplay, ["left": bytes])
+            engine.rebuild(state: state, store: store, paused: true) { _, error in XCTFail(error) }
+            XCTAssertEqual(engine.gifBudget.bytesByDisplay, ["left": bytes, "right": bytes])
+            XCTAssertEqual(engine.gifBudget.totalBytes, bytes)
         }
     }
 
-    func testDisconnectedWindowStopsEvenWhenReplacementMirrorsExceedBudget() throws {
+    func testDisconnectedWindowStopsEvenWhenDistinctReplacementsExceedBudget() throws {
         let screen = try availableScreen()
         try withTemporaryDirectory { directory in
             let store = LibraryStore(rootURL: directory.appendingPathComponent("Library"))
             let url = directory.appendingPathComponent("animation.gif")
             try writeImage(at: url, animated: true)
             let item = try store.importFile(at: url)
+            let second = try store.importFile(at: url)
             let bytes = try GIFPreflight.inspect(url: url).decodedBytes
             let visibility = TestWindowVisibility()
             let connected = TestScreens([screen])
@@ -230,12 +234,13 @@ final class WallpaperRendererTests: XCTestCase {
                     : [DesktopTarget(id: "removed", screen: screen)]
             }, isWindowVisible: { visibility.isVisible($0) })
             defer { engine.stop() }
-            let state = LibraryState(wallpapers: [item], displayMode: .mirrored, mirroredWallpaperID: item.id)
+            var state = LibraryState(wallpapers: [item, second], assignments: ["removed": item.id])
             engine.rebuild(state: state, store: store, paused: false) { _, error in XCTFail(error) }
             let original = try XCTUnwrap(visibility.windows.first)
             let originalSurface = try XCTUnwrap(original.contentView as? ImageSurface)
             XCTAssertEqual(engine.gifBudget.totalBytes, bytes)
             connected.values = []
+            state.assignments = ["new-left": item.id, "new-right": second.id]
             var errors: [String] = []
             engine.rebuild(state: state, store: store, paused: false) { _, error in errors.append(error) }
             XCTAssertEqual(errors.count, 2)
@@ -380,16 +385,16 @@ final class WallpaperRendererTests: XCTestCase {
                 XCTFail("Um GIF válido não deve gerar erro: \($0)")
             }
             defer { renderer.stop() }
-            let view = try XCTUnwrap(renderer.window.contentView as? ImageSurface).imageView
-            XCTAssertFalse(view.animates)
+            let view = try XCTUnwrap(renderer.window.contentView as? ImageSurface)
+            XCTAssertFalse(view.gifIsPlaying)
             renderer.setPaused(false)
-            XCTAssertTrue(view.animates)
+            XCTAssertTrue(view.gifIsPlaying)
             renderer.setPaused(true)
-            XCTAssertFalse(view.animates)
+            XCTAssertFalse(view.gifIsPlaying)
             renderer.setPaused(false)
-            XCTAssertTrue(view.animates)
+            XCTAssertTrue(view.gifIsPlaying)
             renderer.stop()
-            XCTAssertFalse(view.animates)
+            XCTAssertFalse(view.gifIsPlaying)
             XCTAssertFalse(renderer.window.isVisible)
         }
     }
@@ -768,20 +773,20 @@ final class WallpaperRendererTests: XCTestCase {
             let renderer = try WallpaperRenderer(wallpaper: item, url: url, screen: screen, mediaFit: .fill,
                                                  isWindowVisible: { _ in visibility.visible }) { XCTFail($0) }
             defer { renderer.stop() }
-            let view = try XCTUnwrap(renderer.window.contentView as? ImageSurface).imageView
+            let view = try XCTUnwrap(renderer.window.contentView as? ImageSurface)
             XCTAssertFalse(renderer.playbackState.isVisible, "Initialization samples injected visibility.")
-            XCTAssertFalse(view.animates)
+            XCTAssertFalse(view.gifIsPlaying)
             renderer.setPaused(false)
-            XCTAssertFalse(view.animates)
+            XCTAssertFalse(view.gifIsPlaying)
             visibility.visible = true
             NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: renderer.window)
-            XCTAssertTrue(view.animates)
+            XCTAssertTrue(view.gifIsPlaying)
             visibility.visible = false
             NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: renderer.window)
-            XCTAssertFalse(view.animates)
+            XCTAssertFalse(view.gifIsPlaying)
             renderer.setPaused(true)
             renderer.setPaused(false)
-            XCTAssertFalse(view.animates, "Manual resume cannot override unchanged occlusion.")
+            XCTAssertFalse(view.gifIsPlaying, "Manual resume cannot override unchanged occlusion.")
             var policy = PlaybackPolicy()
             policy.sleeping = true
             renderer.setPaused(policy.isPaused(settings: PlaybackSettings(), lowPower: false))
@@ -789,18 +794,18 @@ final class WallpaperRendererTests: XCTestCase {
             renderer.setPaused(policy.isPaused(settings: PlaybackSettings(), lowPower: false))
             renderer.setPaused(policy.isPaused(settings: PlaybackSettings(), lowPower: true))
             renderer.setPaused(policy.isPaused(settings: PlaybackSettings(), lowPower: false))
-            XCTAssertFalse(view.animates, "Wake and low-power resume cannot override occlusion.")
+            XCTAssertFalse(view.gifIsPlaying, "Wake and low-power resume cannot override occlusion.")
             // Becoming visible must preserve manual pause until explicitly resumed.
             renderer.setPaused(true)
             visibility.visible = true
             NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: renderer.window)
-            XCTAssertFalse(view.animates)
+            XCTAssertFalse(view.gifIsPlaying)
             renderer.setPaused(false)
-            XCTAssertTrue(view.animates)
+            XCTAssertTrue(view.gifIsPlaying)
             renderer.stop()
             renderer.setPaused(false)
             NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: renderer.window)
-            XCTAssertFalse(view.animates)
+            XCTAssertFalse(view.gifIsPlaying)
             XCTAssertFalse(renderer.window.isVisible)
         }
     }
@@ -824,33 +829,33 @@ final class WallpaperRendererTests: XCTestCase {
             XCTAssertEqual(visibility.windows.count, 2)
             let left = try XCTUnwrap(visibility.windows.first)
             let right = visibility.windows[1]
-            let view = try XCTUnwrap(left.contentView as? ImageSurface).imageView
-            XCTAssertTrue(view.animates)
+            let view = try XCTUnwrap(left.contentView as? ImageSurface)
+            XCTAssertTrue(view.gifIsPlaying)
             visibility.visible[ObjectIdentifier(left)] = false
             NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: left)
-            XCTAssertFalse(view.animates)
+            XCTAssertFalse(view.gifIsPlaying)
             state.assignments["right"] = second.id
             state.setMediaFit(.fill, for: second.id, on: "right")
             engine.rebuild(state: state, store: store, paused: false, force: false) { _, message in XCTFail(message) }
             XCTAssertEqual(visibility.windows.count, 3, "Only the changed target gets a new renderer.")
-            XCTAssertTrue((left.contentView as? ImageSurface)?.imageView === view)
+            XCTAssertTrue((left.contentView as? ImageSurface) === view)
             XCTAssertTrue(left.isVisible)
             XCTAssertFalse(right.isVisible)
-            XCTAssertFalse(view.animates, "Refreshing the right display must not resume the covered left display.")
-            let changedView = try XCTUnwrap(visibility.windows.last?.contentView as? ImageSurface).imageView
-            XCTAssertTrue(changedView.animates, "The changed visible display can play independently.")
+            XCTAssertFalse(view.gifIsPlaying, "Refreshing the right display must not resume the covered left display.")
+            let changedView = try XCTUnwrap(visibility.windows.last?.contentView as? ImageSurface)
+            XCTAssertTrue(changedView.gifIsPlaying, "The changed visible display can play independently.")
             engine.setPaused(true)
             engine.setPaused(false)
-            XCTAssertFalse(view.animates)
-            XCTAssertTrue(changedView.animates)
+            XCTAssertFalse(view.gifIsPlaying)
+            XCTAssertTrue(changedView.gifIsPlaying)
             // Re-sample even without an occlusion notification before rebuild.
             visibility.visible[ObjectIdentifier(left)] = true
             engine.rebuild(state: state, store: store, paused: false, force: false) { _, message in XCTFail(message) }
-            XCTAssertTrue(view.animates)
+            XCTAssertTrue(view.gifIsPlaying)
             visibility.visible[ObjectIdentifier(left)] = false
             engine.rebuild(state: state, store: store, paused: false, force: false) { _, message in XCTFail(message) }
-            XCTAssertFalse(view.animates)
-            XCTAssertTrue(changedView.animates)
+            XCTAssertFalse(view.gifIsPlaying)
+            XCTAssertTrue(changedView.gifIsPlaying)
         }
     }
 

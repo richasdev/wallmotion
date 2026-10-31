@@ -2,7 +2,6 @@ import AppKit
 import AVFoundation
 import QuartzCore
 import WallmotionCore
-import ImageIO
 
 struct Display: Identifiable, Equatable {
     let id: String
@@ -64,11 +63,16 @@ final class ImageSurface: NSView {
     let imageView: NSImageView
     let mediaFit: MediaFit
     let panoramaFrame: CGRect?
+    let sourcePointSize: CGSize?
+    fileprivate weak var gifPlayback: SharedGIFPlayback?
+    fileprivate var gifSubscriber: UUID?
+    var gifIsPlaying: Bool { gifSubscriber.map { gifPlayback?.isActive($0) == true } ?? false }
 
-    init(image: NSImage, mediaFit: MediaFit, panoramaFrame: CGRect? = nil) {
+    init(image: NSImage, mediaFit: MediaFit, panoramaFrame: CGRect? = nil, sourcePointSize: CGSize? = nil) {
         imageView = NSImageView(image: image)
         self.mediaFit = mediaFit
         self.panoramaFrame = panoramaFrame
+        self.sourcePointSize = sourcePointSize
         super.init(frame: .zero)
         wantsLayer = true
         layer?.backgroundColor = NSColor.black.cgColor
@@ -82,7 +86,7 @@ final class ImageSurface: NSView {
 
     override func layout() {
         super.layout()
-        imageView.frame = panoramaFrame ?? mediaFit.frame(for: imageView.image?.size ?? .zero, in: bounds)
+        imageView.frame = panoramaFrame ?? mediaFit.frame(for: sourcePointSize ?? imageView.image?.size ?? .zero, in: bounds)
     }
 }
 
@@ -145,6 +149,9 @@ final class WallpaperRenderer {
     private var webRenderer: WebWallpaperRenderer?
     private let player: AVPlayer?
     private let imageView: NSImageView?
+    private var gifPlayback: SharedGIFPlayback?
+    private var gifSubscriber: UUID?
+    var gifIdentity: GIFFileIdentity? { gifPlayback?.asset.identity }
     private var looper: AVPlayerLooper?
     private var statusObserver: NSKeyValueObservation?
     private var currentItemObserver: NSKeyValueObservation?
@@ -159,7 +166,7 @@ final class WallpaperRenderer {
     private let isWindowVisible: @MainActor (NSWindow) -> Bool
     private let seekToStart: @MainActor (AVPlayer, @escaping @MainActor @Sendable (Bool) -> Void) -> Void
 
-    init(wallpaper: Wallpaper, url: URL, screen: NSScreen, mediaFit: MediaFit = .fit, preparedPhoto: DecodedPhoto? = nil, targetFrame: CGRect? = nil, targetScale: CGFloat? = nil, panorama: PanoramaLayout? = nil, webDocument: String? = nil, hlsResolution: HLSResolution = .automatic,
+    init(wallpaper: Wallpaper, url: URL, screen: NSScreen, mediaFit: MediaFit = .fit, preparedPhoto: DecodedPhoto? = nil, preparedGIF: SharedGIFPlayback? = nil, onGIFChanged: @escaping @MainActor () -> Void = {}, targetFrame: CGRect? = nil, targetScale: CGFloat? = nil, panorama: PanoramaLayout? = nil, webDocument: String? = nil, hlsResolution: HLSResolution = .automatic,
          isWindowVisible: @escaping @MainActor (NSWindow) -> Bool = { $0.occlusionState.contains(.visible) },
          makePlayer: @MainActor (AVPlayerItem, Bool) -> AVPlayer = { item, local in
              local ? AVQueuePlayer() : AVPlayer(playerItem: item)
@@ -184,33 +191,37 @@ final class WallpaperRenderer {
             player = nil
             imageView = nil
             window = DesktopWindow(screen: screen, view: renderer.surface, frame: frame)
-        } else if wallpaper.kind == .image || wallpaper.kind == .gif {
-            let image: NSImage
-            if wallpaper.kind == .gif {
-                _ = try GIFPreflight.inspect(url: url)
-                guard let animated = NSImage(contentsOf: url), animated.isValid else { throw RendererError.unreadableImage }
-                image = animated
-                if let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-                   let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-                   let width = properties[kCGImagePropertyPixelWidth] as? NSNumber,
-                   let height = properties[kCGImagePropertyPixelHeight] as? NSNumber {
-                    image.size = NSSize(width: width.doubleValue / scale,
-                                        height: height.doubleValue / scale)
-                }
-            } else {
-                let decoded: DecodedPhoto
-                do {
-                    decoded = try preparedPhoto ?? PhotoDecodeWorker.decodeImage(PhotoDecodeRequest(
+        } else if wallpaper.kind == .gif {
+            let playback: SharedGIFPlayback
+            if let preparedGIF { playback = preparedGIF }
+            else {
+                // Synchronous entry is retained for coordinator unit fixtures.
+                // Production scheduleRebuild always supplies a worker-prepared GIF.
+                let animation = try GIFAnimation(url: url)
+                guard let identity = animation.sourceIdentity else { throw RendererError.unreadableImage }
+                playback = try SharedGIFPlayback.playback(for: PreparedGIF(animation: animation, identity: identity))
+            }
+            let pointSize = CGSize(width: Double(playback.asset.animation.width)/scale, height: Double(playback.asset.animation.height)/scale)
+            let view = ImageSurface(image: playback.currentImage, mediaFit: mediaFit, sourcePointSize: pointSize)
+            imageView = view.imageView; player = nil; gifPlayback = playback
+            window = DesktopWindow(screen: screen, view: view, frame: frame)
+            gifSubscriber = playback.subscribe(url: url, image: { [weak view] image in
+                view?.imageView.image = image; view?.needsLayout = true
+            }, changed: onGIFChanged)
+            view.gifPlayback = playback; view.gifSubscriber = gifSubscriber
+        } else if wallpaper.kind == .image {
+            let decoded: DecodedPhoto
+            do {
+                decoded = try preparedPhoto ?? PhotoDecodeWorker.decodeImage(PhotoDecodeRequest(
                     url: url, mediaFit: mediaFit,
                     viewportWidth: viewport.width, viewportHeight: viewport.height))
-                } catch PhotoDecodingError.unreadable { throw RendererError.unreadableImage }
-                catch PhotoDecodingError.overBudget { throw RendererError.photoTooLarge }
-                photoQuality = PhotoQualityInfo(wallpaperID: wallpaper.id, sourceSize: decoded.sourceSize,
-                    bitmapWidth: decoded.image.width, bitmapHeight: decoded.image.height, isPanorama: panorama != nil)
-                image = NSImage(cgImage: decoded.image, size: NSSize(
-                    width: decoded.sourceSize.width / photoScale,
-                    height: decoded.sourceSize.height / photoScale))
-            }
+            } catch PhotoDecodingError.unreadable { throw RendererError.unreadableImage }
+            catch PhotoDecodingError.overBudget { throw RendererError.photoTooLarge }
+            photoQuality = PhotoQualityInfo(wallpaperID: wallpaper.id, sourceSize: decoded.sourceSize,
+                bitmapWidth: decoded.image.width, bitmapHeight: decoded.image.height, isPanorama: panorama != nil)
+            let image = NSImage(cgImage: decoded.image, size: NSSize(
+                width: decoded.sourceSize.width / photoScale,
+                height: decoded.sourceSize.height / photoScale))
             let panoramaFrame = panorama.map {
                 $0.imageFrame(sourcePixels: CGSize(width: image.size.width * photoScale, height: image.size.height * photoScale), fit: mediaFit, on: frame)
             }
@@ -283,7 +294,7 @@ final class WallpaperRenderer {
         player?.isMuted = !(audioEnabled && audioVolume > 0 && playbackState.shouldPlay)
         webRenderer?.setAudioPolicy(enabled: audioEnabled && playbackState.shouldPlay, volume: audioVolume)
         webRenderer?.setPaused(!playbackState.shouldPlay)
-        imageView?.animates = playbackState.shouldPlay
+        if let gifSubscriber { gifPlayback?.setActive(playbackState.shouldPlay, subscriber: gifSubscriber) }
         remotePlayback?.setPaused(!playbackState.shouldPlay)
         if playbackState.shouldPlay && (remotePlayback?.canPlay ?? true) { player?.play() }
         else { player?.pause() }
@@ -354,6 +365,9 @@ final class WallpaperRenderer {
             surface.playerLayer.player = nil
             surface.playerLayer.removeFromSuperlayer()
         }
+        if let gifSubscriber { gifPlayback?.unsubscribe(gifSubscriber) }
+        gifSubscriber = nil
+        gifPlayback = nil
         imageView?.image = nil
         window.contentView = nil
         window.orderOut(nil)
@@ -386,6 +400,10 @@ final class DesktopCoordinator {
     private var renderers: [String: Entry] = [:]
     private var pendingReloads: Set<String> = []
     private let photos: PhotoPreparation
+    private let gifs: SharedGIFPreparation
+    private var gifMetadata: [GIFFileIdentity: GIFMetadata] = [:]
+    private var reschedule: (@MainActor () -> Void)?
+    private var rebuildGeneration = UUID()
     private var latestPaused = true
     private struct TargetGeometry: Equatable {
         let id: String
@@ -406,8 +424,10 @@ final class DesktopCoordinator {
          targets: @escaping @MainActor () -> [DesktopTarget] = { DesktopTarget.connected },
          isWindowVisible: @escaping @MainActor (NSWindow) -> Bool = { $0.occlusionState.contains(.visible) },
          webDocument: String? = nil,
-         photoDecoder: @escaping PhotoPreparation.Decode = PhotoDecodeWorker.prepare) {
+         photoDecoder: @escaping PhotoPreparation.Decode = PhotoDecodeWorker.prepare,
+         gifWorker: GIFDecodeWorker = .shared) {
         photos = PhotoPreparation(maximumRetainedBytes: photoBatchBudgetLimit, decode: photoDecoder)
+        gifs = SharedGIFPreparation(worker: gifWorker)
         gifBudget = GIFPlaybackBudget(limit: gifBudgetLimit)
         self.targets = targets
         self.isWindowVisible = isWindowVisible
@@ -415,7 +435,7 @@ final class DesktopCoordinator {
     }
 
     // Check before persisting a user selection. Rebuild also checks restored and
-    // reconnected assignments before opening any AppKit GIF decoder.
+    // reconnected assignments before preparing a native GIF.
     func validateAssignment(_ wallpaper: Wallpaper, to displayID: String, store: LibraryStore) throws {
         let connected = Set(targets().map(\.id))
         _ = try proposal(for: wallpaper, displayID: displayID, store: store,
@@ -453,17 +473,32 @@ final class DesktopCoordinator {
 
     private func proposal(for wallpaper: Wallpaper, displayID: String, store: LibraryStore,
                           budget: GIFPlaybackBudget) throws -> GIFPlaybackBudget {
-        let bytes = wallpaper.kind == .gif
-            ? try GIFPreflight.inspect(url: store.resolvedURL(for: wallpaper)).decodedBytes : nil
-        return try budget.replacing(displayID: displayID, decodedBytes: bytes)
+        guard wallpaper.kind == .gif else { return try budget.replacing(displayID: displayID, decodedBytes: nil) }
+        let url = try store.resolvedURL(for: wallpaper)
+        let identity = try GIFFileIdentity.read(url: url)
+        let metadata: GIFMetadata
+        if let cached = gifMetadata[identity] { metadata = cached }
+        else {
+            metadata = try GIFPreflight.inspect(url: url)
+            guard try GIFFileIdentity.read(url: url) == identity else { throw GIFAnimationError.nativeStatus(9) }
+            if gifMetadata.count >= 128 { gifMetadata.removeAll(keepingCapacity: true) }
+            gifMetadata[identity] = metadata
+        }
+        return try budget.replacing(displayID: displayID, decodedBytes: metadata.decodedBytes, sourceID: identity.resourceKey)
     }
 
-    /// Production entry point: AppKit remains responsive while bounded ImageIO
-    /// output is prepared serially. Existing windows stay until replacement succeeds.
+    /// Production entry point: Rust GIF frames and ImageIO photos prepare off the
+    /// main actor. Existing windows stay until replacement succeeds.
     func scheduleRebuild(state: LibraryState, store: LibraryStore, paused: Bool, force: Bool = false, deferNewRenderers: Bool = false,
                          onPhotoQuality: @escaping @MainActor (String, PhotoQualityInfo?) -> Void = { _, _ in },
                          onState: @escaping @MainActor (String, RemotePlaybackState) -> Void = { _, _ in },
                          onError: @escaping @MainActor (String, String) -> Void) {
+        rebuildGeneration = UUID()
+        let generation = rebuildGeneration
+        reschedule = { [weak self] in
+            guard let self else { return }
+            self.scheduleRebuild(state: state, store: store, paused: self.latestPaused, deferNewRenderers: deferNewRenderers, onPhotoQuality: onPhotoQuality, onState: onState, onError: onError)
+        }
         latestPaused = paused
         let currentTargets = targets()
         let layout = panorama(state: state, targets: currentTargets)
@@ -483,12 +518,12 @@ final class DesktopCoordinator {
             entry.renderer.setAudioPolicy(enabled: state.settings.audioDisplayID == id && assignments[id] == entry.wallpaperID, volume: state.settings.audioVolume)
         }
         if deferNewRenderers {
-            photos.cancel()
+            photos.cancel(); gifs.cancel()
             return // Existing surfaces keep policy/audio updates; new media waits.
         }
         do { try validateAssignments(state: state, store: store) }
         catch {
-            photos.cancel()
+            photos.cancel(); gifs.cancel()
             for id in assigned { onError(id, error.localizedDescription) }
             return
         }
@@ -506,25 +541,41 @@ final class DesktopCoordinator {
                     viewportWidth: viewport.width, viewportHeight: viewport.height)
             } catch {
                 // Resolve errors use the same non-mutating failure path as decode errors.
-                photos.cancel()
+                photos.cancel(); gifs.cancel()
                 onError(target.id, error.localizedDescription)
                 return
             }
         }
+        var gifRequests: [String: URL] = [:]
+        for target in currentTargets {
+            guard let id = assignments[target.id], let item = state.wallpapers.first(where: { $0.id == id }), item.kind == .gif else { continue }
+            do { gifRequests[target.id] = try store.resolvedURL(for: item) }
+            catch { photos.cancel(); gifs.cancel(); onError(target.id, error.localizedDescription); return }
+        }
         let requestedGeometry = geometry(currentTargets)
-        photos.submit(requests) { [weak self] prepared in
-            guard let self else { return }
+        gifs.submit(gifRequests) { [weak self] preparedGIFs in
+            guard let self, self.rebuildGeneration == generation else { return }
             guard self.geometry(self.targets()) == requestedGeometry else {
                 self.scheduleRebuild(state: state, store: store, paused: self.latestPaused, force: force, onPhotoQuality: onPhotoQuality, onState: onState, onError: onError)
                 return
             }
-            self.rebuild(state: state, store: store, paused: self.latestPaused, force: force,
-                         preparedPhotos: prepared, requiresPreparedPhotos: true, onPhotoQuality: onPhotoQuality, onState: onState, onError: onError)
+            self.photos.submit(requests) { [weak self] prepared in
+                guard let self, self.rebuildGeneration == generation else { return }
+                guard self.geometry(self.targets()) == requestedGeometry else {
+                    self.scheduleRebuild(state: state, store: store, paused: self.latestPaused, force: force, onPhotoQuality: onPhotoQuality, onState: onState, onError: onError)
+                    return
+                }
+                self.rebuild(state: state, store: store, paused: self.latestPaused, force: force,
+                    preparedPhotos: prepared, requiresPreparedPhotos: true, preparedGIFs: preparedGIFs,
+                    requiresPreparedGIFs: true, onPhotoQuality: onPhotoQuality, onState: onState, onError: onError)
+            }
         }
     }
 
-    func rebuild(state: LibraryState, store: LibraryStore, paused: Bool, force: Bool = false, preparedPhotos: PhotoPreparation.Results = [:], requiresPreparedPhotos: Bool = false, onPhotoQuality: @escaping @MainActor (String, PhotoQualityInfo?) -> Void = { _, _ in }, onState: @escaping @MainActor (String, RemotePlaybackState) -> Void = { _, _ in }, onError: @escaping @MainActor (String, String) -> Void) {
+    func rebuild(state: LibraryState, store: LibraryStore, paused: Bool, force: Bool = false, preparedPhotos: PhotoPreparation.Results = [:], requiresPreparedPhotos: Bool = false, preparedGIFs: SharedGIFPreparation.Results = [:], requiresPreparedGIFs: Bool = false, onPhotoQuality: @escaping @MainActor (String, PhotoQualityInfo?) -> Void = { _, _ in }, onState: @escaping @MainActor (String, RemotePlaybackState) -> Void = { _, _ in }, onError: @escaping @MainActor (String, String) -> Void) {
+        if !requiresPreparedPhotos || !requiresPreparedGIFs { rebuildGeneration = UUID() }
         if !requiresPreparedPhotos { photos.cancel() }
+        if !requiresPreparedGIFs { gifs.cancel() }
         latestPaused = paused
         let currentTargets = targets()
         let layout = panorama(state: state, targets: currentTargets)
@@ -566,7 +617,9 @@ final class DesktopCoordinator {
                   let wallpaper = state.wallpapers.first(where: { $0.id == wallpaperID }) else { continue }
             let reloadRequested = pendingReloads.remove(displayID) != nil
             let mediaFit = state.mediaFit(for: wallpaperID, on: displayID)
-            if !force, !reloadRequested, let entry = renderers[displayID], entry.wallpaperID == wallpaperID, entry.frame == target.frame,
+            let preparedIdentity = try? preparedGIFs[displayID]?.get().identity
+            let sameGIF = wallpaper.kind != .gif || !requiresPreparedGIFs || (preparedIdentity != nil && renderers[displayID]?.renderer.gifIdentity == preparedIdentity)
+            if !force, !reloadRequested, sameGIF, let entry = renderers[displayID], entry.wallpaperID == wallpaperID, entry.frame == target.frame,
                entry.mediaFit == mediaFit, entry.backingScale == target.backingScale, entry.panorama == layout {
                 entry.renderer.setHLSResolution(state.settings.hlsResolution)
                 entry.renderer.setPaused(paused)
@@ -582,7 +635,19 @@ final class DesktopCoordinator {
                     guard let result = preparedPhotos[displayID] else { throw PhotoDecodingError.unreadable }
                     photo = try result.get()
                 } else { photo = nil }
-                let renderer = try WallpaperRenderer(wallpaper: wallpaper, url: store.resolvedURL(for: wallpaper), screen: screen, mediaFit: mediaFit, preparedPhoto: photo, targetFrame: target.frame, targetScale: target.backingScale, panorama: layout, webDocument: webDocument, hlsResolution: state.settings.hlsResolution,
+                let playback: SharedGIFPlayback?
+                if wallpaper.kind == .gif, requiresPreparedGIFs {
+                    guard let result = preparedGIFs[displayID] else { throw RendererError.unreadableImage }
+                    let asset = try result.get()
+                    let url = try store.resolvedURL(for: wallpaper)
+                    guard try GIFFileIdentity.read(url: url) == asset.identity else { throw GIFAnimationError.nativeStatus(9) }
+                    playback = try SharedGIFPlayback.playback(for: asset)
+                } else { playback = nil }
+                let renderer = try WallpaperRenderer(wallpaper: wallpaper, url: store.resolvedURL(for: wallpaper), screen: screen, mediaFit: mediaFit, preparedPhoto: photo, preparedGIF: playback, onGIFChanged: { [weak self] in
+                    guard let self else { return }
+                    self.invalidate(displayID: displayID)
+                    self.reschedule?()
+                }, targetFrame: target.frame, targetScale: target.backingScale, panorama: layout, webDocument: webDocument, hlsResolution: state.settings.hlsResolution,
                                                      isWindowVisible: isWindowVisible, onState: { [weak self] state in
                     guard self?.renderers[displayID]?.token == token else { return }
                     onState(displayID, state)
@@ -617,7 +682,9 @@ final class DesktopCoordinator {
     }
 
     func stop() {
-        photos.cancel()
+        rebuildGeneration = UUID()
+        photos.cancel(); gifs.cancel()
+        reschedule = nil; gifMetadata.removeAll()
         let previous = Array(renderers.values)
         renderers.removeAll()
         gifBudget = GIFPlaybackBudget(limit: gifBudget.limit)

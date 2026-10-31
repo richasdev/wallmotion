@@ -57,4 +57,28 @@ struct GIFPlaybackBudgetTests {
             try GIFPlaybackBudget(limit: 0).replacing(displayID: "left", decodedBytes: 1)
         }
     }
+    @Test func sharedIdentityChargesOnceUntilLastDisplayReleasesIt() throws {
+        var budget = GIFPlaybackBudget(limit: 100)
+        budget = try budget.replacing(displayID: "left", decodedBytes: 80, sourceID: "file-a")
+        budget = try budget.replacing(displayID: "right", decodedBytes: 80, sourceID: "file-a")
+        #expect(budget.totalBytes == 80)
+        #expect(budget.retaining(displays: ["right"]).totalBytes == 80)
+        #expect(try budget.replacing(displayID: "left", decodedBytes: nil).totalBytes == 80)
+        #expect(throws: GIFPlaybackBudgetError.exceeded(limit: 100)) {
+            try budget.replacing(displayID: "third", decodedBytes: 21, sourceID: "file-b")
+        }
+        budget = try budget.replacing(displayID: "left", decodedBytes: nil)
+        budget = try budget.replacing(displayID: "right", decodedBytes: nil)
+        #expect(budget.totalBytes == 0)
+    }
+
+    @Test func conflictingCostsUseMaximumAndLegacyNamesCannotCollide() throws {
+        var budget = GIFPlaybackBudget(limit: 100)
+        budget = try budget.replacing(displayID: "one", decodedBytes: 30, sourceID: "same")
+        budget = try budget.replacing(displayID: "two", decodedBytes: 60, sourceID: "same")
+        #expect(budget.totalBytes == 60)
+        budget = try budget.replacing(displayID: "source:same", decodedBytes: 40)
+        #expect(budget.totalBytes == 100)
+    }
+
 }

@@ -70,7 +70,7 @@ final class MemoryPressureModelTests: XCTestCase {
         XCTAssertEqual(model.state.assignments, state.assignments)
         model.togglePause()
         XCTAssertFalse(model.isPaused)
-        XCTAssertTrue(surface.imageView.animates)
+        XCTAssertTrue(surface.gifIsPlaying)
         model.stop()
         XCTAssertEqual(monitor.stops, 1)
         monitor.send(.critical)
