@@ -134,8 +134,8 @@ struct GIFAnimationTests {
             try FileManager.default.createSymbolicLink(at: link, withDestinationURL: source)
             #expect(mkfifo(fifo.path, 0o600) == 0)
             #expect(throws: LibraryError.notRegularFile) { try GIFAnimation(url: link) }
-            #expect(throws: GIFAnimationError.nativeStatus(1)) { try GIFAnimation(url: root) }
-            #expect(throws: GIFAnimationError.nativeStatus(1)) { try GIFAnimation(url: fifo) }
+            #expect(throws: LibraryError.notRegularFile) { try GIFAnimation(url: root) }
+            #expect(throws: LibraryError.notRegularFile) { try GIFAnimation(url: fifo) }
             #expect(throws: LibraryError.notRegularFile) { try GIFAnimation(url: URL(string: "https://example.com/image.gif")!) }
             #expect(throws: LibraryError.notRegularFile) { try GIFAnimation(url: URL(string: "file://example.com/image.gif")!) }
         }

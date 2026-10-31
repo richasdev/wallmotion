@@ -32,6 +32,7 @@ public final class GIFAnimation: @unchecked Sendable {
     public let decodedBytes: UInt64
     public let repeatCount: UInt16
     public let repeatsInfinitely: Bool
+    public let sourceIdentity: GIFFileIdentity?
 
     public convenience init(data: Data, limits: GIFAnimationLimits = .init()) throws {
         var result: OpaquePointer?
@@ -46,17 +47,24 @@ public final class GIFAnimation: @unchecked Sendable {
     /// Pinned no-follow descriptor; regular-file/size/stability admission is native.
     /// No mmap/full encoded copy and no file survives this synchronous preparation.
     public convenience init(url: URL, limits: GIFAnimationLimits = .init()) throws {
-        let native = try GIFPreflight.withDescriptor(url: url) { descriptor in
+        let loaded = try GIFPreflight.withDescriptor(url: url) { descriptor in
+            let before = try GIFFileIdentity.read(descriptor: descriptor)
             var result: OpaquePointer?
             let status = wm_gif_animation_decode_fd(descriptor, limits.encodedBytes, limits.decodedBytes,
                 limits.workingBytes, limits.frames, &result)
             guard status == 0, let handle = result else { throw GIFAnimationError.nativeStatus(status) }
-            return handle
+            var transferred = false
+            defer { if !transferred { wm_gif_animation_release(handle) } }
+            guard try GIFFileIdentity.read(descriptor: descriptor) == before else {
+                throw GIFAnimationError.nativeStatus(9)
+            }
+            transferred = true
+            return (handle, before)
         }
-        try self.init(ownedHandle: native)
+        try self.init(ownedHandle: loaded.0, identity: loaded.1)
     }
 
-    private init(ownedHandle native: OpaquePointer) throws {
+    private init(ownedHandle native: OpaquePointer, identity: GIFFileIdentity? = nil) throws {
         var transferred = false
         defer { if !transferred { wm_gif_animation_release(native) } }
         var info = WMGifAnimationInfo()
@@ -79,6 +87,7 @@ public final class GIFAnimation: @unchecked Sendable {
             space = srgb
         }
         handle = native; colorSpace = space
+        sourceIdentity = identity
         width = Int(info.width); height = Int(info.height); frameCount = Int(info.frames)
         decodedBytes = info.decoded_bytes
         repeatCount = info.repeat_count; repeatsInfinitely = info.repeat_infinite != 0
@@ -93,17 +102,18 @@ public final class GIFAnimation: @unchecked Sendable {
 
     /// The CGImage's provider owns a native reference independently of this object.
     /// Several images can point at the same immutable bytes without another decode.
-    public func image(at index: Int) throws -> CGImage {
+    public func image(at index: Int, retaining lifetime: (any AnyObject & Sendable)? = nil) throws -> CGImage {
         try withExtendedLifetime(self) {
             let view = try frame(at: index)
             guard let pixels = view.pixels, let retained = wm_gif_animation_retain(handle) else {
                 throw GIFAnimationError.imageCreationFailed
             }
-            guard let provider = CGDataProvider(dataInfo: UnsafeMutableRawPointer(retained), data: pixels,
+            let owner = Unmanaged.passRetained(GIFProviderOwner(handle: retained, lifetime: lifetime))
+            guard let provider = CGDataProvider(dataInfo: owner.toOpaque(), data: pixels,
                 size: view.length, releaseData: { info, _, _ in
-                    if let info { wm_gif_animation_release(OpaquePointer(info)) }
+                    if let info { Unmanaged<GIFProviderOwner>.fromOpaque(info).release() }
                 }) else {
-                wm_gif_animation_release(retained)
+                owner.release()
                 throw GIFAnimationError.imageCreationFailed
             }
             let bitmap = CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue).union(.byteOrder32Big)
@@ -125,4 +135,15 @@ public final class GIFAnimation: @unchecked Sendable {
         guard status == 0 else { throw GIFAnimationError.nativeStatus(status) }
         return view
     }
+}
+
+/// A provider can retain a resource accounting token without retaining its Swift
+/// image factory. Final release may occur on any CoreGraphics worker thread.
+private final class GIFProviderOwner: @unchecked Sendable {
+    let handle: OpaquePointer
+    let lifetime: (any AnyObject & Sendable)?
+    init(handle: OpaquePointer, lifetime: (any AnyObject & Sendable)?) {
+        self.handle = handle; self.lifetime = lifetime
+    }
+    deinit { wm_gif_animation_release(handle) }
 }
