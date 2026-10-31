@@ -332,6 +332,14 @@ struct LibraryView: View {
             }
             Spacer()
             VStack(alignment: .leading, spacing: 12) {
+                if model.isPreparingWallpaper(on: selectedDisplay) {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("Verificando fundo…").font(.callout.weight(.medium))
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("Verificando o fundo para este monitor. A seleção atual será mantida até concluir.")
+                }
                 Label(hasAppliedWallpaper ? model.playbackDescription : "Nenhum fundo aplicado", systemImage: hasAppliedWallpaper ? (model.isPaused ? "pause.circle.fill" : "play.circle.fill") : "display")
                     .font(.callout.weight(.medium))
                     .foregroundStyle(!hasAppliedWallpaper || model.isPaused ? Color.secondary : Color.accentColor)

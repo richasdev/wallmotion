@@ -14,11 +14,28 @@ public struct GIFAnimationLimits: Sendable {
     }
 }
 
-public enum GIFAnimationError: Error, Equatable {
+public enum GIFAnimationError: LocalizedError, Equatable {
     case nativeStatus(Int32)
     case invalidColorProfile
     case invalidIndex
     case imageCreationFailed
+
+    public var errorDescription: String? {
+        switch self {
+        case .nativeStatus(9):
+            "O GIF mudou durante a verificação. O fundo atual foi mantido. Tente aplicar novamente."
+        case .nativeStatus(2):
+            "Não há memória disponível dentro do limite de GIFs para preparar este arquivo. O fundo atual foi mantido."
+        case .nativeStatus(4):
+            "O arquivo GIF excede o tamanho permitido. Use uma versão menor ou um vídeo MP4."
+        case .nativeStatus(3), .nativeStatus(5):
+            "Este GIF é complexo demais para reprodução. Use uma versão menor ou um vídeo MP4."
+        case .invalidColorProfile, .nativeStatus(7):
+            "O perfil de cor do GIF não é compatível. O fundo atual foi mantido."
+        default:
+            "Não foi possível preparar os quadros deste GIF. O fundo atual foi mantido. Tente outro arquivo."
+        }
+    }
 }
 
 /// Immutable Rust allocation with thread-safe native reference counts. No mutable

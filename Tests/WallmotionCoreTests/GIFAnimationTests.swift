@@ -107,6 +107,17 @@ struct GIFAnimationTests {
             #expect(total == 320)
         }
     }
+    @Test func userFacingFailuresDoNotExposeNativeImplementationNames() {
+        let failures: [GIFAnimationError] = [.nativeStatus(1), .nativeStatus(2), .nativeStatus(3),
+            .nativeStatus(4), .nativeStatus(5), .nativeStatus(7), .nativeStatus(9),
+            .nativeStatus(999), .invalidColorProfile, .imageCreationFailed, .invalidIndex]
+        for error in failures {
+            #expect(!error.localizedDescription.contains("WallmotionCore"))
+            #expect(!error.localizedDescription.contains("nativeStatus"))
+            #expect(!error.localizedDescription.contains("999"))
+        }
+    }
+
     private func withDirectory(_ body: (URL) throws -> Void) throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("WallmotionGIFFile-\(UUID())", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
