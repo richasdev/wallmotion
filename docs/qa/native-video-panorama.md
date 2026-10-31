@@ -11,3 +11,5 @@ No panorama-sized CPU bitmap, frame polling, custom shader or additional decoder
 Tests use generated rotated H.264 and synthetic targets on one physical screen. They cover every fit, negative origins, vertical gaps, mixed scale, shared player identity, mode changes, disconnect, source clearing, fail-closed panorama and explicit reload. Persistence/model tests cover native local/remote video and continued web exclusion. These checks do not certify physical monitor seams, mixed refresh-rate timing, HDR/EDR or the oldest supported macOS release.
 
 Local validation: 50 Rust tests and Clippy, 39 Python tests, 169 Core tests, 235 AppKit cases (13 explicit skips), release build and strict codesign verification passed. Physical display/HDR and assistive-technology QA remain separate. Remote CI is blocked by #11.
+
+An additional reverse-mode regression exercises a pool created in panorama, reused in mirrored mode and then rejected by the native readiness check. It confirms independent fallback remains available in the current mirrored mode. All 11 targeted shared-video/panorama cases passed; no production source change was needed for this case.

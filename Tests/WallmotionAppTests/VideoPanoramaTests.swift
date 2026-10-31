@@ -116,4 +116,29 @@ final class VideoPanoramaTests: XCTestCase {
         XCTAssertFalse(replacement === original);XCTAssertNil(original.currentItem)
         XCTAssertTrue(windows.surfaces.suffix(2).allSatisfy { $0.playerLayer.player === replacement })
     }
+
+    func testPanoramaToMirrorReusesPoolButKeepsIndependentFallbackForCurrentMode() async throws {
+        guard let screen = NSScreen.screens.first else { throw XCTSkip("Sem sessão gráfica") }
+        let (root,store,item) = try await fixture();defer { try? FileManager.default.removeItem(at: root) }
+        let windows = Windows(),readiness = Readiness();readiness.ready = true
+        var errors: [String] = []
+        let engine = DesktopCoordinator(targets: { self.targets(screen) },isWindowVisible: { windows.visible($0) },
+            sharedVideoLayerReady: { _ in readiness.ready },sharedVideoReadinessDelay: .milliseconds(40))
+        defer { engine.stop() }
+        var state = LibraryState(wallpapers: [item],displayMode: .spanned,mirroredWallpaperID: item.id)
+        engine.scheduleRebuild(state: state,store: store,paused: false) { _,error in errors.append(error) }
+        try await waitUntil { windows.surfaces.count == 2 }
+        let original = try XCTUnwrap(windows.surfaces.first?.playerLayer.player)
+        state.displayMode = .mirrored;readiness.ready = false
+        engine.scheduleRebuild(state: state,store: store,paused: false) { _,error in errors.append(error) }
+        try await waitUntil { windows.values.count == 6 }
+        XCTAssertTrue(errors.isEmpty,"Current mirrored mode must retain its compatibility fallback")
+        XCTAssertNil(original.currentItem)
+        let current = windows.surfaces
+        XCTAssertEqual(current.count,2)
+        let first = try XCTUnwrap(current[0].playerLayer.player),second = try XCTUnwrap(current[1].playerLayer.player)
+        XCTAssertFalse(first === second);XCTAssertFalse(first === original);XCTAssertFalse(second === original)
+        try await waitUntil { first.timeControlStatus == .playing && second.timeControlStatus == .playing }
+        try await Task.sleep(for: .milliseconds(100));XCTAssertEqual(windows.values.count,6)
+    }
 }
