@@ -25,7 +25,13 @@ enum NondefaultLaunchQA {
                         view.layoutSubtreeIfNeeded()
                         guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
                         view.cacheDisplay(in: view.bounds,to: bitmap)
-                        guard let png = bitmap.representation(using: .png,properties: [:]) else { return }
+                        // cacheDisplay preserves transparent SwiftUI background;
+                        // composite against this window's native background for a legible artifact.
+                        let image = NSImage(size: view.bounds.size,flipped: false) { rect in
+                            window.backgroundColor.setFill();rect.fill();bitmap.draw(in: rect);return true
+                        }
+                        guard let tiff = image.tiffRepresentation,let opaque = NSBitmapImageRep(data: tiff),
+                              let png = opaque.representation(using: .png,properties: [:]) else { return }
                         try png.write(to: root.appendingPathComponent("status-\(getpid()).png"),options: .withoutOverwriting)
                         let value: [String: Any] = ["pid": Int(getpid()),"status": "waiting", "busy": delegate.session.phase == .busy,
                             "has_model": delegate.session.model != nil,"pending": delegate.events.pendingURLs.count,
@@ -53,6 +59,8 @@ enum NondefaultLaunchQA {
               delegate.session.phase == .busy,delegate.session.model == nil,
               delegate.events.waitingForInitialFiles,!delegate.events.isForwarding else { return }
         watcher?.cancel();watcher = nil
+        try? JSONSerialization.data(withJSONObject: ["pid": Int(getpid()),"action": "activate_and_close"])
+            .write(to: root.appendingPathComponent("action-\(getpid()).json"),options: .atomic)
         delegate.events.activateAndClose()
     }
 }

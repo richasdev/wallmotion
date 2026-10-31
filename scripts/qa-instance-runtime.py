@@ -235,7 +235,10 @@ def audit(source_ref: str, check_overflow: bool = False, nondefault_evidence: pa
             shutil.copyfile(root / f"status-{secondary}.png", nondefault_evidence / "waiting-status.png")
             (nondefault_evidence / "waiting-status.json").write_text(json.dumps(status, indent=2))
             command = root / "action-command.json"
-            command.write_text(json.dumps({"pid": secondary, "action": "activate_and_close"}))
+            temporary = root / "action-command.tmp"
+            temporary.write_text(json.dumps({"pid": secondary, "action": "activate_and_close"}))
+            temporary.replace(command)
+            wait_for(lambda: (root / f"action-{secondary}.json").is_file(), "native action receipt")
             wait_for(lambda: completed(4, primary), "native activate-and-close secondary exit")
             lock_after = (library / "wallmotion.lock").stat()
             if ((library / "wallmotion-owner.json").read_bytes() != identity_before
@@ -272,6 +275,8 @@ def audit(source_ref: str, check_overflow: bool = False, nondefault_evidence: pa
                            "OS launch/forward behavior; not a general exactly-once or state-restoration guarantee. Native model action is not a simulated pointer click.",
                            "Temporary QA windows may appear; no UI automation, permissions or power settings are changed."]}
     finally:
+        if nondefault_evidence and (root / "build.log").exists():
+            shutil.copyfile(root / "build.log", nondefault_evidence / "build.log")
         if launched:
             stop()  # On failure, preserve artifacts if the owned process cannot stop.
         registrar = pathlib.Path("/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister")
