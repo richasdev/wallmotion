@@ -105,6 +105,8 @@ final class SharedVideoRenderingTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let url = root.appendingPathComponent("generated.mp4")
         try await LocalVideoFixture.write(at: url,width: 1280,height: 720,frames: 120,fps: 30)
+        var timebase = mach_timebase_info_data_t()
+        guard mach_timebase_info(&timebase) == KERN_SUCCESS, timebase.denom > 0 else { throw Failure.counters }
         var rows: [[String: Any]] = []
         for shared in [false,true,false] {
             let scene = try scene(url: url,shared: shared)
@@ -115,12 +117,14 @@ final class SharedVideoRenderingTests: XCTestCase {
                 try await Task.sleep(for: .seconds(30))
                 let elapsed = start.duration(to: .now), after = try counters()
                 let seconds = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds)/1e18
-                let cpuNS = (after.ri_user_time - before.ri_user_time) + (after.ri_system_time - before.ri_system_time)
+                // rusage_info time counters use Mach ticks, not nanoseconds.
+                let cpuTicks = (after.ri_user_time - before.ri_user_time) + (after.ri_system_time - before.ri_system_time)
+                let cpuNS = Double(cpuTicks) * Double(timebase.numer) / Double(timebase.denom)
                 XCTAssertEqual(before.ri_proc_start_abstime,after.ri_proc_start_abstime)
                 XCTAssertTrue(scene.layers.allSatisfy { $0.isReadyForDisplay })
                 XCTAssertTrue(scene.pools.allSatisfy { !$0.hasFailed && $0.player.isMuted && $0.player.volume == 0 && !$0.player.preventsDisplaySleepDuringVideoPlayback })
                 rows.append(["shared": shared,"players": scene.pools.count,"layers": scene.layers.count,
-                    "seconds": seconds,"cpu_percent": Double(cpuNS)/1e9/seconds*100,
+                    "seconds": seconds,"cpu_ticks": cpuTicks,"cpu_percent": cpuNS/1e9/seconds*100,
                     "cycles": after.ri_cycles - before.ri_cycles,"instructions": after.ri_instructions - before.ri_instructions,
                     "task_cpu_energy_nj": after.ri_energy_nj - before.ri_energy_nj,
                     "footprint_before": before.ri_phys_footprint,"footprint_after": after.ri_phys_footprint])
@@ -129,6 +133,7 @@ final class SharedVideoRenderingTests: XCTestCase {
             } catch { scene.stop();throw error }
         }
         let report: [String: Any] = ["schema_version": 1,"os": ProcessInfo.processInfo.operatingSystemVersionString,
+            "mach_timebase_numer": timebase.numer,"mach_timebase_denom": timebase.denom,
             "source": "RUSAGE_INFO_V6, current XCTest process only", "rows": rows,
             "limits": "Fixed A-B-A order; 1280x720 H264, two 160x90 layers; one run in XCTest. CPU energy accounting excludes total GPU/system/battery energy; footprint endpoints are not peaks or causal estimates. No HDR or physical multi-monitor certification."]
         try JSONSerialization.data(withJSONObject: report,options: [.sortedKeys,.prettyPrinted])
