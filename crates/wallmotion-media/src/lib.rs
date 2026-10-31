@@ -4,6 +4,8 @@
 
 pub mod animation;
 mod animation_ffi;
+#[cfg(unix)]
+mod animation_file;
 pub mod compositor;
 
 #[cfg(unix)]

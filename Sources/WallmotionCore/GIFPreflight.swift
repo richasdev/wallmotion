@@ -31,8 +31,9 @@ public enum GIFPreflight {
         }
     }
 
-    private static func withDescriptor<T>(url: URL, body: (Int32) throws -> T) throws -> T {
-        guard url.isFileURL, [nil, "", "localhost"].contains(url.host) else { throw LibraryError.notRegularFile }
+    static func withDescriptor<T>(url: URL, body: (Int32) throws -> T) throws -> T {
+        guard url.isFileURL, [nil, "", "localhost"].contains(url.host),
+              !url.path.isEmpty, !url.path.utf8.contains(0) else { throw LibraryError.notRegularFile }
         let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
         guard descriptor >= 0 else {
             if errno == ELOOP { throw LibraryError.notRegularFile }

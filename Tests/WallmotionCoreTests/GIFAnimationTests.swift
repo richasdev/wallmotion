@@ -1,5 +1,6 @@
 import Foundation
 import CoreGraphics
+import Darwin
 import Testing
 @testable import WallmotionCore
 
@@ -106,6 +107,62 @@ struct GIFAnimationTests {
             #expect(total == 320)
         }
     }
+    private func withDirectory(_ body: (URL) throws -> Void) throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("WallmotionGIFFile-\(UUID())", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        defer { try? FileManager.default.removeItem(at: root) }
+        try body(root)
+    }
+
+    @Test func URLPreparationOwnsFramesAfterSourceIsRemoved() throws {
+        try withDirectory { root in
+            let url = root.appendingPathComponent("source.gif")
+            try fixture().write(to: url)
+            let animation = try GIFAnimation(url: url)
+            try FileManager.default.removeItem(at: url)
+            #expect(animation.frameCount == 2)
+            #expect(try pixels(animation.image(at: 1)) == [255,255,255,255])
+        }
+    }
+
+    @Test func URLPreparationRejectsLinksDirectoriesFIFOAndRemoteInputs() throws {
+        try withDirectory { root in
+            let source = root.appendingPathComponent("source.gif")
+            let link = root.appendingPathComponent("link.gif")
+            let fifo = root.appendingPathComponent("pipe.gif")
+            try fixture().write(to: source)
+            try FileManager.default.createSymbolicLink(at: link, withDestinationURL: source)
+            #expect(mkfifo(fifo.path, 0o600) == 0)
+            #expect(throws: LibraryError.notRegularFile) { try GIFAnimation(url: link) }
+            #expect(throws: GIFAnimationError.nativeStatus(1)) { try GIFAnimation(url: root) }
+            #expect(throws: GIFAnimationError.nativeStatus(1)) { try GIFAnimation(url: fifo) }
+            #expect(throws: LibraryError.notRegularFile) { try GIFAnimation(url: URL(string: "https://example.com/image.gif")!) }
+            #expect(throws: LibraryError.notRegularFile) { try GIFAnimation(url: URL(string: "file://example.com/image.gif")!) }
+        }
+    }
+
+    @Test func URLPreparationRejectsEncodedAndFrameLimits() throws {
+        try withDirectory { root in
+            let url = root.appendingPathComponent("source.gif")
+            try fixture().write(to: url)
+            #expect(throws: GIFAnimationError.nativeStatus(5)) { try GIFAnimation(url: url, limits: .init(frames: 1)) }
+            let file = try FileHandle(forWritingTo: url)
+            try file.truncate(atOffset: 1_048_576);try file.close()
+            #expect(throws: GIFAnimationError.nativeStatus(4)) { try GIFAnimation(url: url, limits: .init(encodedBytes: 1024)) }
+        }
+    }
+
+    @Test func localMediaPathsRejectMalformedURLBeforePOSIXOpen() throws {
+        try withDirectory { root in
+            let source = root.appendingPathComponent("source.gif")
+            try fixture().write(to: source)
+            let truncated = root.appendingPathComponent("source.gif\u{0}ignored")
+            #expect(truncated.path.isEmpty || truncated.path.utf8.contains(0))
+            #expect(throws: LibraryError.notRegularFile) { try GIFAnimation(url: truncated) }
+            #expect(throws: LibraryError.notRegularFile) { try GIFPreflight.inspect(url: truncated) }
+        }
+    }
+
 }
 
 private final class WeakGIFOwner {

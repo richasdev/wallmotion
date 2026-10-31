@@ -33,13 +33,30 @@ public final class GIFAnimation: @unchecked Sendable {
     public let repeatCount: UInt16
     public let repeatsInfinitely: Bool
 
-    public init(data: Data, limits: GIFAnimationLimits = .init()) throws {
+    public convenience init(data: Data, limits: GIFAnimationLimits = .init()) throws {
         var result: OpaquePointer?
         let status = data.withUnsafeBytes { bytes in
             wm_gif_animation_decode(bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count,
                 limits.encodedBytes, limits.decodedBytes, limits.workingBytes, limits.frames, &result)
         }
         guard status == 0, let native = result else { throw GIFAnimationError.nativeStatus(status) }
+        try self.init(ownedHandle: native)
+    }
+
+    /// Pinned no-follow descriptor; regular-file/size/stability admission is native.
+    /// No mmap/full encoded copy and no file survives this synchronous preparation.
+    public convenience init(url: URL, limits: GIFAnimationLimits = .init()) throws {
+        let native = try GIFPreflight.withDescriptor(url: url) { descriptor in
+            var result: OpaquePointer?
+            let status = wm_gif_animation_decode_fd(descriptor, limits.encodedBytes, limits.decodedBytes,
+                limits.workingBytes, limits.frames, &result)
+            guard status == 0, let handle = result else { throw GIFAnimationError.nativeStatus(status) }
+            return handle
+        }
+        try self.init(ownedHandle: native)
+    }
+
+    private init(ownedHandle native: OpaquePointer) throws {
         var transferred = false
         defer { if !transferred { wm_gif_animation_release(native) } }
         var info = WMGifAnimationInfo()
