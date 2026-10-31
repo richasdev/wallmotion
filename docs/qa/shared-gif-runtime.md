@@ -1,7 +1,8 @@
 # Shared native GIF runtime
 
 Runtime portion of #147 and #14, using the descriptor decoder from PR #149.
-These issues remain open for the asynchronous assignment-admission follow-up #150.
+PR #151 left these issues open for the asynchronous assignment-admission follow-up
+#150; see `async-gif-admission.md` for that subsequent implementation.
 
 ## Behavior
 
@@ -79,10 +80,10 @@ native frame colors and provider ownership. Physical monitors, HDR, comparative
 CPU/RSS/energy measurements and long-running visual QA remain external evidence
 items (#8/#43); this change claims no measured performance gain.
 
-The first structural assignment validation still performs a bounded synchronous
+At the PR #151 stage, the first structural assignment validation performed a bounded synchronous
 preflight before persisting selection. A 128-entry identity memo avoids repeated
 scans during refresh. Moving that admission transaction off the main actor is
-still required by #147 and is the next implementation step; native pixel decode
+tracked by #147/#150 and implemented in `async-gif-admission.md`; native pixel decode
 and playback sharing are already exercised here. A structural preflight does not
 guarantee rejection of every corrupt compressed stream.
 
