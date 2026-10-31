@@ -207,6 +207,13 @@ def matrix(source_ref, duration, warmup, build_log):
                 "Power assertions queried at phase boundaries only; no actual sleep, physical lock, rotation, HDR or live provider certification.",
                 "Fixed phase order, one run; results are descriptive, not proof of general savings or statistical significance.",
                 "No user library/media, sudo, HOME changes, login items, OS permission changes or power-setting changes."]}
+    except (RuntimeError, OSError, ValueError, subprocess.TimeoutExpired) as error:
+        # Preserve diagnostics outside the disposable archive. Never emit a passing
+        # matrix when one phase failed; raw ps command paths remain unexported.
+        with build_log.open("a") as log:
+            log.write("\nMatrix failure: " + type(error).__name__ + ": " + str(error) + "\n")
+            log.write(json.dumps({"completed_phases": [row["phase"] for row in results], "last_status": status()}))
+        raise
     finally:
         if launched:
             stop()  # Failure to stop preserves the owned archive instead of deleting a live app.
