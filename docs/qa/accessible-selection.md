@@ -31,3 +31,8 @@ registrado como **skip**, sem atestar leitura ou ações de VoiceOver. A issue #
 permanece aberta para essa validação com tecnologia assistiva real.
 
 As dicas de enquadramento panorâmico agora dizem “mídia”, cobrindo fotos e GIFs.
+
+Checks locais após integrar a matriz de performance: 50 testes Rust, Clippy com
+warnings negados, 39 Python, 168 Swift Core e 223 AppKit (11 skips opt-in). Release
+e verificação estrita da assinatura ad-hoc passaram. Nenhum skip AX foi contado
+como validação de ações do leitor de tela.
