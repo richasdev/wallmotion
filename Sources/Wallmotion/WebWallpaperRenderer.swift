@@ -22,6 +22,24 @@ final class WebWallpaperRenderer: NSObject, WKNavigationDelegate {
     private(set) var audioVolume: Double = 1
     private var documentReady = false
     private var appliedAudioPolicy: String?
+    private struct AudioStep {
+        let token: UUID
+        let level: Double?
+        let muted: Bool?
+        let final: Bool
+    }
+    private struct ManualFade {
+        let paused: Bool
+        var start = 0.0
+        var beganAt: Double?
+        var pending: AudioStep?
+    }
+    private var manualFade: ManualFade?
+    private var fadeGeneration = UUID()
+    private var fadeDeadline: Task<Void, Never>?
+    private var fadeStepTask: Task<Void, Never>?
+    var hasManualAudioTransition: Bool { manualFade != nil }
+    var hasAudioTransitionTask: Bool { fadeDeadline != nil || fadeStepTask != nil }
 
     func setAudioEnabled(_ enabled: Bool) {
         guard !stopped else { return }
@@ -30,19 +48,135 @@ final class WebWallpaperRenderer: NSObject, WKNavigationDelegate {
 
     func setAudioPolicy(enabled: Bool, volume: Double) {
         guard !stopped else { return }
-        audioEnabled = enabled
-        audioVolume = volume.isFinite ? min(1, max(0, volume)) : 0
+        let level = volume.isFinite ? min(1, max(0, volume)) : 0
+        if manualFade != nil, audioEnabled != enabled || audioVolume != level {
+            discardView() // A pending provider unmute cannot survive a new policy.
+        }
+        audioEnabled = enabled;audioVolume = level
         applyAudioPolicy()
+    }
+
+    private func audioPolicyScript(enabled: Bool, volume: Double) -> String {
+        "window.setAudioPolicy(\(enabled && volume > 0 ? "true" : "false"),\(volume))"
     }
 
     private func applyAudioPolicy() {
         guard documentReady, let webView else { return }
-        // Only bounded numbers and a Swift Bool enter JavaScript.
-        let outputVolume = audioEnabled ? audioVolume : 0
-        let script = "window.setAudioPolicy(\(audioEnabled && outputVolume > 0 ? "true" : "false"),\(outputVolume))"
+        // A transition owns provider levels. A new resume document starts muted
+        // until playing and a verified SDK observation can start its envelope.
+        if let fade = manualFade, fade.pending != nil || fade.beganAt != nil { return }
+        let outputVolume = audioEnabled && manualFade == nil ? audioVolume : 0
+        let script = audioPolicyScript(enabled: audioEnabled && manualFade == nil, volume: outputVolume)
         guard script != appliedAudioPolicy else { return }
         appliedAudioPolicy = script
         webView.evaluateJavaScript(script, completionHandler: nil)
+    }
+
+    private func clearManualAudioFade() {
+        fadeGeneration = UUID();fadeDeadline?.cancel();fadeDeadline = nil
+        fadeStepTask?.cancel();fadeStepTask = nil;manualFade = nil
+        webView?.evaluateJavaScript("window.cancelAudioRamp && window.cancelAudioRamp()", completionHandler: nil)
+    }
+
+    func cancelManualAudioTransition() {
+        if manualFade != nil { discardView() }
+    }
+
+    func setManuallyPaused(_ paused: Bool, enabled: Bool, volume: Double) {
+        guard !stopped, !failed else { return }
+        clearManualAudioFade()
+        audioEnabled = enabled;audioVolume = volume.isFinite ? min(1, max(0, volume)) : 0
+        guard enabled, audioVolume > 0 else {
+            setPaused(paused);applyAudioPolicy();return
+        }
+        if paused, !documentReady || !isPlaying { discardView();return }
+        manualFade = ManualFade(paused: paused)
+        if !paused { setPaused(false) }
+        beginManualAudioIfReady()
+    }
+
+    private func beginManualAudioIfReady() {
+        guard let fade = manualFade, fade.beganAt == nil, fade.pending == nil,
+              documentReady, isPlaying, audioEnabled, audioVolume > 0, webView != nil else { return }
+        requestAudioStep(level: nil, final: false)
+    }
+
+    private func requestAudioStep(level: Double?, final: Bool) {
+        guard var fade = manualFade, let view = webView, documentReady, isPlaying else { return }
+        let token = UUID(), generation = fadeGeneration
+        let step = AudioStep(token: token, level: level, muted: level.map { $0 <= 0 }, final: final)
+        fade.pending = step;manualFade = fade
+        fadeDeadline?.cancel()
+        fadeDeadline = Task { @MainActor [weak self, weak view] in
+            do { try await Task.sleep(for: .milliseconds(150)) } catch { return }
+            guard let self, self.fadeGeneration == generation, self.webView === view,
+                  self.manualFade?.pending?.token == token else { return }
+            self.manualAudioFailed()
+        }
+        let script: String
+        if let level {
+            script = "window.requestAudioRampStep('\(token.uuidString)',\(level > 0 ? "true" : "false"),\(level))"
+        } else { script = "window.requestAudioRampSnapshot('\(token.uuidString)')" }
+        view.evaluateJavaScript(script) { [weak self, weak view] _, error in
+            guard error != nil, let self, self.fadeGeneration == generation, self.webView === view,
+                  self.manualFade?.pending?.token == token else { return }
+            self.manualAudioFailed()
+        }
+    }
+
+    private func receiveAudioAcknowledgement(_ value: String) {
+        guard value.utf8.count <= 128, var fade = manualFade, let pending = fade.pending else { return }
+        let fields = value.split(separator: ":", omittingEmptySubsequences: false)
+        guard fields.count >= 2, UUID(uuidString: String(fields[1])) == pending.token else { return }
+        if fields[0] == "ramp-fail" { manualAudioFailed();return }
+        guard fields.count == 4, fields[0] == "ramp-ack", let level = Double(fields[2]),
+              level.isFinite, (0...1).contains(level), fields[3] == "0" || fields[3] == "1" else { return }
+        let muted = fields[3] == "1"
+        if let expected = pending.level {
+            // YouTube quantizes to integer percent; Vimeo uses normalized doubles.
+            let tolerance = embed.provider == .youtube ? 0.0101 : 0.001
+            guard abs(level - expected) <= tolerance, muted == pending.muted else { manualAudioFailed();return }
+        }
+        fadeDeadline?.cancel();fadeDeadline = nil;fade.pending = nil
+        if pending.level == nil {
+            fade.start = muted ? 0 : level;fade.beganAt = ProcessInfo.processInfo.systemUptime
+            manualFade = fade
+            if abs(fade.start - (fade.paused ? 0 : audioVolume)) < 0.00001 { finishManualAudio();return }
+        } else { manualFade = fade }
+        if pending.final { finishManualAudio() }
+        else { scheduleManualAudioStep() }
+    }
+
+    private func scheduleManualAudioStep() {
+        guard let fade = manualFade, let began = fade.beganAt else { return }
+        let elapsed = ProcessInfo.processInfo.systemUptime - began
+        let due = elapsed < 0.1 ? 0.1 : 0.2
+        let generation = fadeGeneration
+        fadeStepTask?.cancel()
+        fadeStepTask = Task { @MainActor [weak self] in
+            do { try await Task.sleep(for: .seconds(max(0, due - elapsed))) } catch { return }
+            guard let self, self.fadeGeneration == generation, let fade = self.manualFade,
+                  fade.pending == nil, let began = fade.beganAt, self.documentReady, self.isPlaying else { return }
+            self.fadeStepTask = nil
+            let elapsed = ProcessInfo.processInfo.systemUptime - began
+            let final = elapsed >= 0.195
+            let target = fade.paused ? 0 : self.audioVolume
+            let level = final ? target : AudioRamp(start: fade.start, target: target).value(at: elapsed)
+            self.requestAudioStep(level: level, final: final)
+        }
+    }
+
+    private func finishManualAudio() {
+        guard let fade = manualFade else { return }
+        let paused = fade.paused
+        clearManualAudioFade()
+        if paused { discardView() }
+        else { appliedAudioPolicy = audioPolicyScript(enabled: audioEnabled, volume: audioVolume) }
+    }
+
+    private func manualAudioFailed() {
+        // Native suspension/discard does not depend on a responsive provider SDK.
+        fail("Não foi possível confirmar a transição do áudio web. O fundo foi pausado. Tente recarregar este fundo.")
     }
     private(set) var lastEvent = "loading"
 
@@ -90,6 +224,7 @@ final class WebWallpaperRenderer: NSObject, WKNavigationDelegate {
     }
 
     private func discardView() {
+        clearManualAudioFade()
         startupTimeout?.cancel()
         startupTimeout = nil
         isPlaying = false
@@ -111,6 +246,9 @@ final class WebWallpaperRenderer: NSObject, WKNavigationDelegate {
     fileprivate func received(_ message: WKScriptMessage) {
         guard message.webView === webView, message.frameInfo.isMainFrame,
               let value = message.body as? String else { return }
+        if value.hasPrefix("ramp-ack:") || value.hasPrefix("ramp-fail:") {
+            receiveAudioAcknowledgement(value);return
+        }
         lastEvent = String(value.prefix(80))
         if value == "ready" {
             documentReady = true
@@ -121,6 +259,7 @@ final class WebWallpaperRenderer: NSObject, WKNavigationDelegate {
             startupTimeout?.cancel()
             startupTimeout = nil
             isPlaying = true
+            beginManualAudioIfReady()
             return
         }
         guard value.hasPrefix("error:") else { return }
@@ -174,6 +313,20 @@ final class WebWallpaperRenderer: NSObject, WKNavigationDelegate {
         <style>html,body{margin:0;width:100%;height:100%;background:black;overflow:hidden}iframe,#player{width:100%;height:100%;border:0}</style>
         </head><body><script>
         function report(value){window.webkit.messageHandlers.playback.postMessage(value)}
+        var audioRampVersion=0,audioRampTimer=null;
+        window.cancelAudioRamp=function(){
+          audioRampVersion++;
+          if(typeof audioVersion==="number")audioVersion++;
+          if(audioRampTimer!==null){clearTimeout(audioRampTimer);audioRampTimer=null}
+        };
+        function rampAck(token,version,level,muted){
+          if(version!==audioRampVersion)return;
+          if(typeof level!=="number" || !Number.isFinite(level) || level<0 || level>1 || typeof muted!=="boolean"){
+            report("ramp-fail:"+token);return
+          }
+          report("ramp-ack:"+token+":"+level.toFixed(4)+":"+(muted?"1":"0"))
+        }
+        function rampFail(token,version){if(version===audioRampVersion)report("ramp-fail:"+token)}
         </script>
         """
         if embed.provider == .youtube {
@@ -182,11 +335,32 @@ final class WebWallpaperRenderer: NSObject, WKNavigationDelegate {
             <iframe id="player" src="https://www.youtube-nocookie.com/embed/\(embed.videoID)?enablejsapi=1&origin=\(origin)&playsinline=1&mute=1&loop=1&playlist=\(embed.videoID)\(start)" allow="autoplay" referrerpolicy="strict-origin-when-cross-origin"></iframe>
             <script>
             window.setAudioEnabled=function(enabled){if(window.player){if(enabled===true)player.unMute();else player.mute()}};
-            window.setAudioPolicy=function(enabled,volume){
+            function applyYouTubeAudio(enabled,volume){
               if(!window.player)return;
               var level=typeof volume==="number" && Number.isFinite(volume)?Math.max(0,Math.min(1,volume)):0;
               player.setVolume(Math.round(level*100));
               window.setAudioEnabled(enabled===true && level>0);
+            }
+            window.setAudioPolicy=function(enabled,volume){window.cancelAudioRamp();applyYouTubeAudio(enabled,volume)};
+            window.requestAudioRampSnapshot=function(token){
+              window.cancelAudioRamp();var version=audioRampVersion;
+              try{rampAck(token,version,player.getVolume()/100,player.isMuted())}catch(e){rampFail(token,version)}
+            };
+            window.requestAudioRampStep=function(token,enabled,volume){
+              window.cancelAudioRamp();var version=audioRampVersion;
+              var level=typeof volume==="number" && Number.isFinite(volume)?Math.max(0,Math.min(1,volume)):0;
+              var expected=Math.round(level*100),muted=enabled!==true || level===0;
+              try{applyYouTubeAudio(enabled,level)}catch(e){rampFail(token,version);return}
+              var attempts=0;
+              function verify(){
+                if(version!==audioRampVersion)return;
+                try{
+                  var actual=player.getVolume(),actualMuted=player.isMuted();
+                  if(actual===expected && actualMuted===muted){rampAck(token,version,actual/100,actualMuted);return}
+                  if(++attempts<7){audioRampTimer=setTimeout(verify,16)}else rampFail(token,version)
+                }catch(e){rampFail(token,version)}
+              }
+              verify()
             };
             function onYouTubeIframeAPIReady(){report("sdk-ready");
               window.player=new YT.Player("player",{events:{
@@ -207,7 +381,7 @@ final class WebWallpaperRenderer: NSObject, WKNavigationDelegate {
         window.player=new Vimeo.Player(document.getElementById("player"));
         window.setAudioEnabled=function(enabled){player.setMuted(enabled!==true).catch(vimeoError)};
         var audioVersion=0,audioChain=Promise.resolve();
-        window.setAudioPolicy=function(enabled,volume){
+        function applyVimeoAudio(enabled,volume){
           var version=++audioVersion;
           var level=typeof volume==="number" && Number.isFinite(volume)?Math.max(0,Math.min(1,volume)):0;
           // Muting must not wait behind an unresolved gain change.
@@ -222,6 +396,38 @@ final class WebWallpaperRenderer: NSObject, WKNavigationDelegate {
               return player.setMuted(enabled!==true || level===0);
             });
           }).catch(function(error){if(version===audioVersion)vimeoError(error)});
+        };
+        window.setAudioPolicy=function(enabled,volume){window.cancelAudioRamp();applyVimeoAudio(enabled,volume)};
+        window.requestAudioRampSnapshot=function(token){
+          window.cancelAudioRamp();var version=audioRampVersion;
+          // A reversed transition must observe after the previous in-flight
+          // setter settles; an old gain cannot overwrite a later confirmed step.
+          audioChain=audioChain.catch(function(){}).then(function(){
+            if(version!==audioRampVersion)return;
+            return Promise.all([player.getVolume(),player.getMuted()])
+          }).then(function(values){
+            if(version!==audioRampVersion || !values)return;
+            rampAck(token,version,values[0],values[1])
+          }).catch(function(){rampFail(token,version)})
+        };
+        window.requestAudioRampStep=function(token,enabled,volume){
+          window.cancelAudioRamp();var version=audioRampVersion;
+          var level=typeof volume==="number" && Number.isFinite(volume)?Math.max(0,Math.min(1,volume)):0;
+          var muted=enabled!==true || level===0;
+          audioChain=audioChain.catch(function(){}).then(function(){
+            if(version!==audioRampVersion)return;
+            return player.setVolume(level)
+          }).then(function(){
+            if(version!==audioRampVersion)return;
+            return player.setMuted(muted)
+          }).then(function(){
+            if(version!==audioRampVersion)return;
+            return Promise.all([player.getVolume(),player.getMuted()])
+          }).then(function(values){
+            if(version!==audioRampVersion || !values)return;
+            if(Math.abs(values[0]-level)>0.001 || values[1]!==muted){rampFail(token,version);return}
+            rampAck(token,version,values[0],values[1])
+          }).catch(function(){rampFail(token,version)})
         };
         player.on("playing",function(){report("playing")});
         function vimeoError(e){report("error:"+e.name+": "+(e.message||""))}

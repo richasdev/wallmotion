@@ -540,9 +540,13 @@ final class LibraryModel {
     }
 
     func togglePause() {
+        let wasPaused = isPaused
         var next = state
         next.settings.isManuallyPaused.toggle()
-        if update(next) { engine.setPaused(isPaused) }
+        if update(next) {
+            if !isAutomaticallyPaused, wasPaused != isPaused { engine.setManuallyPaused(isPaused) }
+            else { engine.setPaused(isPaused) }
+        }
     }
 
     func setPauseOnLowPower(_ value: Bool) {

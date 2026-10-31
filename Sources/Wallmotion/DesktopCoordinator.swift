@@ -147,6 +147,7 @@ final class WallpaperRenderer {
     let window: DesktopWindow
     private(set) var photoQuality: PhotoQualityInfo?
     private var webRenderer: WebWallpaperRenderer?
+    var isWebPlaying: Bool { webRenderer?.isPlaying == true }
     private let player: AVPlayer?
     private let imageView: NSImageView?
     private var gifPlayback: SharedGIFPlayback?
@@ -155,6 +156,21 @@ final class WallpaperRenderer {
     private var looper: AVPlayerLooper?
     private var statusObserver: NSKeyValueObservation?
     private var currentItemObserver: NSKeyValueObservation?
+    private var audioTransportObserver: NSKeyValueObservation?
+    private let audioClock: @MainActor () -> Double
+    private let audioIsPlaying: @MainActor (AVPlayer) -> Bool
+    private struct NativeAudioFade {
+        var ramp: AudioRamp
+        let fadingOut: Bool
+        var beganAt: Double?
+    }
+    private var nativeAudioFade: NativeAudioFade?
+    private var audioFadeTask: Task<Void, Never>?
+    private var audioFadeGeneration = UUID()
+    private var applyingPlaybackState = false
+    private var playbackStateNeedsApply = false
+    var hasAudioFadeTick: Bool { audioFadeTask != nil }
+    var isWaitingForAudioPlayback: Bool { nativeAudioFade != nil && nativeAudioFade?.beganAt == nil }
     private var loopObserver: NSKeyValueObservation?
     private var remotePlayback: RemoteVideoPlayback?
     var remotePlaybackState: RemotePlaybackState? { remotePlayback?.state }
@@ -177,6 +193,8 @@ final class WallpaperRenderer {
              }
          },
          recoveryScheduler: any RecoveryScheduling = RecoveryScheduler(),
+         audioClock: @escaping @MainActor () -> Double = { ProcessInfo.processInfo.systemUptime },
+         audioIsPlaying: @escaping @MainActor (AVPlayer) -> Bool = { $0.timeControlStatus == .playing },
          onState: @escaping @MainActor (RemotePlaybackState) -> Void = { _ in },
          onError: @escaping @MainActor (String) -> Void) throws {
         let frame = targetFrame ?? screen.frame
@@ -184,6 +202,8 @@ final class WallpaperRenderer {
         let photoScale = panorama?.referenceScale ?? scale
         let viewport = panorama?.pixelSize ?? CGSize(width: frame.width * scale, height: frame.height * scale)
         self.isWindowVisible = isWindowVisible
+        self.audioClock = audioClock
+        self.audioIsPlaying = audioIsPlaying
         self.seekToStart = seekToStart
         if case .web(let embed) = wallpaper.source {
             let renderer = try WebWallpaperRenderer(embed: embed, onError: onError, document: webDocument)
@@ -262,6 +282,11 @@ final class WallpaperRenderer {
             }
         }
 
+        if let player {
+            audioTransportObserver = player.observe(\.timeControlStatus, options: [.new]) { [weak self] _, _ in
+                Task { @MainActor [weak self] in self?.applyPlaybackState() }
+            }
+        }
         occlusionObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didChangeOcclusionStateNotification,
             object: window,
@@ -288,18 +313,120 @@ final class WallpaperRenderer {
 
     /// The only path that starts/stops transport or animation. Resample on every
     /// request, since policy/rebuild/seek may run without a new occlusion event.
+    private var audioTransportPlaying: Bool { player.map(audioIsPlaying) ?? false }
+
+    private var nativeAudioFailed: Bool {
+        if player?.currentItem?.status == .failed { return true }
+        if let state = remotePlayback?.state, case .error = state { return true }
+        return false
+    }
+
+    private func cancelAudioFade() {
+        audioFadeGeneration = UUID()
+        audioFadeTask?.cancel();audioFadeTask = nil;nativeAudioFade = nil
+    }
+
+    private func audioFadeValue(at now: Double) -> Double {
+        guard let fade = nativeAudioFade else { return playbackState.shouldPlay ? 1 : 0 }
+        guard let began = fade.beganAt else { return fade.ramp.start }
+        return fade.ramp.value(at: max(0, now - began))
+    }
+
+    private func scheduleAudioFadeTick() {
+        guard audioFadeTask == nil, nativeAudioFade?.beganAt != nil else { return }
+        let generation = audioFadeGeneration
+        audioFadeTask = Task { @MainActor [weak self] in
+            do { try await Task.sleep(for: .milliseconds(16)) } catch { return }
+            guard let self, self.audioFadeGeneration == generation else { return }
+            self.audioFadeTask = nil
+            self.applyPlaybackState()
+        }
+    }
+
+    /// Also used by deterministic clock fixtures. No persistent periodic timer.
+    func refreshAudioTransition() { applyPlaybackState() }
+
     private func applyPlaybackState() {
+        if applyingPlaybackState { playbackStateNeedsApply = true;return }
+        applyingPlaybackState = true
+        defer {
+            applyingPlaybackState = false
+            if playbackStateNeedsApply { playbackStateNeedsApply = false;applyPlaybackState() }
+        }
         playbackState.setVisible(isWindowVisible(window))
-        let audible = audioEnabled && audioVolume > 0 && playbackState.shouldPlay
-        let outputVolume = audible ? audioVolume : 0
+        if playbackState.isStopped || !playbackState.isVisible || playbackState.pendingRestart != nil ||
+            !audioEnabled || audioVolume <= 0 || nativeAudioFailed { cancelAudioFade() }
+
+        var wantsTransport = playbackState.shouldPlay || nativeAudioFade?.fadingOut == true
+        remotePlayback?.setPaused(!wantsTransport)
+        if nativeAudioFailed {
+            cancelAudioFade();wantsTransport = playbackState.shouldPlay
+        }
+        let canPlay = !nativeAudioFailed && (remotePlayback?.canPlay ?? true)
+        let now = audioClock()
+        if var fade = nativeAudioFade {
+            if fade.fadingOut, !canPlay || !audioTransportPlaying {
+                cancelAudioFade();wantsTransport = playbackState.shouldPlay
+            } else if !fade.fadingOut {
+                if canPlay, audioTransportPlaying {
+                    if fade.beganAt == nil { fade.beganAt = now;nativeAudioFade = fade }
+                } else if fade.beganAt != nil || fade.ramp.start > 0 {
+                    // Freeze without ticks while buffering; resume from zero once
+                    // transport really plays, rather than spending the fade in silence.
+                    audioFadeTask?.cancel();audioFadeTask = nil
+                    fade.ramp = AudioRamp(start: 0, target: 1);fade.beganAt = nil
+                    nativeAudioFade = fade
+                }
+            }
+            if let current = nativeAudioFade, let began = current.beganAt,
+               current.ramp.isComplete(at: max(0, now - began)) {
+                cancelAudioFade();wantsTransport = playbackState.shouldPlay
+            }
+        }
+        let factor = nativeAudioFade == nil ? (playbackState.shouldPlay ? 1.0 : 0) : audioFadeValue(at: now)
+        let audible = audioEnabled && audioVolume > 0 && wantsTransport && canPlay
+        let outputVolume = audible ? audioVolume * factor : 0
         player?.volume = Float(outputVolume)
-        player?.isMuted = !audible
-        webRenderer?.setAudioPolicy(enabled: audible, volume: outputVolume)
-        webRenderer?.setPaused(!playbackState.shouldPlay)
+        player?.isMuted = !audible || outputVolume <= 0
+        if let webRenderer {
+            if webRenderer.hasManualAudioTransition, playbackState.isVisible, !playbackState.isStopped,
+               audioEnabled, audioVolume > 0 {
+                webRenderer.setAudioPolicy(enabled: audioEnabled, volume: audioVolume)
+            } else {
+                webRenderer.setAudioPolicy(enabled: audible, volume: outputVolume)
+                webRenderer.setPaused(!playbackState.shouldPlay)
+            }
+        }
         if let gifSubscriber { gifPlayback?.setActive(playbackState.shouldPlay, subscriber: gifSubscriber) }
-        remotePlayback?.setPaused(!playbackState.shouldPlay)
-        if playbackState.shouldPlay && (remotePlayback?.canPlay ?? true) { player?.play() }
-        else { player?.pause() }
+        remotePlayback?.setPaused(!wantsTransport)
+        if let player {
+            if wantsTransport && canPlay {
+                if player.rate == 0 || player.timeControlStatus == .paused { player.play() }
+            } else if player.rate != 0 || player.timeControlStatus != .paused { player.pause() }
+        }
+        scheduleAudioFadeTick()
+    }
+
+    func setManuallyPaused(_ value: Bool) {
+        guard !playbackState.isStopped else { return }
+        playbackState.setVisible(isWindowVisible(window))
+        if value == playbackState.isPaused { applyPlaybackState();return }
+        let current = audioFadeValue(at: audioClock())
+        cancelAudioFade()
+        playbackState.setPaused(value)
+        window.orderBack(nil)
+        if let webRenderer, playbackState.isVisible, audioEnabled, audioVolume > 0 {
+            webRenderer.setManuallyPaused(value, enabled: audioEnabled, volume: audioVolume)
+            return
+        }
+        if player != nil, playbackState.isVisible, playbackState.pendingRestart == nil,
+           audioEnabled, audioVolume > 0, !nativeAudioFailed {
+            if !value || (current > 0 && audioTransportPlaying) {
+                nativeAudioFade = NativeAudioFade(ramp: AudioRamp(start: current, target: value ? 0 : 1),
+                    fadingOut: value, beganAt: value ? audioClock() : nil)
+            }
+        }
+        applyPlaybackState()
     }
 
     private func observeCurrentItem(onError: @escaping @MainActor (String) -> Void) {
@@ -329,13 +456,18 @@ final class WallpaperRenderer {
 
     func setAudioPolicy(enabled: Bool, volume: Double) {
         guard !playbackState.isStopped else { return }
+        let nextVolume = volume.isFinite ? min(1, max(0, volume)) : 0
+        if audioEnabled != enabled || audioVolume != nextVolume {
+            cancelAudioFade();webRenderer?.cancelManualAudioTransition()
+        }
         audioEnabled = enabled
-        audioVolume = volume.isFinite ? min(1, max(0, volume)) : 0
+        audioVolume = nextVolume
         applyPlaybackState()
     }
 
     func setPaused(_ value: Bool) {
         guard !playbackState.isStopped else { return }
+        cancelAudioFade();webRenderer?.cancelManualAudioTransition()
         playbackState.setPaused(value)
         window.orderBack(nil)
         applyPlaybackState()
@@ -343,6 +475,7 @@ final class WallpaperRenderer {
 
     func stop() {
         guard !playbackState.isStopped else { return }
+        cancelAudioFade()
         playbackState.stop()
         applyPlaybackState()
         webRenderer?.stop()
@@ -351,6 +484,7 @@ final class WallpaperRenderer {
         statusObserver = nil
         currentItemObserver?.invalidate()
         currentItemObserver = nil
+        audioTransportObserver?.invalidate();audioTransportObserver = nil
         loopObserver?.invalidate()
         loopObserver = nil
         remotePlayback?.stop()
@@ -408,6 +542,7 @@ final class DesktopCoordinator {
     private var reschedule: (@MainActor () -> Void)?
     private var rebuildGeneration = UUID()
     private var latestPaused = true
+    private var latestPauseIsManual = false
     private var audioConfiguration = AudioConfiguration()
     private struct TargetGeometry: Equatable {
         let id: String
@@ -626,7 +761,7 @@ final class DesktopCoordinator {
 
     func rebuild(state: LibraryState, store: LibraryStore, paused: Bool, force: Bool = false, preparedPhotos: PhotoPreparation.Results = [:], requiresPreparedPhotos: Bool = false, preparedGIFs: SharedGIFPreparation.Results = [:], requiresPreparedGIFs: Bool = false, admissions: [String: GIFAdmission]? = nil, onPhotoQuality: @escaping @MainActor (String, PhotoQualityInfo?) -> Void = { _, _ in }, onState: @escaping @MainActor (String, RemotePlaybackState) -> Void = { _, _ in }, onError: @escaping @MainActor (String, String) -> Void) {
         if !requiresPreparedPhotos || !requiresPreparedGIFs {
-            rebuildGeneration = UUID();audioConfiguration = state.audioConfiguration
+            rebuildGeneration = UUID();audioConfiguration = state.audioConfiguration;latestPauseIsManual = false
         }
         if !requiresPreparedPhotos { photos.cancel() }
         if !requiresPreparedGIFs { gifs.cancel() }
@@ -714,8 +849,9 @@ final class DesktopCoordinator {
                 renderers.removeValue(forKey: displayID)?.renderer.stop()
                 gifBudget = nextBudget
                 renderers[displayID] = Entry(wallpaperID: wallpaperID, frame: target.frame, mediaFit: mediaFit, backingScale: target.backingScale, panorama: layout, token: token, renderer: renderer)
-                renderer.setPaused(paused)
                 renderer.setAudioPolicy(enabled: audioConfiguration.displayID == displayID, volume: audioConfiguration.effectiveVolume(for: wallpaperID))
+                if latestPauseIsManual { renderer.setManuallyPaused(paused) }
+                else { renderer.setPaused(paused) }
                 onPhotoQuality(displayID, renderer.photoQuality)
                 if let state = renderer.remotePlaybackState { onState(displayID, state) }
             } catch {
@@ -745,15 +881,20 @@ final class DesktopCoordinator {
         }
     }
 
+    func setManuallyPaused(_ value: Bool) {
+        latestPaused = value;latestPauseIsManual = true
+        renderers.values.forEach { $0.renderer.setManuallyPaused(value) }
+    }
+
     func setPaused(_ value: Bool) {
-        latestPaused = value
+        latestPaused = value;latestPauseIsManual = false
         renderers.values.forEach { $0.renderer.setPaused(value) }
     }
 
     func stop() {
         rebuildGeneration = UUID()
         photos.cancel(); gifs.cancel()
-        reschedule = nil; gifMetadata.removeAll()
+        reschedule = nil; gifMetadata.removeAll();latestPauseIsManual = false
         let previous = Array(renderers.values)
         renderers.removeAll()
         gifBudget = GIFPlaybackBudget(limit: gifBudget.limit)
