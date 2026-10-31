@@ -1,0 +1,247 @@
+{
+  "evidence_file_modified_utc": "2026-10-31T21:39:57.633850+00:00",
+  "host_architecture": "arm64",
+  "limits": "One opted-in URL, short fixed-order sample. Ten seconds may retain buffered variants. Preference is not a guaranteed cap. Color metadata and EDR capability do not certify visual color, no flicker, HDR/SDR transition, portrait physical display, energy or CPU improvement. No source URLs or raw errors exported.",
+  "manifest_sha256": "3288c3b8cf19658d24d5b85910c8901c17a4d1502171184d7458d4a1243c0292",
+  "os": "Vers\u00e3o 27.0.1 (Compila\u00e7\u00e3o 26A434)",
+  "public_example": "Apple advanced",
+  "rows": [
+    {
+      "CVImageBufferTransferFunction": "SMPTE_ST_2084_PQ",
+      "access_events": [
+        {
+          "bytes": 1366379,
+          "indicated_bitrate": 3406975,
+          "observed_bitrate": 9575860,
+          "stalls": 0
+        },
+        {
+          "bytes": 2958906,
+          "indicated_bitrate": 27872950,
+          "observed_bitrate": 4503941,
+          "stalls": 0
+        },
+        {
+          "bytes": 2239131,
+          "indicated_bitrate": 6597524,
+          "observed_bitrate": 12435297,
+          "stalls": 0
+        },
+        {
+          "bytes": 13397031,
+          "indicated_bitrate": 17259229,
+          "observed_bitrate": 37831598,
+          "stalls": 0
+        },
+        {
+          "bytes": 34877537,
+          "indicated_bitrate": 37409767,
+          "observed_bitrate": 47949030,
+          "stalls": 0
+        }
+      ],
+      "buffer_height": 2160,
+      "buffer_pixel_format": 645428784,
+      "buffer_width": 3840,
+      "layer_ready": true,
+      "muted": true,
+      "playhead_after": 9.802657156,
+      "playhead_before": 0,
+      "preference_height": 0,
+      "preference_width": 0,
+      "presentation_height": 2160,
+      "presentation_width": 3840,
+      "preset": "automatic",
+      "prevents_display_sleep": false,
+      "volume": 0
+    },
+    {
+      "CVImageBufferTransferFunction": "SMPTE_ST_2084_PQ",
+      "access_events": [
+        {
+          "bytes": 1366379,
+          "indicated_bitrate": 3406975,
+          "observed_bitrate": 9575860,
+          "stalls": 0
+        },
+        {
+          "bytes": 2958906,
+          "indicated_bitrate": 27872950,
+          "observed_bitrate": 4503941,
+          "stalls": 0
+        },
+        {
+          "bytes": 2239131,
+          "indicated_bitrate": 6597524,
+          "observed_bitrate": 12435297,
+          "stalls": 0
+        },
+        {
+          "bytes": 13397031,
+          "indicated_bitrate": 17259229,
+          "observed_bitrate": 37831598,
+          "stalls": 0
+        },
+        {
+          "bytes": 34877537,
+          "indicated_bitrate": 37409767,
+          "observed_bitrate": 47971077,
+          "stalls": 0
+        },
+        {
+          "bytes": 28724295,
+          "indicated_bitrate": 6160435,
+          "observed_bitrate": 50092679,
+          "stalls": 0
+        }
+      ],
+      "buffer_height": 720,
+      "buffer_pixel_format": 645428784,
+      "buffer_width": 1280,
+      "layer_ready": true,
+      "muted": true,
+      "playhead_after": 19.816003114,
+      "playhead_before": 9.809128364,
+      "preference_height": 720,
+      "preference_width": 1280,
+      "presentation_height": 720,
+      "presentation_width": 1280,
+      "preset": "hd720",
+      "prevents_display_sleep": false,
+      "volume": 0
+    },
+    {
+      "CVImageBufferTransferFunction": "SMPTE_ST_2084_PQ",
+      "access_events": [
+        {
+          "bytes": 1366379,
+          "indicated_bitrate": 3406975,
+          "observed_bitrate": 9575860,
+          "stalls": 0
+        },
+        {
+          "bytes": 2958906,
+          "indicated_bitrate": 27872950,
+          "observed_bitrate": 4503941,
+          "stalls": 0
+        },
+        {
+          "bytes": 2239131,
+          "indicated_bitrate": 6597524,
+          "observed_bitrate": 12435297,
+          "stalls": 0
+        },
+        {
+          "bytes": 13397031,
+          "indicated_bitrate": 17259229,
+          "observed_bitrate": 37831598,
+          "stalls": 0
+        },
+        {
+          "bytes": 34877537,
+          "indicated_bitrate": 37409767,
+          "observed_bitrate": 47971077,
+          "stalls": 0
+        },
+        {
+          "bytes": 28724295,
+          "indicated_bitrate": 6160435,
+          "observed_bitrate": 50092679,
+          "stalls": 0
+        },
+        {
+          "bytes": 52582025,
+          "indicated_bitrate": 37409767,
+          "observed_bitrate": 99544775,
+          "stalls": 0
+        }
+      ],
+      "buffer_height": 720,
+      "buffer_pixel_format": 645428784,
+      "buffer_width": 1280,
+      "layer_ready": true,
+      "muted": true,
+      "playhead_after": 29.830106822,
+      "playhead_before": 19.816228114,
+      "preference_height": 2160,
+      "preference_width": 3840,
+      "presentation_height": 720,
+      "presentation_width": 1280,
+      "preset": "uhd2160",
+      "prevents_display_sleep": false,
+      "volume": 0
+    },
+    {
+      "CVImageBufferTransferFunction": "SMPTE_ST_2084_PQ",
+      "access_events": [
+        {
+          "bytes": 1366379,
+          "indicated_bitrate": 3406975,
+          "observed_bitrate": 9575860,
+          "stalls": 0
+        },
+        {
+          "bytes": 2958906,
+          "indicated_bitrate": 27872950,
+          "observed_bitrate": 4503941,
+          "stalls": 0
+        },
+        {
+          "bytes": 2239131,
+          "indicated_bitrate": 6597524,
+          "observed_bitrate": 12435297,
+          "stalls": 0
+        },
+        {
+          "bytes": 13397031,
+          "indicated_bitrate": 17259229,
+          "observed_bitrate": 37831598,
+          "stalls": 0
+        },
+        {
+          "bytes": 34877537,
+          "indicated_bitrate": 37409767,
+          "observed_bitrate": 47971077,
+          "stalls": 0
+        },
+        {
+          "bytes": 28724295,
+          "indicated_bitrate": 6160435,
+          "observed_bitrate": 50092679,
+          "stalls": 0
+        },
+        {
+          "bytes": 85258417,
+          "indicated_bitrate": 37409767,
+          "observed_bitrate": 120358980,
+          "stalls": 0
+        }
+      ],
+      "buffer_height": 720,
+      "buffer_pixel_format": 645428784,
+      "buffer_width": 1280,
+      "layer_ready": true,
+      "muted": true,
+      "playhead_after": 39.916495572,
+      "playhead_before": 29.830372447,
+      "preference_height": 0,
+      "preference_width": 0,
+      "presentation_height": 720,
+      "presentation_width": 1280,
+      "preset": "automatic",
+      "prevents_display_sleep": false,
+      "volume": 0
+    }
+  ],
+  "schema_version": 1,
+  "screens": [
+    {
+      "edr_current": 16,
+      "edr_potential": 16,
+      "height_points": 982,
+      "scale": 2,
+      "width_points": 1512
+    }
+  ],
+  "source_sha": "972bb8d91addc9d7aa82b40bc2d7471a55b7c3df"
+}
