@@ -54,7 +54,7 @@ final class SourceAudioGainTests: XCTestCase {
         XCTAssertTrue(right.isMuted);XCTAssertEqual(right.volume, 0)
         try await waitUntil { left.currentItem != nil && right.currentItem != nil }
         let leftItem = try XCTUnwrap(left.currentItem), rightItem = try XCTUnwrap(right.currentItem)
-        model.togglePause()
+        model.togglePause();engine.setPaused(model.isPaused)
         XCTAssertEqual(left.volume, 0.2, accuracy: 0.0001);XCTAssertFalse(left.isMuted)
         XCTAssertEqual(right.volume, 0);XCTAssertTrue(right.isMuted)
         model.setAudioGain(0.5, for: first.id)
