@@ -48,8 +48,8 @@ struct BackgroundControls: View {
             }
             Text(model.state.displayMode == .spanned
                  ? (model.state.mirroredWallpaperID == nil
-                    ? "Escolha uma foto ou GIF local na biblioteca para preencher o panorama. Espaços entre monitores também fazem parte dele."
-                    : "A foto ou animação atravessa a disposição das telas. Espaços entre monitores também fazem parte do panorama.")
+                    ? "Escolha uma foto, GIF local ou vídeo nativo na biblioteca para preencher o panorama. Espaços entre monitores também fazem parte dele."
+                    : "A mídia atravessa a disposição das telas. Espaços entre monitores também fazem parte do panorama.")
                  : model.state.displayMode == .mirrored
                  ? "A mídia e o enquadramento valem para todos os monitores, inclusive os conectados depois."
                  : "Selecione um monitor na lateral e escolha seu fundo. Suas escolhas individuais ficam salvas.")

@@ -188,7 +188,7 @@ final class GIFPanoramaTests: XCTestCase {
         XCTAssertEqual(engine.gifBudget.totalBytes, 64)
     }
 
-    func testModelSeedsGIFPanoramaAndRestoresIndependentAssignmentsWithoutAcceptingVideo() async throws {
+    func testModelSeedsGIFPanoramaAndRestoresIndependentAssignmentsWithNativeVideoAvailable() async throws {
         let directory = try root();defer { try? FileManager.default.removeItem(at: directory) }
         let url = directory.appendingPathComponent("source.gif");try writeFixture(url)
         let store = LibraryStore(rootURL: directory.appendingPathComponent("Library"))
@@ -204,7 +204,7 @@ final class GIFPanoramaTests: XCTestCase {
         XCTAssertEqual(model.state.displayMode, .spanned);XCTAssertEqual(model.state.mirroredWallpaperID, gif.id)
         XCTAssertEqual(model.activeWallpaperID(on: "two"), gif.id);XCTAssertEqual(try store.load(), model.state)
         XCTAssertNil(model.applicationRestriction(for: gif, on: "two"))
-        XCTAssertNotNil(model.applicationRestriction(for: video, on: "one"))
+        XCTAssertNil(model.applicationRestriction(for: video, on: "one"))
         model.setMediaFit(.fill, on: "two")
         XCTAssertEqual(model.mediaFit(on: "one"), .fill)
         model.setDisplayMode(.independent, sourceDisplayID: "one")

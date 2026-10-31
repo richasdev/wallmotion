@@ -7,3 +7,5 @@ Wallpaper.supportsPanorama centralizes the existing local-photo requirement for 
 Temporary-library tests exercise video, GIF and official YouTube transitions, photo inheritance, direct video rejection, independent-state restoration and per-mode application availability. These do not certify physical multi-monitor rendering.
 
 Issue #124: incompatible cards now disable only their Apply action in panorama, with an explanatory tooltip/accessibility hint. Rename and removal remain available. Availability resolves the current library record, rejects missing/disconnected targets and allows all supported media in independent/mirrored modes. Direct model validation remains the final protection. VoiceOver and physical pointer QA remain manual.
+
+Updated by #43: native local/HTTPS video is now eligible, sharing one transport across screens; official web embeds remain excluded. The older local-photo-only/video-rejection notes above describe historical behavior. See [native video panorama](native-video-panorama.md) for current semantics and limits.

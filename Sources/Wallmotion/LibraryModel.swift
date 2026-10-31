@@ -469,7 +469,7 @@ final class LibraryModel {
             return "Selecione um monitor conectado para aplicar o fundo."
         }
         if state.displayMode == .spanned, !current.supportsPanorama {
-            return "O modo panorâmico aceita fotos e GIFs locais."
+            return "O modo panorâmico aceita fotos, GIFs locais e vídeos nativos. Fontes web não são compatíveis."
         }
         return nil
     }

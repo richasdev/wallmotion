@@ -1,8 +1,8 @@
 import Foundation
 import CoreGraphics
 
-/// A photo or GIF placed once in AppKit's global point coordinates. Each screen clips
-/// its slice without re-decoding the image. Gaps between screens consume space.
+/// Native visual media placed once in AppKit's global point coordinates. Each screen clips
+/// its slice using the same global media geometry. Gaps between screens consume space.
 public struct PanoramaLayout: Equatable, Sendable {
     public let bounds: CGRect
     public let referenceScale: CGFloat
