@@ -105,7 +105,10 @@ final class SharedVideoPlayback {
         entry.readinessObserver = layer.observe(\.isReadyForDisplay, options: [.new]) { [weak self] _, _ in
             Task { @MainActor [weak self] in self?.scheduleReadinessCheck() }
         }
-        if let latestRemoteState { state(latestRemoteState) }
+        if let latestRemoteState {
+            state(latestRemoteState)
+            if case .error(let message) = latestRemoteState { error(message) }
+        }
         return id
     }
     func update(_ id: UUID, playing: Bool, visible: Bool, volume: Double) {
@@ -124,6 +127,7 @@ final class SharedVideoPlayback {
     func setHLSResolution(_ value: HLSResolution) { remote?.setHLSResolution(value) }
 
     private func apply() {
+        _ = pruneSubscribers()
         guard !stopped else { return }
         if applying { needsApply = true;return }
         applying = true
@@ -146,7 +150,19 @@ final class SharedVideoPlayback {
     private func cancelReadinessCheck() {
         readinessGeneration = UUID();readinessTask?.cancel();readinessTask = nil
     }
+    /// A destroyed layer cannot keep transport/audio demand or reject a source.
+    private func pruneSubscribers() -> Bool {
+        guard !stopped else { return false }
+        let hadSubscribers = !subscribers.isEmpty
+        let orphans = subscribers.compactMap({ $0.value.layer == nil ? $0.key : nil })
+        for id in orphans {
+            subscribers.removeValue(forKey: id)?.readinessObserver?.invalidate()
+        }
+        if hadSubscribers && subscribers.isEmpty { stop() }
+        return !orphans.isEmpty
+    }
     private func scheduleReadinessCheck() {
+        if pruneSubscribers() { apply() }
         guard !hasFailed, player.timeControlStatus == .playing else {
             cancelReadinessCheck();return
         }
@@ -161,6 +177,7 @@ final class SharedVideoPlayback {
             do { try await Task.sleep(for: delay) } catch { return }
             guard let self, !Task.isCancelled, self.readinessGeneration == generation else { return }
             self.readinessTask = nil
+            if self.pruneSubscribers() { self.apply() }
             guard !self.hasFailed, self.player.timeControlStatus == .playing else { return }
             let active = self.subscribers.values.filter { $0.request.playing && $0.request.visible }
             guard active.count > 1, active.contains(where: { $0.layer.map { !self.layerReady($0) } ?? true }) else { return }

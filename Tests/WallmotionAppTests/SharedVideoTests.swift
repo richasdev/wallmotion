@@ -151,4 +151,44 @@ final class SharedVideoTests: XCTestCase {
         XCTAssertEqual(playback.player.rate, 0);XCTAssertTrue(playback.player.currentItem === current)
         XCTAssertFalse(playback.player.preventsDisplaySleepDuringVideoPlayback)
     }
+
+    func testDestroyedLayerDoesNotRejectSharedPlaybackOrRetainAudioDemand() async throws {
+        let (root,store,item) = try await fixture();defer { try? FileManager.default.removeItem(at: root) }
+        var rejected = false
+        let playback = try SharedVideoPlayback(wallpaperID: item.id,url: store.resolvedURL(for: item),
+            layerReady: { _ in false },readinessDelay: .milliseconds(60)) { rejected = true }
+        defer { playback.stop() }
+        let kept = AVPlayerLayer(player: playback.player)
+        var orphan: AVPlayerLayer? = AVPlayerLayer(player: playback.player)
+        let one = playback.subscribe(layer: kept,refresh: {},state: { _ in },error: { XCTFail($0) })
+        let two = playback.subscribe(layer: try XCTUnwrap(orphan),refresh: {},state: { _ in },error: { XCTFail($0) })
+        playback.update(one,playing: true,visible: true,volume: 0)
+        playback.update(two,playing: true,visible: true,volume: 0.8)
+        try await waitUntil { playback.hasReadinessTask }
+        weak let weakLayer = orphan;orphan = nil
+        XCTAssertNil(weakLayer)
+        // The bounded readiness callback also prunes a layer destroyed without an update.
+        try await waitUntil { playback.subscriberCount == 1 }
+        XCTAssertTrue(playback.player.isMuted);XCTAssertEqual(playback.player.volume,0)
+        XCTAssertEqual(playback.player.rate,1)
+        playback.update(one,playing: true,visible: true,volume: 0.4)
+        XCTAssertFalse(rejected);XCTAssertEqual(playback.player.volume,0.4,accuracy: 0.0001)
+        XCTAssertFalse(playback.hasReadinessTask)
+    }
+
+    func testDeallocatedRendererReleasesItsSharedSubscription() async throws {
+        guard let screen = NSScreen.screens.first else { throw XCTSkip("Sem sessão gráfica") }
+        let (root,store,item) = try await fixture();defer { try? FileManager.default.removeItem(at: root) }
+        let url = try store.resolvedURL(for: item)
+        let playback = try SharedVideoPlayback(wallpaperID: item.id,url: url,layerReady: { _ in true }) {}
+        var renderer: WallpaperRenderer? = try WallpaperRenderer(wallpaper: item,url: url,screen: screen,
+            targetFrame: targets(screen)[0].frame,sharedVideo: playback,isWindowVisible: { _ in true }) { XCTFail($0) }
+        let window = try XCTUnwrap(renderer?.window)
+        defer { window.orderOut(nil);window.close();playback.stop() }
+        XCTAssertEqual(playback.subscriberCount,1)
+        weak let weakRenderer = renderer;renderer = nil
+        XCTAssertNil(weakRenderer)
+        try await waitUntil { playback.subscriberCount == 0 }
+        XCTAssertNil(playback.player.currentItem);XCTAssertEqual(playback.player.rate,0)
+    }
 }

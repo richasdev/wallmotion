@@ -152,6 +152,12 @@ final class WallpaperRenderer {
     func usesSharedVideo(_ value: SharedVideoPlayback?) -> Bool {
         value == nil ? sharedVideo == nil : sharedVideo === value
     }
+
+    deinit {
+        // Capture values, never self: actor cleanup may run after deallocation.
+        let playback = sharedVideo, subscriber = sharedVideoSubscriber
+        if let subscriber { Task { @MainActor in playback?.unsubscribe(subscriber) } }
+    }
     var isWebPlaying: Bool { webRenderer?.isPlaying == true }
     private let player: AVPlayer?
     private let imageView: NSImageView?
