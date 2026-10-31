@@ -430,7 +430,7 @@ final class LibraryModel {
         guard id == nil || displays.contains(where: { $0.id == id }) else { return }
         var next = state
         next.settings.audioDisplayID = id
-        if update(next) { refreshPlayback(force: false) }
+        if update(next) { engine.setAudioPreferences(state: state) }
     }
 
     func setHLSResolution(_ value: HLSResolution) {
@@ -444,7 +444,20 @@ final class LibraryModel {
         guard value.isFinite, (0...1).contains(value), value != state.settings.audioVolume else { return }
         var next = state
         next.settings.audioVolume = value
-        if update(next) { refreshPlayback(force: false) }
+        if update(next) { engine.setAudioPreferences(state: state) }
+    }
+
+    func audioWallpaper(on displayID: String) -> Wallpaper? {
+        guard let id = activeWallpaperID(on: displayID) else { return nil }
+        return state.wallpapers.first { $0.id == id && $0.kind == .video }
+    }
+
+    func setAudioGain(_ value: Double, for wallpaperID: UUID) {
+        guard canEdit, value.isFinite, (0...1).contains(value), value != state.audioGain(for: wallpaperID),
+              state.wallpapers.contains(where: { $0.id == wallpaperID && $0.kind == .video }) else { return }
+        var next = state
+        next.setAudioGain(value, for: wallpaperID)
+        if update(next) { engine.setAudioPreferences(state: state) }
     }
 
     func applicationRestriction(for item: Wallpaper, on displayID: String) -> String? {

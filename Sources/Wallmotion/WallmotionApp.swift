@@ -103,11 +103,20 @@ struct WallpaperMenu: View {
         }
         Button(model.manualPauseActionTitle) { model.togglePause() }
             .disabled(!model.canEdit)
-        Menu("Volume · \(Int((model.state.settings.audioVolume * 100).rounded()))%") {
+        Menu("Volume geral · \(Int((model.state.settings.audioVolume * 100).rounded()))%") {
             ForEach([0, 25, 50, 75, 100], id: \.self) { percent in
                 Button("\(percent)%") { model.setAudioVolume(Double(percent) / 100) }
             }
         }.disabled(!model.canEdit || model.state.settings.audioDisplayID == nil)
+        if let display = model.state.settings.audioDisplayID,
+           model.displays.contains(where: { $0.id == display }),
+           let item = model.audioWallpaper(on: display) {
+            Menu("Volume do fundo com som · \(Int((model.state.audioGain(for: item.id) * 100).rounded()))%") {
+                ForEach([0, 25, 50, 75, 100], id: \.self) { percent in
+                    Button("\(percent)%") { model.setAudioGain(Double(percent) / 100, for: item.id) }
+                }
+            }.disabled(!model.canEdit)
+        }
         Button("Recarregar reprodução") { model.refreshPlayback() }
         Divider()
         Button("Encerrar Wallmotion") { NSApp.terminate(nil) }
