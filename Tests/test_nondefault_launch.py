@@ -28,7 +28,7 @@ class NondefaultLaunchTests(unittest.TestCase):
             app, _ = self.tree(root, "events.finishLaunching(isDefaultLaunch: isDefault)")
             qa.inject_nondefault_probe(root, root / "private-qa")
             self.assertIn("events.finishLaunching(isDefaultLaunch: isDefault)", app.read_text())
-            self.assertIn("NondefaultLaunchQA.begin(self, isDefault: isDefault)", app.read_text())
+            self.assertIn("NondefaultLaunchQA.begin(self, isDefault: isDefault, flagPresent:", app.read_text())
             self.assertNotIn("__QA_ROOT_JSON__", (app.parent / "NondefaultLaunchQA.swift").read_text())
 
     def test_delegate_hook_refuses_missing_or_duplicate_match(self):

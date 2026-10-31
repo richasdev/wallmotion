@@ -8,9 +8,9 @@ enum NondefaultLaunchQA {
     static var task: Task<Void,Never>?
     static var watcher: (any DispatchSourceFileSystemObject)?
 
-    static func begin(_ delegate: AppDelegate, isDefault: Bool) {
+    static func begin(_ delegate: AppDelegate, isDefault: Bool, flagPresent: Bool) {
         guard delegate.session.phase == .busy else { return }
-        let initial: [String: Any] = ["pid": Int(getpid()),"launch_is_default": isDefault,
+        let initial: [String: Any] = ["pid": Int(getpid()),"launch_is_default": isDefault,"launch_flag_present": flagPresent,
             "busy": true,"has_model": delegate.session.model != nil,
             "pending": delegate.events.pendingURLs.count,"waiting": delegate.events.waitingForInitialFiles]
         try? JSONSerialization.data(withJSONObject: initial).write(to: root.appendingPathComponent("launch-\(getpid()).json"),options: .atomic)
@@ -26,9 +26,9 @@ enum NondefaultLaunchQA {
                         guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
                         view.cacheDisplay(in: view.bounds,to: bitmap)
                         // cacheDisplay preserves transparent SwiftUI background;
-                        // composite against this window's native background for a legible artifact.
+                        // composite on white for a legible artifact (not an OS screen capture).
                         let image = NSImage(size: view.bounds.size,flipped: false) { rect in
-                            window.backgroundColor.setFill();rect.fill();bitmap.draw(in: rect);return true
+                            NSColor.white.setFill();rect.fill();bitmap.draw(in: rect);return true
                         }
                         guard let tiff = image.tiffRepresentation,let opaque = NSBitmapImageRep(data: tiff),
                               let png = opaque.representation(using: .png,properties: [:]) else { return }
@@ -36,7 +36,8 @@ enum NondefaultLaunchQA {
                         let value: [String: Any] = ["pid": Int(getpid()),"status": "waiting", "busy": delegate.session.phase == .busy,
                             "has_model": delegate.session.model != nil,"pending": delegate.events.pendingURLs.count,
                             "waiting": delegate.events.waitingForInitialFiles,"forwarding": delegate.events.isForwarding,
-                            "launch_is_default": isDefault,"width": view.bounds.width,"height": view.bounds.height]
+                            "launch_is_default": isDefault,"launch_flag_present": flagPresent,
+                            "capture_background": "white composite of native view cache", "width": view.bounds.width,"height": view.bounds.height]
                         try JSONSerialization.data(withJSONObject: value).write(to: root.appendingPathComponent("waiting-\(getpid()).json"),options: .atomic)
                         let fd = open(root.path,O_EVTONLY | O_NOFOLLOW | O_CLOEXEC)
                         guard fd >= 0 else { return }

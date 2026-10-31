@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import fcntl
 import os
 import signal
 import json
@@ -93,7 +94,20 @@ def inject_nondefault_probe(source: pathlib.Path, root: pathlib.Path):
     marker = "events.finishLaunching(isDefaultLaunch: isDefault)"
     if contents.count(marker) != 1:
         raise RuntimeError("QA nondefault delegate hook must match once")
-    delegate.write_text(contents.replace(marker, marker + "\n        NondefaultLaunchQA.begin(self, isDefault: isDefault)"))
+    delegate.write_text(contents.replace(marker, marker + "\n        NondefaultLaunchQA.begin(self, isDefault: isDefault, flagPresent: notification.userInfo?[NSApplication.launchIsDefaultUserInfoKey] is Bool)"))
+
+
+def verify_lock_held(path: pathlib.Path):
+    fd = os.open(path, os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        raise RuntimeError("QA primary library lock was unexpectedly available")
+    finally:
+        os.close(fd)
 
 
 def audit(source_ref: str, check_overflow: bool = False, nondefault_evidence: pathlib.Path | None = None) -> dict:
@@ -219,6 +233,7 @@ def audit(source_ref: str, check_overflow: bool = False, nondefault_evidence: pa
         if nondefault_evidence:
             identity_before = (library / "wallmotion-owner.json").read_bytes()
             lock_before = (library / "wallmotion.lock").stat()
+            verify_lock_held(library / "wallmotion.lock")
             secondary = json.loads(run([str(helper), "open-empty", bundle, str(app)]))["pid"]
             if secondary <= 0 or secondary == primary:
                 raise RuntimeError("QA nondefault launch did not create a distinct secondary")
@@ -241,6 +256,7 @@ def audit(source_ref: str, check_overflow: bool = False, nondefault_evidence: pa
             wait_for(lambda: (root / f"action-{secondary}.json").is_file(), "native action receipt")
             wait_for(lambda: completed(4, primary), "native activate-and-close secondary exit")
             lock_after = (library / "wallmotion.lock").stat()
+            verify_lock_held(library / "wallmotion.lock")
             if ((library / "wallmotion-owner.json").read_bytes() != identity_before
                     or (library / "library.json").read_bytes() != before
                     or (lock_before.st_dev, lock_before.st_ino) != (lock_after.st_dev, lock_after.st_ino)):
@@ -248,7 +264,8 @@ def audit(source_ref: str, check_overflow: bool = False, nondefault_evidence: pa
             results.append({"case": "nondefault_empty_open_documents", "launch_is_default": False,
                             "waiting_ui_captured": True, "secondary_model_absent": True,
                             "native_action_invoked": True, "secondary_exited": True,
-                            "library_and_owner_unchanged": True, "lock_inode_unchanged": True})
+                            "library_and_owner_unchanged": True, "lock_inode_unchanged": True,
+                            "primary_lock_held_before_and_after": True,"launch_flag_present": status["launch_flag_present"]})
         if check_overflow:
             overflow = [root / f"overflow-{index:03}.png" for index in range(257)]
             for path in overflow:
