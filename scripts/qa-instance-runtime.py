@@ -292,10 +292,10 @@ def audit(source_ref: str, check_overflow: bool = False, nondefault_evidence: pa
                            "OS launch/forward behavior; not a general exactly-once or state-restoration guarantee. Native model action is not a simulated pointer click.",
                            "Temporary QA windows may appear; no UI automation, permissions or power settings are changed."]}
     finally:
-        if nondefault_evidence and (root / "build.log").exists():
-            shutil.copyfile(root / "build.log", nondefault_evidence / "build.log")
         if launched:
             stop()  # On failure, preserve artifacts if the owned process cannot stop.
+        if nondefault_evidence and (root / "build.log").exists():
+            shutil.copyfile(root / "build.log", nondefault_evidence / "build.log")
         registrar = pathlib.Path("/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister")
         if app.exists() and registrar.exists():
             subprocess.run([str(registrar), "-u", str(app)], capture_output=True, timeout=10)
