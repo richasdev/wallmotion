@@ -27,11 +27,14 @@ enum NondefaultLaunchQA {
                         view.cacheDisplay(in: view.bounds,to: bitmap)
                         // cacheDisplay preserves transparent SwiftUI background;
                         // composite on white for a legible artifact (not an OS screen capture).
-                        let image = NSImage(size: view.bounds.size,flipped: false) { rect in
-                            NSColor.white.setFill();rect.fill();bitmap.draw(in: rect);return true
-                        }
-                        guard let tiff = image.tiffRepresentation,let opaque = NSBitmapImageRep(data: tiff),
-                              let png = opaque.representation(using: .png,properties: [:]) else { return }
+                        guard let captured = bitmap.cgImage,
+                              let context = CGContext(data: nil,width: captured.width,height: captured.height,
+                                bitsPerComponent: 8,bytesPerRow: captured.width*4,space: CGColorSpaceCreateDeviceRGB(),
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return }
+                        let rect = CGRect(x: 0,y: 0,width: captured.width,height: captured.height)
+                        context.setFillColor(CGColor(red: 1,green: 1,blue: 1,alpha: 1));context.fill(rect)
+                        context.draw(captured,in: rect)
+                        guard let image = context.makeImage(),let png = NSBitmapImageRep(cgImage: image).representation(using: .png,properties: [:]) else { return }
                         try png.write(to: root.appendingPathComponent("status-\(getpid()).png"),options: .withoutOverwriting)
                         let value: [String: Any] = ["pid": Int(getpid()),"status": "waiting", "busy": delegate.session.phase == .busy,
                             "has_model": delegate.session.model != nil,"pending": delegate.events.pendingURLs.count,
