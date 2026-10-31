@@ -1,0 +1,327 @@
+{
+  "schema_version": 1,
+  "status": "passed",
+  "source_sha": "baf6c0dd4dac9250b6aaf04d0384d0972afe67f0",
+  "injected_fixture_sha256": "aeb87ebc78f513bc6629c576f3ccec82f1d10bad0dd2c2af439517fdfa1cabd0",
+  "os_version": "27.0.1",
+  "architecture": "arm64",
+  "sample_interval_seconds": 1.0,
+  "phase_duration_seconds": 120.0,
+  "warmup_seconds": 10.0,
+  "workload": {
+    "codec": "H.264",
+    "width": 1280,
+    "height": 720,
+    "fps": 30,
+    "loop_seconds": 4,
+    "audio_track": false
+  },
+  "limits": [
+    "Instrumented archived app with private library/bundle and generated video; not the unmodified user's app.",
+    "One synthetic offscreen 1280x720 desktop target; visibility and thermal pressure are injected in the QA copy only.",
+    "Actual AVPlayer playback and production model policy; checks of progress/readiness occur at phase boundaries.",
+    "Host ps CPU/RSS only; no GPU, WindowServer, WebKit helpers, power watts, physical footprint or battery measurement.",
+    "Power assertions queried at phase boundaries only; no actual sleep, physical lock, rotation, HDR or live provider certification.",
+    "Fixed phase order, one run; results are descriptive, not proof of general savings or statistical significance.",
+    "No user library/media, sudo, HOME changes, login items, OS permission changes or power-setting changes."
+  ],
+  "raw_report_sha256": "72fb80ce8a22de0b5a19536b27e6d0c33aec6f49860c911eb05365527829de2b",
+  "phases": [
+    {
+      "phase": "active",
+      "before": {
+        "current_item_ready": true,
+        "id": 2,
+        "muted": true,
+        "phase": "active",
+        "pid": 51880,
+        "playing": true,
+        "prevents_display_sleep": false,
+        "rate": 1,
+        "status": "ready",
+        "volume": 0
+      },
+      "after": {
+        "current_item_ready": true,
+        "id": 3,
+        "muted": true,
+        "phase": "active",
+        "pid": 51880,
+        "playing": true,
+        "prevents_display_sleep": false,
+        "rate": 1,
+        "status": "ready",
+        "volume": 0
+      },
+      "power_before": {
+        "schema_version": 1,
+        "timestamp_utc": "2026-10-31T20:35:58.037+00:00",
+        "pid": 51880,
+        "status": "no_display_sleep_assertion_observed",
+        "assertion_type_counts": {},
+        "display_sleep_assertion_count": 0,
+        "limits": [
+          "Single pmset snapshot for the validated host PID; assertions may change immediately.",
+          "No WebKit helpers, descendant attribution, GPU, energy or actual display-sleep test.",
+          "No assertion names/IDs, command paths or other process records are exported.",
+          "Absence of an observed assertion does not establish zero energy use or sleep compliance.",
+          "Locale-stable human-readable pmset format; unsupported/incomplete output is an error, not a clean result.",
+          "Pre/post UID, command, start token and counters detect ordinary PID changes, not a security identity."
+        ]
+      },
+      "power_after": {
+        "schema_version": 1,
+        "timestamp_utc": "2026-10-31T20:37:58.282+00:00",
+        "pid": 51880,
+        "status": "no_display_sleep_assertion_observed",
+        "assertion_type_counts": {},
+        "display_sleep_assertion_count": 0,
+        "limits": [
+          "Single pmset snapshot for the validated host PID; assertions may change immediately.",
+          "No WebKit helpers, descendant attribution, GPU, energy or actual display-sleep test.",
+          "No assertion names/IDs, command paths or other process records are exported.",
+          "Absence of an observed assertion does not establish zero energy use or sleep compliance.",
+          "Locale-stable human-readable pmset format; unsupported/incomplete output is an error, not a clean result.",
+          "Pre/post UID, command, start token and counters detect ordinary PID changes, not a security identity."
+        ]
+      },
+      "metrics": {
+        "schema_version": 2,
+        "status": "completed",
+        "termination_reason": "requested duration reached",
+        "requested_duration_seconds": 120.0,
+        "summary": {
+          "interval_observed_seconds": 120.009440417,
+          "cpu_interval_weighted_percent": 2.8164450965319263,
+          "cpu_interval_p95_percent": 4.017439705762645,
+          "rss_peak_sample_bytes": 145178624,
+          "rss_mean_bytes": 101642273.85123967,
+          "rss_p95_bytes": 133873664
+        },
+        "sample_count": 121
+      }
+    },
+    {
+      "phase": "manual_pause",
+      "before": {
+        "current_item_ready": true,
+        "id": 5,
+        "muted": true,
+        "phase": "manual_pause",
+        "pid": 51880,
+        "playing": false,
+        "prevents_display_sleep": false,
+        "rate": 0,
+        "status": "ready",
+        "volume": 0
+      },
+      "after": {
+        "current_item_ready": true,
+        "id": 6,
+        "muted": true,
+        "phase": "manual_pause",
+        "pid": 51880,
+        "playing": false,
+        "prevents_display_sleep": false,
+        "rate": 0,
+        "status": "ready",
+        "volume": 0
+      },
+      "power_before": {
+        "schema_version": 1,
+        "timestamp_utc": "2026-10-31T20:38:08.527+00:00",
+        "pid": 51880,
+        "status": "no_display_sleep_assertion_observed",
+        "assertion_type_counts": {},
+        "display_sleep_assertion_count": 0,
+        "limits": [
+          "Single pmset snapshot for the validated host PID; assertions may change immediately.",
+          "No WebKit helpers, descendant attribution, GPU, energy or actual display-sleep test.",
+          "No assertion names/IDs, command paths or other process records are exported.",
+          "Absence of an observed assertion does not establish zero energy use or sleep compliance.",
+          "Locale-stable human-readable pmset format; unsupported/incomplete output is an error, not a clean result.",
+          "Pre/post UID, command, start token and counters detect ordinary PID changes, not a security identity."
+        ]
+      },
+      "power_after": {
+        "schema_version": 1,
+        "timestamp_utc": "2026-10-31T20:40:08.709+00:00",
+        "pid": 51880,
+        "status": "no_display_sleep_assertion_observed",
+        "assertion_type_counts": {},
+        "display_sleep_assertion_count": 0,
+        "limits": [
+          "Single pmset snapshot for the validated host PID; assertions may change immediately.",
+          "No WebKit helpers, descendant attribution, GPU, energy or actual display-sleep test.",
+          "No assertion names/IDs, command paths or other process records are exported.",
+          "Absence of an observed assertion does not establish zero energy use or sleep compliance.",
+          "Locale-stable human-readable pmset format; unsupported/incomplete output is an error, not a clean result.",
+          "Pre/post UID, command, start token and counters detect ordinary PID changes, not a security identity."
+        ]
+      },
+      "metrics": {
+        "schema_version": 2,
+        "status": "completed",
+        "termination_reason": "requested duration reached",
+        "requested_duration_seconds": 120.0,
+        "summary": {
+          "interval_observed_seconds": 120.01800274999997,
+          "cpu_interval_weighted_percent": 0.008332083329890275,
+          "cpu_interval_p95_percent": 0.0,
+          "rss_peak_sample_bytes": 106692608,
+          "rss_mean_bytes": 61186521.91735537,
+          "rss_p95_bytes": 73711616
+        },
+        "sample_count": 121
+      }
+    },
+    {
+      "phase": "occluded",
+      "before": {
+        "current_item_ready": true,
+        "id": 8,
+        "muted": true,
+        "phase": "occluded",
+        "pid": 51880,
+        "playing": false,
+        "prevents_display_sleep": false,
+        "rate": 0,
+        "status": "ready",
+        "volume": 0
+      },
+      "after": {
+        "current_item_ready": true,
+        "id": 9,
+        "muted": true,
+        "phase": "occluded",
+        "pid": 51880,
+        "playing": false,
+        "prevents_display_sleep": false,
+        "rate": 0,
+        "status": "ready",
+        "volume": 0
+      },
+      "power_before": {
+        "schema_version": 1,
+        "timestamp_utc": "2026-10-31T20:40:18.958+00:00",
+        "pid": 51880,
+        "status": "no_display_sleep_assertion_observed",
+        "assertion_type_counts": {},
+        "display_sleep_assertion_count": 0,
+        "limits": [
+          "Single pmset snapshot for the validated host PID; assertions may change immediately.",
+          "No WebKit helpers, descendant attribution, GPU, energy or actual display-sleep test.",
+          "No assertion names/IDs, command paths or other process records are exported.",
+          "Absence of an observed assertion does not establish zero energy use or sleep compliance.",
+          "Locale-stable human-readable pmset format; unsupported/incomplete output is an error, not a clean result.",
+          "Pre/post UID, command, start token and counters detect ordinary PID changes, not a security identity."
+        ]
+      },
+      "power_after": {
+        "schema_version": 1,
+        "timestamp_utc": "2026-10-31T20:42:19.122+00:00",
+        "pid": 51880,
+        "status": "no_display_sleep_assertion_observed",
+        "assertion_type_counts": {},
+        "display_sleep_assertion_count": 0,
+        "limits": [
+          "Single pmset snapshot for the validated host PID; assertions may change immediately.",
+          "No WebKit helpers, descendant attribution, GPU, energy or actual display-sleep test.",
+          "No assertion names/IDs, command paths or other process records are exported.",
+          "Absence of an observed assertion does not establish zero energy use or sleep compliance.",
+          "Locale-stable human-readable pmset format; unsupported/incomplete output is an error, not a clean result.",
+          "Pre/post UID, command, start token and counters detect ordinary PID changes, not a security identity."
+        ]
+      },
+      "metrics": {
+        "schema_version": 2,
+        "status": "completed",
+        "termination_reason": "requested duration reached",
+        "requested_duration_seconds": 120.0,
+        "summary": {
+          "interval_observed_seconds": 120.01629841700003,
+          "cpu_interval_weighted_percent": 0.02499660495757347,
+          "cpu_interval_p95_percent": 0.0,
+          "rss_peak_sample_bytes": 67452928,
+          "rss_mean_bytes": 41700665.12396694,
+          "rss_p95_bytes": 62603264
+        },
+        "sample_count": 121
+      }
+    },
+    {
+      "phase": "thermal_pause",
+      "before": {
+        "current_item_ready": true,
+        "id": 11,
+        "muted": true,
+        "phase": "thermal_pause",
+        "pid": 51880,
+        "playing": false,
+        "prevents_display_sleep": false,
+        "rate": 0,
+        "status": "ready",
+        "volume": 0
+      },
+      "after": {
+        "current_item_ready": true,
+        "id": 12,
+        "muted": true,
+        "phase": "thermal_pause",
+        "pid": 51880,
+        "playing": false,
+        "prevents_display_sleep": false,
+        "rate": 0,
+        "status": "ready",
+        "volume": 0
+      },
+      "power_before": {
+        "schema_version": 1,
+        "timestamp_utc": "2026-10-31T20:42:29.378+00:00",
+        "pid": 51880,
+        "status": "no_display_sleep_assertion_observed",
+        "assertion_type_counts": {},
+        "display_sleep_assertion_count": 0,
+        "limits": [
+          "Single pmset snapshot for the validated host PID; assertions may change immediately.",
+          "No WebKit helpers, descendant attribution, GPU, energy or actual display-sleep test.",
+          "No assertion names/IDs, command paths or other process records are exported.",
+          "Absence of an observed assertion does not establish zero energy use or sleep compliance.",
+          "Locale-stable human-readable pmset format; unsupported/incomplete output is an error, not a clean result.",
+          "Pre/post UID, command, start token and counters detect ordinary PID changes, not a security identity."
+        ]
+      },
+      "power_after": {
+        "schema_version": 1,
+        "timestamp_utc": "2026-10-31T20:44:29.520+00:00",
+        "pid": 51880,
+        "status": "no_display_sleep_assertion_observed",
+        "assertion_type_counts": {},
+        "display_sleep_assertion_count": 0,
+        "limits": [
+          "Single pmset snapshot for the validated host PID; assertions may change immediately.",
+          "No WebKit helpers, descendant attribution, GPU, energy or actual display-sleep test.",
+          "No assertion names/IDs, command paths or other process records are exported.",
+          "Absence of an observed assertion does not establish zero energy use or sleep compliance.",
+          "Locale-stable human-readable pmset format; unsupported/incomplete output is an error, not a clean result.",
+          "Pre/post UID, command, start token and counters detect ordinary PID changes, not a security identity."
+        ]
+      },
+      "metrics": {
+        "schema_version": 2,
+        "status": "completed",
+        "termination_reason": "requested duration reached",
+        "requested_duration_seconds": 120.0,
+        "summary": {
+          "interval_observed_seconds": 120.00864375000003,
+          "cpu_interval_weighted_percent": 0.0,
+          "cpu_interval_p95_percent": 0.0,
+          "rss_peak_sample_bytes": 51560448,
+          "rss_mean_bytes": 31852527.074380167,
+          "rss_p95_bytes": 51314688
+        },
+        "sample_count": 121
+      }
+    }
+  ]
+}

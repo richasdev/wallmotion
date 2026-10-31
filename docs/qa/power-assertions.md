@@ -19,3 +19,13 @@ Desktop player construction already sets `preventsDisplaySleepDuringVideoPlaybac
 A local read-only snapshot on 2026-10-30 UTC of the running host PID 31520 reported no owned assertions. Its workload was uncontrolled: this does not certify video, web, pause/thermal states or absence of WebKit assertions. Absence in a snapshot does not establish zero energy use, actual display sleep, or future compliance. RSS/CPU/energy remain separate metrics. The broader matrix in #91 and whole-app protocol in #8 remain open until measured.
 
 Unit fixtures cover exact PID matching (123 vs 12/1234), duplicate types, other-process privacy, malformed/unsupported/truncated output, large input, start-identity change, child timeout configuration and distinct clean/present/error exit statuses. They do not modify OS power settings or prevent display sleep.
+
+## Controlled native matrix
+
+The [isolated runtime matrix](runtime-policy-matrix.md) now records native active,
+manual-pause, synthetic occlusion and injected thermal-pause states, 120 seconds
+each. All eight host boundary snapshots observed no display-sleep assertion; each
+phase verified native sleep prevention disabled. This adds a measured native
+matrix to the earlier uncontrolled snapshot. It does not certify WebKit helpers,
+actual screen sleep or future assertion state. Raw sample data and limits are
+linked from that report.
