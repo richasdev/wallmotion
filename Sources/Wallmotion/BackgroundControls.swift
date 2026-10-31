@@ -221,10 +221,10 @@ struct BackgroundControls: View {
     private func fitDescription(_ fit: MediaFit) -> String {
         if model.state.displayMode == .spanned {
             return switch fit {
-            case .fit: "Mostra a foto inteira no conjunto das telas, com bordas quando necessário."
-            case .fill: "Preenche o conjunto das telas sem distorcer, recortando as bordas da foto."
+            case .fit: "Mostra a mídia inteira no conjunto das telas, com bordas quando necessário."
+            case .fill: "Preenche o conjunto das telas sem distorcer, recortando as bordas da mídia."
             case .center: "Centraliza no conjunto das telas usando a maior escala de pixels conectada como referência."
-            case .stretch: "Estica a foto até as bordas do conjunto das telas; as proporções podem mudar."
+            case .stretch: "Estica a mídia até as bordas do conjunto das telas; as proporções podem mudar."
             }
         }
         return switch fit {
