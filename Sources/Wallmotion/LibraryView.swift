@@ -419,7 +419,7 @@ struct LibraryView: View {
         HStack(spacing: 12) {
             Image(systemName: "display").font(.title2).foregroundStyle(Color.accentColor)
             VStack(alignment: .leading, spacing: 4) {
-                Text(model.state.displayMode.isShared ? (model.state.displayMode == .spanned ? "Foto panorâmica · todas as telas" : "Todos os monitores · mesmo fundo") : targetDisplayName)
+                Text(model.state.displayMode.isShared ? (model.state.displayMode == .spanned ? "Panorama · todas as telas" : "Todos os monitores · mesmo fundo") : targetDisplayName)
                     .font(.callout.weight(.semibold)).lineLimit(2)
                 Text(appliedWallpaper(on: selectedDisplay).map { "Fundo: \($0.title)" } ?? "Escolha uma mídia para este monitor")
                     .font(.caption).foregroundStyle(.secondary).lineLimit(2)

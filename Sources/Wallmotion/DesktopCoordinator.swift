@@ -221,8 +221,11 @@ final class WallpaperRenderer {
                 guard let identity = animation.sourceIdentity else { throw RendererError.unreadableImage }
                 playback = try SharedGIFPlayback.playback(for: PreparedGIF(animation: animation, identity: identity))
             }
-            let pointSize = CGSize(width: Double(playback.asset.animation.width)/scale, height: Double(playback.asset.animation.height)/scale)
-            let view = ImageSurface(image: playback.currentImage, mediaFit: mediaFit, sourcePointSize: pointSize)
+            let sourcePixels = CGSize(width: playback.asset.animation.width, height: playback.asset.animation.height)
+            let pointSize = CGSize(width: sourcePixels.width / photoScale, height: sourcePixels.height / photoScale)
+            let panoramaFrame = panorama.map { $0.imageFrame(sourcePixels: sourcePixels, fit: mediaFit, on: frame) }
+            let view = ImageSurface(image: playback.currentImage, mediaFit: mediaFit,
+                panoramaFrame: panoramaFrame, sourcePointSize: pointSize)
             imageView = view.imageView; player = nil; gifPlayback = playback
             window = DesktopWindow(screen: screen, view: view, frame: frame)
             gifSubscriber = playback.subscribe(url: url, image: { [weak view] image in
@@ -627,7 +630,7 @@ final class DesktopCoordinator {
         guard state.displayMode == .spanned else { return }
         if let id = state.mirroredWallpaperID {
             guard let item = state.wallpapers.first(where: { $0.id == id }),
-                  item.supportsPanorama else { throw PanoramaError.photoRequired }
+                  item.supportsPanorama else { throw PanoramaError.localVisualRequired }
         }
         if !targets.isEmpty, panorama(state: state, targets: targets) == nil { throw PanoramaError.invalidGeometry }
     }
@@ -904,10 +907,10 @@ final class DesktopCoordinator {
 }
 
 private enum PanoramaError: LocalizedError {
-    case photoRequired, invalidGeometry
+    case localVisualRequired, invalidGeometry
     var errorDescription: String? {
         switch self {
-        case .photoRequired: "Escolha uma foto para usar o modo panorâmico. Vídeos e GIFs ainda não são compatíveis."
+        case .localVisualRequired: "Escolha uma foto ou GIF local para usar o modo panorâmico. Vídeos ainda não são compatíveis."
         case .invalidGeometry: "Não foi possível calcular a disposição dos monitores para o panorama."
         }
     }

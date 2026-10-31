@@ -541,11 +541,10 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(model.activeWallpaperID(on: "two"), photo.id)
     }
 
-    func testPanoramaStartsEmptyFromGIFAndOfficialWebWithoutDiscardingIndependentSelection() async throws {
+    func testPanoramaStartsEmptyFromOfficialWebWithoutDiscardingIndependentSelection() async throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
-        let items = [Wallpaper(title: "GIF", kind: .gif, source: .local(filename: "animation.gif")),
-                     try Wallpaper.web("https://youtu.be/M7lc1UVf-VE")]
+        let items = [try Wallpaper.web("https://youtu.be/M7lc1UVf-VE")]
         for item in items {
             let store = LibraryStore(rootURL: directory.appendingPathComponent(item.id.uuidString))
             let initial = LibraryState(wallpapers: [item], assignments: ["one": item.id])
@@ -585,7 +584,7 @@ final class LibraryModelTests: XCTestCase {
             model.setDisplayMode(mode, sourceDisplayID: "one")
             for item in items {
                 XCTAssertEqual(model.applicationRestriction(for: item, on: "one") == nil,
-                    mode != .spanned || item.id == photo.id)
+                    mode != .spanned || item.id == photo.id || item.id == gif.id)
                 XCTAssertNotNil(model.applicationRestriction(for: item, on: "missing"))
             }
         }

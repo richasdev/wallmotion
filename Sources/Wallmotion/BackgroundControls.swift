@@ -48,8 +48,8 @@ struct BackgroundControls: View {
             }
             Text(model.state.displayMode == .spanned
                  ? (model.state.mirroredWallpaperID == nil
-                    ? "Escolha uma foto local na biblioteca para preencher o panorama. Espaços entre monitores também fazem parte dele."
-                    : "Uma foto atravessa a disposição das telas. Espaços entre monitores também fazem parte do panorama.")
+                    ? "Escolha uma foto ou GIF local na biblioteca para preencher o panorama. Espaços entre monitores também fazem parte dele."
+                    : "A foto ou animação atravessa a disposição das telas. Espaços entre monitores também fazem parte do panorama.")
                  : model.state.displayMode == .mirrored
                  ? "A mídia e o enquadramento valem para todos os monitores, inclusive os conectados depois."
                  : "Selecione um monitor na lateral e escolha seu fundo. Suas escolhas individuais ficam salvas.")
@@ -196,7 +196,7 @@ struct BackgroundControls: View {
         )) {
             Text("Separado por monitor").tag(DisplayMode.independent)
             Text("Mesmo fundo em todos").tag(DisplayMode.mirrored)
-            Text("Panorâmico (foto)").tag(DisplayMode.spanned)
+            Text("Panorâmico").tag(DisplayMode.spanned)
         }.labelsHidden().accessibilityLabel("Organização dos monitores")
             .accessibilityHint("No modo separado, cada monitor mantém sua escolha de fundo.")
     }

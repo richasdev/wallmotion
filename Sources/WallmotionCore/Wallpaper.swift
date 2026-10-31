@@ -35,7 +35,7 @@ public struct Wallpaper: Identifiable, Codable, Equatable, Sendable {
     }
 
     public var supportsPanorama: Bool {
-        guard kind == .image, case .local = source else { return false }
+        guard kind == .image || kind == .gif, case .local = source else { return false }
         return true
     }
 
