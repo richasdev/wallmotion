@@ -23,6 +23,14 @@ private actor TestAsyncGate {
 
 @MainActor
 final class LibraryModelTests: XCTestCase {
+    private func waitForAdmission(_ model: LibraryModel, on display: String) async throws {
+        let deadline = ContinuousClock.now + .seconds(3)
+        while model.isPreparingWallpaper(on: display), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertFalse(model.isPreparingWallpaper(on: display))
+    }
+
     @MainActor private final class TestDisplays {
         var values: [Display]
         init(_ values: [Display]) { self.values = values }
@@ -381,7 +389,7 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertLessThanOrEqual(failures.message?.utf8.count ?? Int.max, 11_000)
     }
 
-    func testRejectedGIFSelectionPreservesPersistedAssignmentAndOtherMonitors() throws {
+    func testRejectedGIFSelectionPreservesPersistedAssignmentAndOtherMonitors() async throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         guard let screen = NSScreen.screens.first, let displayID = Display.identify(screen) else {
@@ -408,6 +416,7 @@ final class LibraryModelTests: XCTestCase {
         defer { model.stop() }
         model.refreshPlayback(force: false)
         model.apply(animation, to: displayID)
+        try await waitForAdmission(model, on: displayID)
         XCTAssertTrue(model.errorMessage?.contains("limite global") == true)
         XCTAssertEqual(model.state, initial)
         XCTAssertEqual(try Data(contentsOf: store.stateURL), savedBytes)
@@ -416,7 +425,7 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(model.state, initial)
     }
 
-    func testSaveFailureDoesNotReserveGIFQuotaOrChangeSelection() throws {
+    func testSaveFailureDoesNotReserveGIFQuotaOrChangeSelection() async throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         guard let screen = NSScreen.screens.first, let displayID = Display.identify(screen) else {
@@ -439,6 +448,7 @@ final class LibraryModelTests: XCTestCase {
         try FileManager.default.removeItem(at: store.stateURL)
         try FileManager.default.createDirectory(at: store.stateURL, withIntermediateDirectories: false)
         model.apply(item, to: displayID)
+        try await waitForAdmission(model, on: displayID)
         XCTAssertTrue(model.errorMessage?.contains("salvar") == true)
         XCTAssertEqual(model.state, state)
         XCTAssertEqual(engine.gifBudget.totalBytes, 0)
@@ -531,7 +541,7 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(model.activeWallpaperID(on: "two"), photo.id)
     }
 
-    func testPanoramaStartsEmptyFromGIFAndOfficialWebWithoutDiscardingIndependentSelection() throws {
+    func testPanoramaStartsEmptyFromGIFAndOfficialWebWithoutDiscardingIndependentSelection() async throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let items = [Wallpaper(title: "GIF", kind: .gif, source: .local(filename: "animation.gif")),
@@ -551,6 +561,7 @@ final class LibraryModelTests: XCTestCase {
             XCTAssertNil(model.errorMessage)
             XCTAssertEqual(try store.load(), model.state)
             model.setDisplayMode(.independent, sourceDisplayID: "one")
+            try await waitForAdmission(model, on: "one")
             XCTAssertEqual(model.activeWallpaperID(on: "one"), item.id)
         }
     }
@@ -632,7 +643,7 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertNil(try store.load().settings.audioDisplayID)
     }
 
-    func testModeSwitchPreflightFailurePreservesLibraryBytesAndIndependentState() throws {
+    func testModeSwitchPreflightFailurePreservesLibraryBytesAndIndependentState() async throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         guard let screen = NSScreen.screens.first, let displayID = Display.identify(screen) else {
@@ -648,6 +659,7 @@ final class LibraryModelTests: XCTestCase {
         defer { model.stop() }
         model.refreshPlayback(force: false)
         model.setDisplayMode(.mirrored, sourceDisplayID: displayID)
+        try await waitForAdmission(model, on: displayID)
         XCTAssertNotNil(model.errorMessage)
         XCTAssertEqual(model.state, initial)
         XCTAssertEqual(try Data(contentsOf: store.stateURL), bytes)

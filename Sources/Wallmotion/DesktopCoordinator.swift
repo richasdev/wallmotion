@@ -401,6 +401,7 @@ final class DesktopCoordinator {
     private var pendingReloads: Set<String> = []
     private let photos: PhotoPreparation
     private let gifs: SharedGIFPreparation
+    private let gifAdmissions: GIFAdmissionWorker
     private var gifMetadata: [GIFFileIdentity: GIFMetadata] = [:]
     private var reschedule: (@MainActor () -> Void)?
     private var rebuildGeneration = UUID()
@@ -427,24 +428,53 @@ final class DesktopCoordinator {
          photoDecoder: @escaping PhotoPreparation.Decode = PhotoDecodeWorker.prepare,
          gifWorker: GIFDecodeWorker = .shared) {
         photos = PhotoPreparation(maximumRetainedBytes: photoBatchBudgetLimit, decode: photoDecoder)
-        gifs = SharedGIFPreparation(worker: gifWorker)
+        gifs = SharedGIFPreparation(worker: gifWorker, limit: gifBudgetLimit)
+        gifAdmissions = gifWorker.admissionWorker
         gifBudget = GIFPlaybackBudget(limit: gifBudgetLimit)
         self.targets = targets
         self.isWindowVisible = isWindowVisible
         self.webDocument = webDocument
     }
 
-    // Check before persisting a user selection. Rebuild also checks restored and
-    // reconnected assignments before preparing a native GIF.
-    func validateAssignment(_ wallpaper: Wallpaper, to displayID: String, store: LibraryStore) throws {
-        let connected = Set(targets().map(\.id))
-        _ = try proposal(for: wallpaper, displayID: displayID, store: store,
-                         budget: gifBudget.retaining(displays: connected))
-    }
-
+    // Synchronous fixture helper. Production UI builds a small admission request
+    // and awaits validateAssignmentsAsync to keep content parsing off MainActor.
     func validateAssignments(state: LibraryState, store: LibraryStore) throws {
         try validatePanorama(state: state, targets: targets())
         _ = try proposedBudget(state: state, store: store, connected: targets().map(\.id))
+    }
+
+    func requiresGIFAdmission(state: LibraryState) -> Bool {
+        let assigned = Set(state.effectiveAssignments(for: targets().map(\.id)).values)
+        return state.wallpapers.contains { assigned.contains($0.id) && $0.kind == .gif }
+    }
+
+    func validateLayout(state: LibraryState) throws {
+        try validatePanorama(state: state, targets: targets())
+    }
+
+    func assignmentAdmissionRequest(state: LibraryState, store: LibraryStore) throws -> GIFAssignmentAdmissionRequest {
+        let connected = targets()
+        try validatePanorama(state: state, targets: connected)
+        let assignments = state.effectiveAssignments(for: connected.map(\.id))
+        var requests: [String: URL] = [:]
+        for (display, id) in assignments {
+            guard let item = state.wallpapers.first(where: { $0.id == id }), item.kind == .gif else { continue }
+            requests[display] = try store.resolvedURL(for: item)
+        }
+        return GIFAssignmentAdmissionRequest(urls: requests, connectedIDs: Set(connected.map(\.id)), limit: gifBudget.limit)
+    }
+
+    func validateAssignmentsAsync(_ request: GIFAssignmentAdmissionRequest) async throws {
+        let admission = try await gifAdmissions.admit(request.urls, limit: request.limit)
+        try Task.checkCancellation()
+        // The MainActor may resume later than the background scan. Recheck only
+        // identity here; parsing content remains exclusively on the worker.
+        for (display, url) in request.urls {
+            guard try GIFFileIdentity.read(url: url) == admission.byDisplay[display]?.identity else {
+                throw GIFAnimationError.nativeStatus(9)
+            }
+        }
+        guard request.connectedIDs == Set(targets().map(\.id)) else { throw CancellationError() }
     }
 
     private func validatePanorama(state: LibraryState, targets: [DesktopTarget]) throws {
@@ -461,23 +491,26 @@ final class DesktopCoordinator {
             ? PanoramaLayout(frames: targets.map(\.frame), backingScales: targets.map(\.backingScale)) : nil
     }
 
-    private func proposedBudget(state: LibraryState, store: LibraryStore, connected: [String]) throws -> GIFPlaybackBudget {
+    private func proposedBudget(state: LibraryState, store: LibraryStore, connected: [String], admissions: [String: GIFAdmission]? = nil) throws -> GIFPlaybackBudget {
         var budget = GIFPlaybackBudget(limit: gifBudget.limit)
         let assignments = state.effectiveAssignments(for: connected)
         for displayID in connected {
             guard let id = assignments[displayID], let wallpaper = state.wallpapers.first(where: { $0.id == id }) else { continue }
-            budget = try proposal(for: wallpaper, displayID: displayID, store: store, budget: budget)
+            budget = try proposal(for: wallpaper, displayID: displayID, store: store, budget: budget, admissions: admissions)
         }
         return budget
     }
 
     private func proposal(for wallpaper: Wallpaper, displayID: String, store: LibraryStore,
-                          budget: GIFPlaybackBudget) throws -> GIFPlaybackBudget {
+                          budget: GIFPlaybackBudget, admissions: [String: GIFAdmission]? = nil) throws -> GIFPlaybackBudget {
         guard wallpaper.kind == .gif else { return try budget.replacing(displayID: displayID, decodedBytes: nil) }
         let url = try store.resolvedURL(for: wallpaper)
         let identity = try GIFFileIdentity.read(url: url)
         let metadata: GIFMetadata
-        if let cached = gifMetadata[identity] { metadata = cached }
+        if let admissions {
+            guard let admitted = admissions[displayID], admitted.identity == identity else { throw GIFAnimationError.nativeStatus(9) }
+            metadata = admitted.metadata
+        } else if let cached = gifMetadata[identity] { metadata = cached }
         else {
             metadata = try GIFPreflight.inspect(url: url)
             guard try GIFFileIdentity.read(url: url) == identity else { throw GIFAnimationError.nativeStatus(9) }
@@ -521,7 +554,7 @@ final class DesktopCoordinator {
             photos.cancel(); gifs.cancel()
             return // Existing surfaces keep policy/audio updates; new media waits.
         }
-        do { try validateAssignments(state: state, store: store) }
+        do { try validatePanorama(state: state, targets: currentTargets) }
         catch {
             photos.cancel(); gifs.cancel()
             for id in assigned { onError(id, error.localizedDescription) }
@@ -553,10 +586,17 @@ final class DesktopCoordinator {
             catch { photos.cancel(); gifs.cancel(); onError(target.id, error.localizedDescription); return }
         }
         let requestedGeometry = geometry(currentTargets)
-        gifs.submit(gifRequests) { [weak self] preparedGIFs in
+        gifs.submit(gifRequests) { [weak self] outcome in
             guard let self, self.rebuildGeneration == generation else { return }
             guard self.geometry(self.targets()) == requestedGeometry else {
                 self.scheduleRebuild(state: state, store: store, paused: self.latestPaused, force: force, onPhotoQuality: onPhotoQuality, onState: onState, onError: onError)
+                return
+            }
+            let admission: GIFAdmissionBatch
+            do { admission = try outcome.admission.get() }
+            catch {
+                self.photos.cancel()
+                for id in assigned { onError(id, error.localizedDescription) }
                 return
             }
             self.photos.submit(requests) { [weak self] prepared in
@@ -566,13 +606,13 @@ final class DesktopCoordinator {
                     return
                 }
                 self.rebuild(state: state, store: store, paused: self.latestPaused, force: force,
-                    preparedPhotos: prepared, requiresPreparedPhotos: true, preparedGIFs: preparedGIFs,
-                    requiresPreparedGIFs: true, onPhotoQuality: onPhotoQuality, onState: onState, onError: onError)
+                    preparedPhotos: prepared, requiresPreparedPhotos: true, preparedGIFs: outcome.images,
+                    requiresPreparedGIFs: true, admissions: admission.byDisplay, onPhotoQuality: onPhotoQuality, onState: onState, onError: onError)
             }
         }
     }
 
-    func rebuild(state: LibraryState, store: LibraryStore, paused: Bool, force: Bool = false, preparedPhotos: PhotoPreparation.Results = [:], requiresPreparedPhotos: Bool = false, preparedGIFs: SharedGIFPreparation.Results = [:], requiresPreparedGIFs: Bool = false, onPhotoQuality: @escaping @MainActor (String, PhotoQualityInfo?) -> Void = { _, _ in }, onState: @escaping @MainActor (String, RemotePlaybackState) -> Void = { _, _ in }, onError: @escaping @MainActor (String, String) -> Void) {
+    func rebuild(state: LibraryState, store: LibraryStore, paused: Bool, force: Bool = false, preparedPhotos: PhotoPreparation.Results = [:], requiresPreparedPhotos: Bool = false, preparedGIFs: SharedGIFPreparation.Results = [:], requiresPreparedGIFs: Bool = false, admissions: [String: GIFAdmission]? = nil, onPhotoQuality: @escaping @MainActor (String, PhotoQualityInfo?) -> Void = { _, _ in }, onState: @escaping @MainActor (String, RemotePlaybackState) -> Void = { _, _ in }, onError: @escaping @MainActor (String, String) -> Void) {
         if !requiresPreparedPhotos || !requiresPreparedGIFs { rebuildGeneration = UUID() }
         if !requiresPreparedPhotos { photos.cancel() }
         if !requiresPreparedGIFs { gifs.cancel() }
@@ -595,7 +635,7 @@ final class DesktopCoordinator {
         let proposed: GIFPlaybackBudget
         do {
             try validatePanorama(state: state, targets: currentTargets)
-            proposed = try proposedBudget(state: state, store: store, connected: currentTargets.map(\.id))
+            proposed = try proposedBudget(state: state, store: store, connected: currentTargets.map(\.id), admissions: admissions)
         }
         catch {
             renderers.values.forEach { $0.renderer.setPaused(paused) }
@@ -625,11 +665,12 @@ final class DesktopCoordinator {
                 entry.renderer.setPaused(paused)
                 entry.renderer.setAudioPolicy(enabled: state.settings.audioDisplayID == displayID, volume: state.settings.audioVolume)
                 onPhotoQuality(displayID, entry.renderer.photoQuality)
+                if let state = entry.renderer.remotePlaybackState { onState(displayID, state) }
                 continue
             }
             let token = UUID()
             do {
-                let nextBudget = try proposal(for: wallpaper, displayID: displayID, store: store, budget: gifBudget)
+                let nextBudget = try proposal(for: wallpaper, displayID: displayID, store: store, budget: gifBudget, admissions: admissions)
                 let photo: DecodedPhoto?
                 if wallpaper.kind == .image, requiresPreparedPhotos {
                     guard let result = preparedPhotos[displayID] else { throw PhotoDecodingError.unreadable }

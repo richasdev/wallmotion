@@ -22,6 +22,21 @@ final class LibraryModel {
     private let engine: DesktopCoordinator
     private let connectedDisplays: @MainActor () -> [Display]
     private var started = false
+    @ObservationIgnored private var stateRevision = UUID()
+    private enum AssignmentScope: Hashable { case display(String), shared, mode }
+    private enum AssignmentIntent {
+        case wallpaper(UUID, String)
+        case mode(DisplayMode, String)
+        var displayID: String {
+            switch self { case .wallpaper(_, let id), .mode(_, let id): id }
+        }
+    }
+    private struct PendingAssignment {
+        let token: UUID
+        let intent: AssignmentIntent
+        let task: Task<Void, Never>
+    }
+    private var pendingAssignments: [AssignmentScope: PendingAssignment] = [:]
     private var policy = PlaybackPolicy()
     private var screenLocked = false
     private var lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
@@ -170,6 +185,7 @@ final class LibraryModel {
     }
 
     func stop() {
+        cancelPendingAssignments()
         memoryMonitor.stop()
         lastMemoryPressure = nil
         policy.memory = MemoryPressurePolicy()
@@ -184,6 +200,8 @@ final class LibraryModel {
     }
 
     func load() {
+        cancelPendingAssignments()
+        stateRevision = UUID()
         do {
             state = try store.load()
             canEdit = true
@@ -201,6 +219,7 @@ final class LibraryModel {
         do {
             try store.save(next)
             state = next
+            stateRevision = UUID()
             return true
         } catch {
             errorMessage = "Não foi possível salvar a biblioteca. \(error.localizedDescription)"
@@ -310,18 +329,101 @@ final class LibraryModel {
     }
 
     func setDisplayMode(_ mode: DisplayMode, sourceDisplayID: String) {
-        guard canEdit, mode != state.displayMode else { return }
+        guard canEdit else { return }
+        if mode == state.displayMode { cancelPendingAssignment(.mode);return }
+        cancelPendingAssignments()
+        submitAssignment(.mode(mode, sourceDisplayID), scope: .mode)
+    }
+
+    func isPreparingWallpaper(on displayID: String) -> Bool {
+        pendingAssignments.keys.contains(.display(displayID)) ||
+            pendingAssignments.keys.contains(.shared) || pendingAssignments.keys.contains(.mode)
+    }
+
+    private func cancelPendingAssignment(_ scope: AssignmentScope) {
+        pendingAssignments.removeValue(forKey: scope)?.task.cancel()
+    }
+
+    private func cancelPendingAssignments() {
+        let tasks = pendingAssignments.values.map(\.task)
+        pendingAssignments.removeAll()
+        tasks.forEach { $0.cancel() }
+    }
+
+    private func proposedAssignment(_ intent: AssignmentIntent) -> LibraryState? {
+        guard canEdit, displays.contains(where: { $0.id == intent.displayID }) else { return nil }
         var next = state
-        if mode.isShared {
-            let sourceID = activeWallpaperID(on: sourceDisplayID)
-            let source = state.wallpapers.first { $0.id == sourceID }
-            next.mirroredWallpaperID = mode == .spanned && source?.supportsPanorama != true ? nil : sourceID
-            next.mirroredMediaFit = mediaFit(on: sourceDisplayID)
+        switch intent {
+        case .wallpaper(let id, let display):
+            guard state.wallpapers.contains(where: { $0.id == id }) else { return nil }
+            if next.displayMode.isShared { next.mirroredWallpaperID = id }
+            else { next.assignments[display] = id }
+        case .mode(let mode, let sourceDisplay):
+            if mode.isShared {
+                let sourceID = activeWallpaperID(on: sourceDisplay)
+                let source = state.wallpapers.first { $0.id == sourceID }
+                next.mirroredWallpaperID = mode == .spanned && source?.supportsPanorama != true ? nil : sourceID
+                next.mirroredMediaFit = mediaFit(on: sourceDisplay)
+            }
+            next.displayMode = mode
         }
-        next.displayMode = mode
-        do { try engine.validateAssignments(state: next, store: store) }
-        catch { errorMessage = error.localizedDescription; return }
-        if update(next) { refreshPlayback(force: false) }
+        return next
+    }
+
+    private func commitAssignment(_ next: LibraryState, intent: AssignmentIntent) {
+        guard update(next) else { return }
+        let affected: [String]
+        switch intent {
+        case .wallpaper(_, let display): affected = next.displayMode.isShared ? displays.map(\.id) : [display]
+        case .mode: affected = displays.map(\.id)
+        }
+        for id in affected {
+            playbackErrors[id] = nil;remotePlaybackStates[id] = nil
+            if case .wallpaper = intent { engine.invalidate(displayID: id) }
+        }
+        refreshPlayback(force: false)
+    }
+
+    private func submitAssignment(_ intent: AssignmentIntent, scope: AssignmentScope) {
+        cancelPendingAssignment(scope)
+        guard let next = proposedAssignment(intent) else { return }
+        if !engine.requiresGIFAdmission(state: next) {
+            do { try engine.validateLayout(state: next) }
+            catch { errorMessage = error.localizedDescription;return }
+            commitAssignment(next, intent: intent)
+            return
+        }
+        let token = UUID(), engine = engine, store = store
+        let task = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                guard self?.pendingAssignments[scope]?.token == token,
+                      let revision = self?.stateRevision else { break }
+                let result: Result<Void, any Error>
+                do {
+                    let request: GIFAssignmentAdmissionRequest
+                    do {
+                        guard let next = self?.proposedAssignment(intent) else { break }
+                        request = try engine.assignmentAdmissionRequest(state: next, store: store)
+                    } // Drop the full catalog snapshot before suspending on file I/O.
+                    try await engine.validateAssignmentsAsync(request)
+                    result = .success(())
+                } catch { result = .failure(error) }
+                guard let self, self.pendingAssignments[scope]?.token == token, !Task.isCancelled else { break }
+                // Rebase intent onto current settings/catalog/other display rather
+                // than replacing newer state with an old validation snapshot.
+                if self.stateRevision != revision { continue }
+                self.pendingAssignments[scope] = nil
+                switch result {
+                case .success:
+                    if let next = self.proposedAssignment(intent) { self.commitAssignment(next, intent: intent) }
+                case .failure(let error):
+                    if !(error is CancellationError) { self.errorMessage = error.localizedDescription }
+                }
+                return
+            }
+            if self?.pendingAssignments[scope]?.token == token { self?.pendingAssignments[scope] = nil }
+        }
+        pendingAssignments[scope] = PendingAssignment(token: token, intent: intent, task: task)
     }
 
     func setAudioDisplayID(_ id: String?) {
@@ -362,20 +464,9 @@ final class LibraryModel {
     func apply(_ item: Wallpaper, to displayID: String) {
         guard canEdit, state.wallpapers.contains(where: { $0.id == item.id }),
               displays.contains(where: { $0.id == displayID }) else { return }
-        var next = state
-        if next.displayMode.isShared { next.mirroredWallpaperID = item.id }
-        else { next.assignments[displayID] = item.id }
-        do { try engine.validateAssignments(state: next, store: store) }
-        catch { errorMessage = error.localizedDescription; return }
-        if update(next) {
-            let affected = next.displayMode.isShared ? displays.map(\.id) : [displayID]
-            for id in affected {
-                playbackErrors[id] = nil
-                remotePlaybackStates[id] = nil
-                engine.invalidate(displayID: id)
-            }
-            refreshPlayback(force: false)
-        }
+        cancelPendingAssignment(.mode)
+        let scope: AssignmentScope = state.displayMode.isShared ? .shared : .display(displayID)
+        submitAssignment(.wallpaper(item.id, displayID), scope: scope)
     }
 
     func setMediaFit(_ fit: MediaFit, on displayID: String) {
@@ -390,6 +481,9 @@ final class LibraryModel {
     }
 
     func clear(displayID: String) {
+        cancelPendingAssignment(.mode)
+        if state.displayMode.isShared { cancelPendingAssignments() }
+        else { cancelPendingAssignment(.display(displayID)) }
         var next = state
         if next.displayMode.isShared { next.mirroredWallpaperID = nil }
         else { next.assignments.removeValue(forKey: displayID) }
@@ -422,6 +516,7 @@ final class LibraryModel {
 
     func remove(_ item: Wallpaper) {
         guard canEdit, let current = state.wallpapers.first(where: { $0.id == item.id }) else { return }
+        cancelPendingAssignments()
         var next = state
         next.remove(id: current.id)
         guard update(next) else { return }
@@ -470,6 +565,10 @@ final class LibraryModel {
 
     func refreshPlayback(force: Bool = true) {
         displays = connectedDisplays()
+        let disconnected = pendingAssignments.filter { pending in
+            !displays.contains(where: { $0.id == pending.value.intent.displayID })
+        }.map(\.key)
+        disconnected.forEach { cancelPendingAssignment($0) }
         if shouldReleaseForMemory { releaseMemoryResources(); return }
         resourcesReleasedForMemory = false
         let effectivePhotos = state.effectiveAssignments(for: displays.map(\.id))

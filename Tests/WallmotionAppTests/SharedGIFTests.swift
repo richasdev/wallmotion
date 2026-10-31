@@ -190,7 +190,8 @@ final class SharedGIFTests: XCTestCase {
         preparation.submit(["left": url, "right": url]) { _ in obsoleteCalled = true }
         await fulfillment(of: [entered], timeout: 2)
         let installed = expectation(description: "latest completion receives shared asset")
-        preparation.submit(["left": url, "right": url]) { results in
+        preparation.submit(["left": url, "right": url]) { outcome in
+            let results = outcome.images
             do {
                 let left = try XCTUnwrap(results["left"]).get(), right = try XCTUnwrap(results["right"]).get()
                 XCTAssertTrue(left === right)
@@ -219,7 +220,8 @@ final class SharedGIFTests: XCTestCase {
         preparation.submit(["left": first]) { _ in obsoleteCalled = true }
         await fulfillment(of: [entered], timeout: 2)
         let installed = expectation(description: "replacement decode published")
-        preparation.submit(["right": second]) { results in
+        preparation.submit(["right": second]) { outcome in
+            let results = outcome.images
             XCTAssertNil(results["left"])
             XCTAssertEqual(try? results["right"]?.get().animation.frameCount, 3)
             installed.fulfill()
