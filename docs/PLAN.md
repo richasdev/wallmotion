@@ -19,7 +19,7 @@ Cada issue concluída deve ter commit próprio com referência à issue. Builds 
 
 ## Evolução depois do MVP
 
-A primeira sequência abaixo é o registro histórico. O estado atual e as próximas prioridades estão na seção de 31/10; não considerar recursos dessa lista como pendentes apenas por terem sido previstos após o MVP.
+A primeira sequência abaixo é o registro histórico. O estado atual e as próximas prioridades estão na seção de 01/11; não considerar recursos dessa lista como pendentes apenas por terem sido previstos após o MVP.
 
 ## Situação da primeira entrega — 30/10/2026
 
@@ -34,28 +34,51 @@ A primeira sequência abaixo é o registro histórico. O estado atual e as próx
 
 O app é um MVP de desenvolvimento. As verificações automatizadas e os limites físicos estão em [QA](QA.md) e as decisões sobre achados em [resolução da revisão](REVIEW-RESOLUTION.md).
 
-## Estado atual — 31/10/2026 (JST)
+## Estado atual — 01/11/2026 (JST)
 
 | Área | Implementado e integrado | Validação e limites |
 | --- | --- | --- |
 | Biblioteca | Importação gerenciada, busca/filtros/ordenação, renomeação, remoção por ID atual e preservação de cópias compartilhadas | Fixtures temporárias; [catálogo](qa/library-filters.md), [integridade](qa/shared-media-removal.md) e [ciclo da folha](qa/rename-lifecycle.md) |
-| Monitores | Seleção independente, espelhamento e panorama de foto local; ajuste/preenchimento/centralização/esticar | [Controles](qa/display-controls.md) e [compatibilidade](qa/panorama-compatibility.md); panorama animado e QA físico permanecem abertos |
+| Monitores | Seleção independente, espelhamento e panorama de foto/GIF local; ajuste/preenchimento/centralização/esticar | [Controles](qa/display-controls.md) e [GIF panorâmico](qa/gif-panorama.md); vídeo panorâmico e QA físico permanecem abertos |
 | Fotos | Preparação serial assíncrona, limite por bitmap e por lote, dimensões da foto e bitmap instalado | [Lote](qa/photo-batch-budget.md) e [dimensões](qa/photo-quality.md); os orçamentos não equivalem a RSS/GPU |
-| GIF e miniaturas | Scanner Rust por leitura antecipada de 8 KiB, limite de entrada GIF, orçamento/trabalho estrutural, fila limitada e deduplicação de miniaturas | [Scanner](qa/gif-file-stream.md), [entrada GIF](qa/gif-input-budget.md), [trabalho](qa/gif-work-budget.md), [fila](qa/thumbnail-scheduler.md); compartilhar uma animação mutável entre views ainda não está aprovado |
+| GIF e miniaturas | Scanner e compositor Rust, admissão/decodificação assíncronas, quadros imutáveis e relógio compartilhados; fila limitada e deduplicação de miniaturas | [Runtime GIF](qa/shared-gif-runtime.md), [admissão](qa/async-gif-admission.md), [fila](qa/thumbnail-scheduler.md); compartilhamento aprovado em #151/#152, com limites de payload/trabalho, sem garantia de RSS |
 | Vídeo e web | AVFoundation local/HTTPS/HLS, preferência HLS, embeds oficiais YouTube/Vimeo, posição inicial YouTube e diagnóstico de falhas | [HLS](qa/hls-quality.md), [YouTube](qa/youtube-start.md), [Vimeo](qa/vimeo-diagnostics.md); disponibilidade depende do provedor, sem login/DRM/playlists |
-| Áudio e energia | Som desativado inicialmente, um monitor com áudio, ganho global, pausas manuais/sistema/baixo consumo/térmica e liberação sob memória crítica | [Áudio](qa/audio-volume.md), [térmica](qa/thermal-pause.md), [memória](qa/memory-pressure.md); nenhuma garantia de consumo energético ou de prevenção de OOM |
+| Áudio e energia | Som desativado inicialmente, um monitor com áudio, volume geral e ganho por fonte, rampas manuais canceláveis, cortes imediatos por política e liberação sob memória crítica | [Ganho por fonte](qa/source-audio-gain.md), [rampas](qa/manual-audio-ramps.md), [memória](qa/memory-pressure.md); #154/#155/#45 concluídas; sem medição de áudio físico, energia ou garantia de prevenção de OOM |
 | Inicialização | Lease cooperativo e encaminhamento de arquivos entre instâncias, início automático opt-in | [Instância](qa/single-instance.md), [handoff](qa/runtime-file-handoff.md), [login](qa/login-item.md); restauração não-default sem URLs ainda requer QA |
 | Ferramentas | Build ad-hoc, limpeza dos próprios artefatos, snapshots opt-in, CPU por intervalos, auditor de asserções de energia e probe HLS sintético | [CPU](qa/cpu-intervals.md), [energia](qa/power-assertions.md), [HLS sintético](qa/hls-probe.md), [limpeza](qa/build-cleanup.md); CI remoto segue bloqueado por #11 |
 
 Os itens integrados possuem testes locais/revisões registrados nas PRs e documentos vinculados. Capturas de componentes e fixtures não substituem teste físico de cor, múltiplos monitores, repouso ou VoiceOver.
 
-## Próximas prioridades
+## Encerramento do ciclo de issues existentes
 
-1. **Qualidade visual e acessibilidade:** completar a matriz física de monitores/escala/rotação, panorama e VoiceOver (#43, #47). Preservar o enquadramento e verificar qualidade com mídia real.
-2. **Vídeo e provedores:** validar streams HLS adaptativos, portrait e transições HDR/SDR (#101), além dos cenários Vimeo (#42). Separar observação sintética de certificação de hardware.
-3. **Performance medida:** executar os protocolos de CPU, memória, asserções e energia com cenários controlados (#8, #91, #63, #77). Não anunciar ganhos de Rust/cache sem medições comparáveis.
-4. **Compartilhamento e novos recursos:** estudar decodificador de vídeo espelhado (#44), animações GIF compartilhadas (#14), mixer de áudio (#45) e panorama animado (#43), com provas de ciclo de vida antes de integrar. Playlists, agendamento e importação/exportação de coleções ainda são propostas.
-5. **Distribuição:** resolver o bloqueio de CI (#11), concluir QA de restauração (#88) e preparar assinatura Developer ID/notarização antes de distribuição pública.
+Por instrução do usuário, concluir as issues implementáveis já abertas e parar;
+não criar novas para expandir o ciclo. Áudio (#45/#154/#155), runtime GIF
+compartilhado (#14/#147), admissão assíncrona (#150) e GIF panorâmico (#153) têm
+entregas de software e evidências vinculadas. A revisão e o merge de cada PR
+continuam obrigatórios. Não marcar uma issue de QA físico como concluída apenas
+porque seu protocolo, fixture ou ferramenta já foi implementado.
+
+Pendências que exigem condições externas ou validação ainda não executada:
+
+1. **Monitores e acessibilidade:** panorama com vídeo e matriz física de escala,
+   cor/rotação (#43); VoiceOver real, contraste aumentado e texto ampliado em todos
+   os estados (#47). A implementação de paleta, bordas, hints e seleção acessível
+   já está descrita em [seleção acessível](qa/accessible-selection.md).
+2. **Vídeo/provedores:** homologação Vimeo e cenários web reais (#42/#7), streams
+   HLS adaptativos/portrait/HDR (#101). As fixtures offline não homologam serviços.
+3. **Performance medida:** cenários físicos comparáveis de CPU/RSS/energia (#8),
+   asserções de energia/repouso (#91), catálogos extensos e redimensionamento real
+   (#63/#77). Ferramentas e limites de fila não substituem os resultados medidos.
+4. **Decodificador de vídeo espelhado (#44):** estudo registrado na issue; escolha
+   de pipeline ainda depende de ensaios de cor/HDR, telas com refresh diferente e
+   energia antes da refatoração. Não atribuir o mesmo AVPlayer a várias camadas e
+   presumir que todas renderizam, nem prometer economia sem medir.
+5. **Inicialização e CI:** restauração/serviços não-default sem URLs (#88) e bloqueio
+   de cobrança do GitHub Actions (#11). Handoff de arquivos com fixtures isoladas
+   já possui [protocolo e evidências](qa/runtime-file-handoff.md).
+
+Essas issues permanecem abertas enquanto faltarem seus critérios. Não há nova
+fila de features autorizada para depois desse encerramento.
 
 ## Fluxo multiagente atual: dois agentes
 
