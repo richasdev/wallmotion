@@ -4,6 +4,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 SCRIPT = REPO / "scripts/qa-instance-runtime.py"
@@ -54,6 +55,13 @@ class NondefaultLaunchTests(unittest.TestCase):
             result = subprocess.run([sys.executable, str(SCRIPT), "--nondefault-evidence", str(output)], capture_output=True)
             self.assertEqual(result.returncode, 2)
             self.assertFalse(output.exists())
+
+    def test_existing_evidence_is_rejected_before_creating_an_archive(self):
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(qa, "run", return_value="a" * 40), \
+                mock.patch.object(qa.tempfile, "mkdtemp") as temporary:
+            with self.assertRaises(FileExistsError):
+                qa.audit("HEAD", nondefault_evidence=pathlib.Path(directory))
+            temporary.assert_not_called()
 
 
 if __name__ == "__main__":

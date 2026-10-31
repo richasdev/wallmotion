@@ -115,6 +115,8 @@ def audit(source_ref: str, check_overflow: bool = False, nondefault_evidence: pa
     commit = run(["git", "rev-parse", "--verify", "--end-of-options", source_ref + "^{commit}"], cwd=repository).strip()
     if not re.fullmatch(r"[0-9a-f]{40}", commit):
         raise RuntimeError("QA source must resolve to a full commit SHA")
+    if nondefault_evidence:
+        nondefault_evidence.mkdir(mode=0o700, parents=True, exist_ok=False)
     root = pathlib.Path(tempfile.mkdtemp(prefix="wallmotion-runtime-qa-"))
     source, library = root / "source", root / "library"
     app = source / "dist/Wallmotion.app"
@@ -122,8 +124,6 @@ def audit(source_ref: str, check_overflow: bool = False, nondefault_evidence: pa
     bundle = "dev.richas.wallmotion.qa." + uuid.uuid4().hex
     launched = False
     results = []
-    if nondefault_evidence:
-        nondefault_evidence.mkdir(mode=0o700, parents=True, exist_ok=False)
 
     def apps():
         deadline = time.monotonic() + 2
