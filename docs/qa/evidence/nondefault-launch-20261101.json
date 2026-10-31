@@ -1,0 +1,44 @@
+{
+  "cases": [
+    {
+      "case": "forced_secondary",
+      "file_count": 1,
+      "library_total": 1
+    },
+    {
+      "case": "forced_secondary",
+      "file_count": 2,
+      "library_total": 3
+    },
+    {
+      "case": "cold_URL_launch",
+      "library_total": 4
+    },
+    {
+      "case": "default_secondary_no_URL",
+      "library_unchanged": true
+    },
+    {
+      "case": "nondefault_empty_open_documents",
+      "launch_flag_present": true,
+      "launch_is_default": false,
+      "library_and_owner_unchanged": true,
+      "lock_inode_unchanged": true,
+      "native_action_invoked": true,
+      "primary_lock_held_before_and_after": true,
+      "secondary_exited": true,
+      "secondary_model_absent": true,
+      "waiting_ui_captured": true
+    }
+  ],
+  "evidence_file_modified_utc": "2026-10-31T21:31:25.361113+00:00",
+  "host_os": "macOS 27.0.1 arm64",
+  "limits": [
+    "Isolated archived source: default library root/bundle metadata patched; optional nondefault probe observes real OS flag and invokes native model action.",
+    "Uses generated PNGs and no user library, preferences or media.",
+    "OS launch/forward behavior; not a general exactly-once or state-restoration guarantee. Native model action is not a simulated pointer click.",
+    "Temporary QA windows may appear; no UI automation, permissions or power settings are changed."
+  ],
+  "source_sha": "c10e6d25e84dd12251e53df4d166894967f4ef56",
+  "status": "passed"
+}

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import fcntl
 import os
 import signal
 import json
@@ -23,9 +24,28 @@ PROCESS_HELPER = r"""
 import AppKit
 import Foundation
 let args = CommandLine.arguments
-precondition(args.count == 3)
+precondition(args.count == 3 || args.count == 4)
 let action = args[1], identifier = args[2]
 precondition(identifier.hasPrefix("dev.richas.wallmotion.qa.") && identifier.count < 100)
+if action == "open-empty" {
+    precondition(args.count == 4)
+    let configuration = NSWorkspace.OpenConfiguration()
+    configuration.createsNewApplicationInstance = true
+    configuration.allowsRunningApplicationSubstitution = false
+    configuration.addsToRecentItems = false
+    configuration.activates = false
+    let event = NSAppleEventDescriptor.appleEvent(withEventClass: AEEventClass(kCoreEventClass),
+        eventID: AEEventID(kAEOpenDocuments),targetDescriptor: nil,
+        returnID: AEReturnID(kAutoGenerateReturnID),transactionID: AETransactionID(kAnyTransactionID))
+    event.setParam(NSAppleEventDescriptor.list(),forKeyword: AEKeyword(keyDirectObject))
+    configuration.appleEvent = event
+    NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: args[3]),configuration: configuration) { app,error in
+        print(String(decoding: try! JSONSerialization.data(withJSONObject: ["pid": Int(app?.processIdentifier ?? 0),"failed": error != nil]),as: UTF8.self))
+        exit(error == nil && app != nil ? 0 : 1)
+    }
+    RunLoop.main.run()
+    exit(1)
+}
 let apps = NSRunningApplication.runningApplications(withBundleIdentifier: identifier)
 if action == "terminate" { for app in apps { _ = app.terminate() } }
 let rows: [[String: Any]] = apps.map { ["pid": Int($0.processIdentifier), "path": $0.bundleURL?.path ?? "", "terminated": $0.isTerminated] }
@@ -63,11 +83,40 @@ def write_png(path: pathlib.Path):
                      + chunk(b"IDAT", zlib.compress(pixels)) + chunk(b"IEND", b""))
 
 
-def audit(source_ref: str, check_overflow: bool = False) -> dict:
+def inject_nondefault_probe(source: pathlib.Path, root: pathlib.Path):
+    fixture = source / "Tests/Fixtures/nondefault-launch.swift"
+    contents = fixture.read_text()
+    if contents.count("__QA_ROOT_JSON__") != 1:
+        raise RuntimeError("QA nondefault fixture isolation marker must match once")
+    (source / "Sources/Wallmotion/NondefaultLaunchQA.swift").write_text(contents.replace("__QA_ROOT_JSON__", json.dumps(str(root))))
+    delegate = source / "Sources/Wallmotion/WallmotionApp.swift"
+    contents = delegate.read_text()
+    marker = "events.finishLaunching(isDefaultLaunch: isDefault)"
+    if contents.count(marker) != 1:
+        raise RuntimeError("QA nondefault delegate hook must match once")
+    delegate.write_text(contents.replace(marker, marker + "\n        NondefaultLaunchQA.begin(self, isDefault: isDefault, flagPresent: notification.userInfo?[NSApplication.launchIsDefaultUserInfoKey] is Bool)"))
+
+
+def verify_lock_held(path: pathlib.Path):
+    fd = os.open(path, os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        raise RuntimeError("QA primary library lock was unexpectedly available")
+    finally:
+        os.close(fd)
+
+
+def audit(source_ref: str, check_overflow: bool = False, nondefault_evidence: pathlib.Path | None = None) -> dict:
     repository = pathlib.Path(__file__).resolve().parents[1]
     commit = run(["git", "rev-parse", "--verify", "--end-of-options", source_ref + "^{commit}"], cwd=repository).strip()
     if not re.fullmatch(r"[0-9a-f]{40}", commit):
         raise RuntimeError("QA source must resolve to a full commit SHA")
+    if nondefault_evidence:
+        nondefault_evidence.mkdir(mode=0o700, parents=True, exist_ok=False)
     root = pathlib.Path(tempfile.mkdtemp(prefix="wallmotion-runtime-qa-"))
     source, library = root / "source", root / "library"
     app = source / "dist/Wallmotion.app"
@@ -138,6 +187,8 @@ def audit(source_ref: str, check_overflow: bool = False) -> dict:
             raise RuntimeError("QA isolation patch no longer matches the store constructor")
         replacement = 'URL(fileURLWithPath: ' + json.dumps(str(library)) + ', isDirectory: true)'
         store.write_text(contents.replace(original, replacement))
+        if nondefault_evidence:
+            inject_nondefault_probe(source, root)
         info_path = source / "resources/Info.plist"
         info = plistlib.loads(info_path.read_bytes())
         info.update(CFBundleIdentifier=bundle, CFBundleName="Wallmotion Runtime QA", CFBundleDisplayName="Wallmotion Runtime QA")
@@ -179,6 +230,42 @@ def audit(source_ref: str, check_overflow: bool = False) -> dict:
         if (library / "library.json").read_bytes() != before:
             raise RuntimeError("QA no-file reopen changed the temporary library")
         results.append({"case": "default_secondary_no_URL", "library_unchanged": True})
+        if nondefault_evidence:
+            identity_before = (library / "wallmotion-owner.json").read_bytes()
+            lock_before = (library / "wallmotion.lock").stat()
+            verify_lock_held(library / "wallmotion.lock")
+            secondary = json.loads(run([str(helper), "open-empty", bundle, str(app)]))["pid"]
+            if secondary <= 0 or secondary == primary:
+                raise RuntimeError("QA nondefault launch did not create a distinct secondary")
+            launch_path = root / f"launch-{secondary}.json"
+            launch = wait_for(lambda: json.loads(launch_path.read_text()), "real nondefault launch metadata")
+            if launch["launch_is_default"] or not launch["busy"] or launch["has_model"] or launch["pending"] != 0:
+                raise RuntimeError("QA OS launch did not produce the required nondefault busy/no-file state")
+            status_path = root / f"waiting-{secondary}.json"
+            status = wait_for(lambda: json.loads(status_path.read_text()), "nondefault waiting UI snapshot")
+            if not status["waiting"] or status["forwarding"] or not status["busy"] or status["has_model"] or status["pending"] != 0:
+                raise RuntimeError("QA nondefault secondary did not retain the expected waiting status")
+            if {row["pid"] for row in apps()} != {primary, secondary}:
+                raise RuntimeError("QA nondefault process set changed unexpectedly")
+            shutil.copyfile(root / f"status-{secondary}.png", nondefault_evidence / "waiting-status.png")
+            (nondefault_evidence / "waiting-status.json").write_text(json.dumps(status, indent=2))
+            command = root / "action-command.json"
+            temporary = root / "action-command.tmp"
+            temporary.write_text(json.dumps({"pid": secondary, "action": "activate_and_close"}))
+            temporary.replace(command)
+            wait_for(lambda: (root / f"action-{secondary}.json").is_file(), "native action receipt")
+            wait_for(lambda: completed(4, primary), "native activate-and-close secondary exit")
+            lock_after = (library / "wallmotion.lock").stat()
+            verify_lock_held(library / "wallmotion.lock")
+            if ((library / "wallmotion-owner.json").read_bytes() != identity_before
+                    or (library / "library.json").read_bytes() != before
+                    or (lock_before.st_dev, lock_before.st_ino) != (lock_after.st_dev, lock_after.st_ino)):
+                raise RuntimeError("QA nondefault action changed library ownership/control files")
+            results.append({"case": "nondefault_empty_open_documents", "launch_is_default": False,
+                            "waiting_ui_captured": True, "secondary_model_absent": True,
+                            "native_action_invoked": True, "secondary_exited": True,
+                            "library_and_owner_unchanged": True, "lock_inode_unchanged": True,
+                            "primary_lock_held_before_and_after": True,"launch_flag_present": status["launch_flag_present"]})
         if check_overflow:
             overflow = [root / f"overflow-{index:03}.png" for index in range(257)]
             for path in overflow:
@@ -200,13 +287,15 @@ def audit(source_ref: str, check_overflow: bool = False) -> dict:
             results.append({"case": "oversized_secondary_batch", "rejected_file_count": 257,
                             "warning_observed": True, "secondary_retained": True, "library_unchanged": True})
         return {"source_sha": commit, "status": "passed", "cases": results,
-                "limits": ["Isolated archived source with only default library root and bundle metadata patched.",
+                "limits": ["Isolated archived source: default library root/bundle metadata patched; optional nondefault probe observes real OS flag and invokes native model action.",
                            "Uses generated PNGs and no user library, preferences or media.",
-                           "OS launch/forward behavior; not a general exactly-once or restoration-without-URL guarantee.",
+                           "OS launch/forward behavior; not a general exactly-once or state-restoration guarantee. Native model action is not a simulated pointer click.",
                            "Temporary QA windows may appear; no UI automation, permissions or power settings are changed."]}
     finally:
         if launched:
             stop()  # On failure, preserve artifacts if the owned process cannot stop.
+        if nondefault_evidence and (root / "build.log").exists():
+            shutil.copyfile(root / "build.log", nondefault_evidence / "build.log")
         registrar = pathlib.Path("/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister")
         if app.exists() and registrar.exists():
             subprocess.run([str(registrar), "-u", str(app)], capture_output=True, timeout=10)
@@ -217,6 +306,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run", action="store_true", help="explicitly build and launch isolated temporary QA instances")
     parser.add_argument("--check-overflow", action="store_true", help="also verify 257-file rejection in a source with the 256-URL router policy")
+    parser.add_argument("--nondefault-evidence", type=pathlib.Path, help="also test an empty open-documents OS launch; create this new evidence directory")
     parser.add_argument("--source-ref", default="HEAD", help="committed source to archive; working edits are excluded")
     args = parser.parse_args()
     if not args.run:
@@ -224,7 +314,7 @@ def main():
     if sys.platform != "darwin":
         parser.error("runtime QA requires macOS")
     try:
-        print(json.dumps(audit(args.source_ref, args.check_overflow), indent=2))
+        print(json.dumps(audit(args.source_ref, args.check_overflow, args.nondefault_evidence), indent=2))
     except (RuntimeError, OSError, ValueError, subprocess.TimeoutExpired) as error:
         print(f"Runtime QA failed: {error}", file=sys.stderr)
         return 1
