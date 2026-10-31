@@ -147,6 +147,17 @@ final class WallpaperRenderer {
     let window: DesktopWindow
     private(set) var photoQuality: PhotoQualityInfo?
     private var webRenderer: WebWallpaperRenderer?
+    private var sharedVideo: SharedVideoPlayback?
+    private var sharedVideoSubscriber: UUID?
+    func usesSharedVideo(_ value: SharedVideoPlayback?) -> Bool {
+        value == nil ? sharedVideo == nil : sharedVideo === value
+    }
+
+    deinit {
+        // Capture values, never self: actor cleanup may run after deallocation.
+        let playback = sharedVideo, subscriber = sharedVideoSubscriber
+        if let subscriber { Task { @MainActor in playback?.unsubscribe(subscriber) } }
+    }
     var isWebPlaying: Bool { webRenderer?.isPlaying == true }
     private let player: AVPlayer?
     private let imageView: NSImageView?
@@ -173,7 +184,7 @@ final class WallpaperRenderer {
     var isWaitingForAudioPlayback: Bool { nativeAudioFade != nil && nativeAudioFade?.beganAt == nil }
     private var loopObserver: NSKeyValueObservation?
     private var remotePlayback: RemoteVideoPlayback?
-    var remotePlaybackState: RemotePlaybackState? { remotePlayback?.state }
+    var remotePlaybackState: RemotePlaybackState? { sharedVideo?.remoteState ?? remotePlayback?.state }
     private var failureObserver: NSObjectProtocol?
     private var occlusionObserver: NSObjectProtocol?
     private(set) var playbackState = RendererPlaybackState()
@@ -182,7 +193,7 @@ final class WallpaperRenderer {
     private let isWindowVisible: @MainActor (NSWindow) -> Bool
     private let seekToStart: @MainActor (AVPlayer, @escaping @MainActor @Sendable (Bool) -> Void) -> Void
 
-    init(wallpaper: Wallpaper, url: URL, screen: NSScreen, mediaFit: MediaFit = .fit, preparedPhoto: DecodedPhoto? = nil, preparedGIF: SharedGIFPlayback? = nil, onGIFChanged: @escaping @MainActor () -> Void = {}, targetFrame: CGRect? = nil, targetScale: CGFloat? = nil, panorama: PanoramaLayout? = nil, webDocument: String? = nil, hlsResolution: HLSResolution = .automatic,
+    init(wallpaper: Wallpaper, url: URL, screen: NSScreen, mediaFit: MediaFit = .fit, preparedPhoto: DecodedPhoto? = nil, preparedGIF: SharedGIFPlayback? = nil, onGIFChanged: @escaping @MainActor () -> Void = {}, targetFrame: CGRect? = nil, targetScale: CGFloat? = nil, panorama: PanoramaLayout? = nil, sharedVideo: SharedVideoPlayback? = nil, webDocument: String? = nil, hlsResolution: HLSResolution = .automatic,
          isWindowVisible: @escaping @MainActor (NSWindow) -> Bool = { $0.occlusionState.contains(.visible) },
          makePlayer: @MainActor (AVPlayerItem, Bool) -> AVPlayer = { item, local in
              local ? AVQueuePlayer() : AVPlayer(playerItem: item)
@@ -252,6 +263,13 @@ final class WallpaperRenderer {
             imageView = view.imageView
             player = nil
             window = DesktopWindow(screen: screen, view: view, frame: frame)
+        } else if let sharedVideo {
+            self.sharedVideo = sharedVideo
+            player = sharedVideo.player;imageView = nil
+            let view = VideoSurface(player: sharedVideo.player, mediaFit: mediaFit)
+            window = DesktopWindow(screen: screen, view: view, frame: frame)
+            sharedVideoSubscriber = sharedVideo.subscribe(layer: view.playerLayer,
+                refresh: { [weak self] in self?.applyPlaybackState() }, state: onState, error: onError)
         } else {
             if url.isFileURL, !FileManager.default.isReadableFile(atPath: url.path) { throw RendererError.missingFile }
             let item = AVPlayerItem(url: url)
@@ -319,7 +337,7 @@ final class WallpaperRenderer {
     private var audioTransportPlaying: Bool { player.map(audioIsPlaying) ?? false }
 
     private var nativeAudioFailed: Bool {
-        if player?.currentItem?.status == .failed { return true }
+        if sharedVideo?.hasFailed == true || player?.currentItem?.status == .failed { return true }
         if let state = remotePlayback?.state, case .error = state { return true }
         return false
     }
@@ -365,7 +383,7 @@ final class WallpaperRenderer {
         if nativeAudioFailed {
             cancelAudioFade();wantsTransport = playbackState.shouldPlay
         }
-        let canPlay = !nativeAudioFailed && (remotePlayback?.canPlay ?? true)
+        let canPlay = !nativeAudioFailed && (sharedVideo?.canPlay ?? remotePlayback?.canPlay ?? true)
         let now = audioClock()
         if var fade = nativeAudioFade {
             if fade.fadingOut, !canPlay || !audioTransportPlaying {
@@ -389,8 +407,13 @@ final class WallpaperRenderer {
         let factor = nativeAudioFade == nil ? (playbackState.shouldPlay ? 1.0 : 0) : audioFadeValue(at: now)
         let audible = audioEnabled && audioVolume > 0 && wantsTransport && canPlay
         let outputVolume = audible ? audioVolume * factor : 0
-        player?.volume = Float(outputVolume)
-        player?.isMuted = !audible || outputVolume <= 0
+        if let sharedVideo, let subscriber = sharedVideoSubscriber {
+            sharedVideo.update(subscriber, playing: wantsTransport,
+                visible: playbackState.isVisible && !playbackState.isStopped, volume: outputVolume)
+        } else if sharedVideo == nil {
+            player?.volume = Float(outputVolume)
+            player?.isMuted = !audible || outputVolume <= 0
+        }
         if let webRenderer {
             if webRenderer.hasManualAudioTransition, playbackState.isVisible, !playbackState.isStopped,
                audioEnabled, audioVolume > 0 {
@@ -402,7 +425,7 @@ final class WallpaperRenderer {
         }
         if let gifSubscriber { gifPlayback?.setActive(playbackState.shouldPlay, subscriber: gifSubscriber) }
         remotePlayback?.setPaused(!wantsTransport)
-        if let player {
+        if sharedVideo == nil, let player {
             if wantsTransport && canPlay {
                 if player.rate == 0 || player.timeControlStatus == .paused { player.play() }
             } else if player.rate != 0 || player.timeControlStatus != .paused { player.pause() }
@@ -450,6 +473,7 @@ final class WallpaperRenderer {
 
     func setHLSResolution(_ value: HLSResolution) {
         guard !playbackState.isStopped else { return }
+        sharedVideo?.setHLSResolution(value)
         remotePlayback?.setHLSResolution(value)
     }
 
@@ -498,8 +522,15 @@ final class WallpaperRenderer {
         occlusionObserver = nil
         looper?.disableLooping()
         looper = nil
-        player?.replaceCurrentItem(with: nil)
-        (player as? AVQueuePlayer)?.removeAllItems()
+        if let subscriber = sharedVideoSubscriber {
+            sharedVideoSubscriber = nil;sharedVideo?.unsubscribe(subscriber)
+        }
+        // Retain the shared reference until deinit so already queued KVO tasks
+        // never treat its player as a private transport and pause another screen.
+        if sharedVideo == nil {
+            player?.replaceCurrentItem(with: nil)
+            (player as? AVQueuePlayer)?.removeAllItems()
+        }
         if let surface = window.contentView as? VideoSurface {
             surface.playerLayer.player = nil
             surface.playerLayer.removeFromSuperlayer()
@@ -538,6 +569,11 @@ final class DesktopCoordinator {
     }
     private var renderers: [String: Entry] = [:]
     private var pendingReloads: Set<String> = []
+    private var sharedVideo: SharedVideoPlayback?
+    private var sharedVideoToken = UUID()
+    private var rejectedSharedVideoIDs: Set<UUID> = []
+    private let sharedVideoLayerReady: @MainActor (AVPlayerLayer) -> Bool
+    private let sharedVideoReadinessDelay: Duration
     private let photos: PhotoPreparation
     private let gifs: SharedGIFPreparation
     private let gifAdmissions: GIFAdmissionWorker
@@ -567,7 +603,9 @@ final class DesktopCoordinator {
          isWindowVisible: @escaping @MainActor (NSWindow) -> Bool = { $0.occlusionState.contains(.visible) },
          webDocument: String? = nil,
          photoDecoder: @escaping PhotoPreparation.Decode = PhotoDecodeWorker.prepare,
-         gifWorker: GIFDecodeWorker = .shared) {
+         gifWorker: GIFDecodeWorker = .shared,
+         sharedVideoLayerReady: @escaping @MainActor (AVPlayerLayer) -> Bool = { $0.isReadyForDisplay },
+         sharedVideoReadinessDelay: Duration = .seconds(2)) {
         photos = PhotoPreparation(maximumRetainedBytes: photoBatchBudgetLimit, decode: photoDecoder)
         gifs = SharedGIFPreparation(worker: gifWorker, limit: gifBudgetLimit)
         gifAdmissions = gifWorker.admissionWorker
@@ -575,6 +613,8 @@ final class DesktopCoordinator {
         self.targets = targets
         self.isWindowVisible = isWindowVisible
         self.webDocument = webDocument
+        self.sharedVideoLayerReady = sharedVideoLayerReady
+        self.sharedVideoReadinessDelay = sharedVideoReadinessDelay
     }
 
     private func withCurrentAudio(_ state: LibraryState) -> LibraryState {
@@ -794,6 +834,34 @@ final class DesktopCoordinator {
             for id in assigned { onError(id, error.localizedDescription) }
             return
         }
+        let previousShared = sharedVideo
+        let sharedItem = state.mirroredWallpaperID.flatMap { id in state.wallpapers.first { $0.id == id } }
+        let nativeItem = sharedItem.flatMap { item -> Wallpaper? in
+            guard state.displayMode.isShared, item.kind == .video else { return nil }
+            if case .web = item.source { return nil }
+            return item
+        }
+        rejectedSharedVideoIDs.formIntersection(available)
+        let reloadShared = force || !pendingReloads.isDisjoint(with: assigned)
+        if !reloadShared, let item = nativeItem, !rejectedSharedVideoIDs.contains(item.id),
+           let url = try? store.resolvedURL(for: item),
+           let previousShared, previousShared.wallpaperID == item.id, previousShared.url == url, previousShared.canReuse {
+            sharedVideo = previousShared
+        } else if let item = nativeItem, currentTargets.count > 1, !rejectedSharedVideoIDs.contains(item.id) {
+            do {
+                let token = UUID();sharedVideoToken = token
+                sharedVideo = try SharedVideoPlayback(wallpaperID: item.id, url: store.resolvedURL(for: item),
+                    hlsResolution: state.settings.hlsResolution, layerReady: sharedVideoLayerReady,
+                    readinessDelay: sharedVideoReadinessDelay, onIncompatible: { [weak self] in
+                        guard let self, self.sharedVideoToken == token else { return }
+                        self.rejectedSharedVideoIDs.insert(item.id);self.sharedVideo = nil
+                        if let reschedule = self.reschedule { reschedule() }
+                        else { self.rebuild(state: self.withCurrentAudio(state), store: store, paused: self.latestPaused,
+                            force: true, onPhotoQuality: onPhotoQuality, onState: onState, onError: onError) }
+                    })
+            } catch { sharedVideo = nil }
+        } else { sharedVideo = nil;sharedVideoToken = UUID() }
+        let nextShared = sharedVideo
         pendingReloads.formIntersection(connected.intersection(assigned))
         // Release shrinking charges first so a valid whole-state transition is
         // never rejected merely because a growing display was visited first.
@@ -812,7 +880,8 @@ final class DesktopCoordinator {
             let preparedIdentity = try? preparedGIFs[displayID]?.get().identity
             let sameGIF = wallpaper.kind != .gif || !requiresPreparedGIFs || (preparedIdentity != nil && renderers[displayID]?.renderer.gifIdentity == preparedIdentity)
             if !force, !reloadRequested, sameGIF, let entry = renderers[displayID], entry.wallpaperID == wallpaperID, entry.frame == target.frame,
-               entry.mediaFit == mediaFit, entry.backingScale == target.backingScale, entry.panorama == layout {
+               entry.mediaFit == mediaFit, entry.backingScale == target.backingScale, entry.panorama == layout,
+               entry.renderer.usesSharedVideo(nextShared) {
                 entry.renderer.setHLSResolution(state.settings.hlsResolution)
                 entry.renderer.setPaused(paused)
                 entry.renderer.setAudioPolicy(enabled: audioConfiguration.displayID == displayID, volume: audioConfiguration.effectiveVolume(for: entry.wallpaperID))
@@ -840,7 +909,7 @@ final class DesktopCoordinator {
                     guard let self else { return }
                     self.invalidate(displayID: displayID)
                     self.reschedule?()
-                }, targetFrame: target.frame, targetScale: target.backingScale, panorama: layout, webDocument: webDocument, hlsResolution: state.settings.hlsResolution,
+                }, targetFrame: target.frame, targetScale: target.backingScale, panorama: layout, sharedVideo: nextShared, webDocument: webDocument, hlsResolution: state.settings.hlsResolution,
                                                      isWindowVisible: isWindowVisible, onState: { [weak self] state in
                     guard self?.renderers[displayID]?.token == token else { return }
                     onState(displayID, state)
@@ -903,6 +972,7 @@ final class DesktopCoordinator {
         gifBudget = GIFPlaybackBudget(limit: gifBudget.limit)
         pendingReloads.removeAll()
         previous.forEach { $0.renderer.stop() }
+        sharedVideo?.stop();sharedVideo = nil;sharedVideoToken = UUID();rejectedSharedVideoIDs.removeAll()
     }
 }
 

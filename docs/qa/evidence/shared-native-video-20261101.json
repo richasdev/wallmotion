@@ -1,0 +1,53 @@
+{
+  "evidence_file_modified_utc": "2026-10-31T21:19:07.433441+00:00",
+  "evidence_note": "Measured compiled code at source_sha; subsequent commit only documents this study.",
+  "host_architecture": "arm64",
+  "limits": "Fixed A-B-A order; 1280x720 H264, two 160x90 layers; one run in XCTest. CPU energy accounting excludes total GPU/system/battery energy; footprint endpoints are not peaks or causal estimates. No HDR or physical multi-monitor certification.",
+  "mach_timebase_denom": 3,
+  "mach_timebase_numer": 125,
+  "os": "Vers\u00e3o 27.0.1 (Compila\u00e7\u00e3o 26A434)",
+  "rows": [
+    {
+      "cpu_percent": 4.316872422275235,
+      "cpu_ticks": 31090044,
+      "cycles": 2251140102,
+      "footprint_after": 27345784,
+      "footprint_before": 38044560,
+      "instructions": 2229466949,
+      "layers": 2,
+      "players": 2,
+      "seconds": 30.008264625,
+      "shared": false,
+      "task_cpu_energy_nj": 309144586
+    },
+    {
+      "cpu_percent": 2.949760933860241,
+      "cpu_ticks": 21252654,
+      "cycles": 1521628287,
+      "footprint_after": 26575736,
+      "footprint_before": 26706808,
+      "instructions": 1342736352,
+      "layers": 2,
+      "players": 1,
+      "seconds": 30.020305708,
+      "shared": true,
+      "task_cpu_energy_nj": 172489075
+    },
+    {
+      "cpu_percent": 4.343727032829838,
+      "cpu_ticks": 31356229,
+      "cycles": 2267798324,
+      "footprint_after": 27083640,
+      "footprint_before": 26854264,
+      "instructions": 2230519419,
+      "layers": 2,
+      "players": 2,
+      "seconds": 30.078076541,
+      "shared": false,
+      "task_cpu_energy_nj": 307324863
+    }
+  ],
+  "schema_version": 1,
+  "source": "RUSAGE_INFO_V6, current XCTest process only",
+  "source_sha": "d6c765303486cfe15acd14f37c215dae04c421a5"
+}
