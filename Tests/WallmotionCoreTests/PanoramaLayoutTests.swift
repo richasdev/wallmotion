@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import WallmotionCore
 
-@Suite("Local image panorama geometry and persistence")
+@Suite("Native visual panorama geometry and persistence")
 struct PanoramaLayoutTests {
     @Test func globalCoordinatesKeepSeamsAcrossNegativeOriginsAndMixedDPI() throws {
         let left = CGRect(x: -1920, y: 0, width: 1920, height: 1080)
@@ -47,7 +47,7 @@ struct PanoramaLayoutTests {
         }
     }
 
-    @Test func panoramaRoundTripPreservesIndependentChoicesAndRejectsOtherMedia() throws {
+    @Test func panoramaRoundTripPreservesIndependentChoicesAndAllowsNativeVideo() throws {
         let photo = Wallpaper(title: "Photo", kind: .image, source: .local(filename: "photo.png"))
         let video = try Wallpaper.remote("https://example.com/video.mp4")
         var state = LibraryState(wallpapers: [photo, video], assignments: ["left": video.id, "offline": photo.id], displayMode: .spanned, mirroredWallpaperID: photo.id, mirroredMediaFit: .fill)
@@ -61,11 +61,11 @@ struct PanoramaLayoutTests {
         #expect(state.mediaFit(for: video.id, on: "left") == .stretch)
         state.displayMode = .spanned
         state.mirroredWallpaperID = video.id
-        #expect(throws: LibraryError.invalidState) { try state.validated() }
+        #expect(try state.validated().mirroredWallpaperID == video.id)
         state.mirroredWallpaperID = nil
         #expect(try state.validated().effectiveAssignments(for: ["left"]).isEmpty)
     }
-    @Test func localGIFPanoramaPersistsAndRemoteOrVideoSourcesStayIneligible() throws {
+    @Test func localGIFPanoramaPersistsAndWebOrRemoteImagesStayIneligible() throws {
         let gif = Wallpaper(title: "Animation", kind: .gif, source: .local(filename: "animation.gif"))
         var state = LibraryState(wallpapers: [gif], assignments: ["offline": gif.id], displayMode: .spanned,
             mirroredWallpaperID: gif.id, mirroredMediaFit: .center)
@@ -73,12 +73,19 @@ struct PanoramaLayoutTests {
         #expect(restored == state)
         #expect(restored.effectiveAssignments(for: ["left", "right"]) == ["left": gif.id,"right": gif.id])
         #expect(restored.mediaFit(for: gif.id, on: "left") == .center)
-        for item in [Wallpaper(title: "Local video", kind: .video, source: .local(filename: "video.mp4")),
-                     Wallpaper(title: "Remote GIF", kind: .gif, source: .remote(url: URL(string: "https://example.com/a.gif")!)),
+        for item in [Wallpaper(title: "Remote GIF", kind: .gif, source: .remote(url: URL(string: "https://example.com/a.gif")!)),
                      try Wallpaper.web("https://youtu.be/M7lc1UVf-VE")] {
             #expect(!item.supportsPanorama)
             state.wallpapers = [item];state.assignments = [:];state.mirroredWallpaperID = item.id
             #expect(throws: LibraryError.invalidState) { try state.validated() }
+        }
+    }
+    @Test func localAndRemoteNativeVideoPersistInPanorama() throws {
+        for item in [Wallpaper(title: "Local",kind: .video,source: .local(filename: "video.mp4")),
+                     try Wallpaper.remote("https://example.com/video.m3u8")] {
+            #expect(item.supportsPanorama)
+            let state = LibraryState(wallpapers: [item],displayMode: .spanned,mirroredWallpaperID: item.id)
+            #expect(try JSONDecoder().decode(LibraryState.self,from: JSONEncoder().encode(state)).validated() == state)
         }
     }
 

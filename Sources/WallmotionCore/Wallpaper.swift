@@ -35,8 +35,10 @@ public struct Wallpaper: Identifiable, Codable, Equatable, Sendable {
     }
 
     public var supportsPanorama: Bool {
-        guard kind == .image || kind == .gif, case .local = source else { return false }
-        return true
+        if case .web = source { return false }
+        if kind == .video { return true }
+        if case .local = source { return kind == .image || kind == .gif }
+        return false
     }
 
     public static func remote(_ text: String) throws -> Wallpaper {

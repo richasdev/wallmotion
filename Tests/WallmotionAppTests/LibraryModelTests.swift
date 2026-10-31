@@ -506,7 +506,7 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertNil(model.errorMessage)
     }
 
-    func testPanoramaStartsEmptyFromVideoStillRejectsVideoApplyAndRestoresIndependentAssignments() throws {
+    func testPanoramaInheritsNativeVideoAndRestoresIndependentAssignments() throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = LibraryStore(rootURL: directory)
@@ -520,7 +520,7 @@ final class LibraryModelTests: XCTestCase {
         model.refreshPlayback(force: false)
         model.setDisplayMode(.spanned, sourceDisplayID: "one")
         XCTAssertEqual(model.state.displayMode, .spanned)
-        XCTAssertNil(model.state.mirroredWallpaperID)
+        XCTAssertEqual(model.state.mirroredWallpaperID,video.id)
         XCTAssertNil(model.errorMessage)
         XCTAssertEqual(model.state.assignments, initial.assignments)
         XCTAssertEqual(try store.load(), model.state)
@@ -529,10 +529,9 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(model.activeWallpaperID(on: "one"), photo.id)
         model.setMediaFit(.stretch, on: "one")
         XCTAssertEqual(model.mediaFit(on: "two"), .stretch)
-        let panoramaBytes = try Data(contentsOf: store.stateURL)
         model.apply(video, to: "two")
-        XCTAssertEqual(model.activeWallpaperID(on: "one"), photo.id)
-        XCTAssertEqual(try Data(contentsOf: store.stateURL), panoramaBytes)
+        XCTAssertEqual(model.activeWallpaperID(on: "one"), video.id)
+        XCTAssertEqual(try store.load(),model.state)
         model.clear(displayID: "one")
         XCTAssertNil(model.activeWallpaperID(on: "two"))
         model.setDisplayMode(.independent, sourceDisplayID: "one")
@@ -584,7 +583,7 @@ final class LibraryModelTests: XCTestCase {
             model.setDisplayMode(mode, sourceDisplayID: "one")
             for item in items {
                 XCTAssertEqual(model.applicationRestriction(for: item, on: "one") == nil,
-                    mode != .spanned || item.id == photo.id || item.id == gif.id)
+                    mode != .spanned || item.id != web.id)
                 XCTAssertNotNil(model.applicationRestriction(for: item, on: "missing"))
             }
         }

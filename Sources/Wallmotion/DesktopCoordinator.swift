@@ -94,6 +94,8 @@ final class ImageSurface: NSView {
 final class VideoSurface: NSView {
     let playerLayer = AVPlayerLayer()
     private let mediaFit: MediaFit
+    private let panorama: PanoramaLayout?
+    private let targetFrame: CGRect
     private var itemObserver: NSKeyValueObservation?
     private var sizeObserver: NSKeyValueObservation?
     private var presentationSize: CGSize = .zero
@@ -116,12 +118,12 @@ final class VideoSurface: NSView {
         needsLayout = true
     }
 
-    init(player: AVPlayer, mediaFit: MediaFit = .fit) {
-        self.mediaFit = mediaFit
+    init(player: AVPlayer, mediaFit: MediaFit = .fit, panorama: PanoramaLayout? = nil, targetFrame: CGRect = .zero) {
+        self.mediaFit = mediaFit;self.panorama = panorama;self.targetFrame = targetFrame
         super.init(frame: .zero)
         wantsLayer = true
         playerLayer.player = player
-        playerLayer.videoGravity = mediaFit == .stretch ? .resize : (mediaFit == .fill ? .resizeAspectFill : .resizeAspect)
+        playerLayer.videoGravity = panorama != nil || mediaFit == .stretch ? .resize : (mediaFit == .fill ? .resizeAspectFill : .resizeAspect)
         itemObserver = player.observe(\.currentItem, options: [.initial, .new]) { [weak self] _, _ in
             Task { @MainActor [weak self] in self?.observeSize() }
         }
@@ -135,9 +137,13 @@ final class VideoSurface: NSView {
         super.layout()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        playerLayer.frame = mediaFit == .center
-            ? mediaFit.frame(for: presentationSize, in: bounds, backingScale: window?.backingScaleFactor ?? 1)
-            : bounds
+        if let panorama {
+            playerLayer.frame = panorama.imageFrame(sourcePixels: presentationSize, fit: mediaFit, on: targetFrame)
+        } else {
+            playerLayer.frame = mediaFit == .center
+                ? mediaFit.frame(for: presentationSize, in: bounds, backingScale: window?.backingScaleFactor ?? 1)
+                : bounds
+        }
         CATransaction.commit()
     }
 }
@@ -266,7 +272,7 @@ final class WallpaperRenderer {
         } else if let sharedVideo {
             self.sharedVideo = sharedVideo
             player = sharedVideo.player;imageView = nil
-            let view = VideoSurface(player: sharedVideo.player, mediaFit: mediaFit)
+            let view = VideoSurface(player: sharedVideo.player, mediaFit: mediaFit, panorama: panorama, targetFrame: frame)
             window = DesktopWindow(screen: screen, view: view, frame: frame)
             sharedVideoSubscriber = sharedVideo.subscribe(layer: view.playerLayer,
                 refresh: { [weak self] in self?.applyPlaybackState() }, state: onState, error: onError)
@@ -572,6 +578,7 @@ final class DesktopCoordinator {
     private var sharedVideo: SharedVideoPlayback?
     private var sharedVideoToken = UUID()
     private var rejectedSharedVideoIDs: Set<UUID> = []
+    private var sharedVideoIsPanorama = false
     private let sharedVideoLayerReady: @MainActor (AVPlayerLayer) -> Bool
     private let sharedVideoReadinessDelay: Duration
     private let photos: PhotoPreparation
@@ -671,6 +678,7 @@ final class DesktopCoordinator {
         if let id = state.mirroredWallpaperID {
             guard let item = state.wallpapers.first(where: { $0.id == id }),
                   item.supportsPanorama else { throw PanoramaError.localVisualRequired }
+            if item.kind == .video, rejectedSharedVideoIDs.contains(id) { throw PanoramaError.sharedVideoUnavailable }
         }
         if !targets.isEmpty, panorama(state: state, targets: targets) == nil { throw PanoramaError.invalidGeometry }
     }
@@ -834,6 +842,7 @@ final class DesktopCoordinator {
             for id in assigned { onError(id, error.localizedDescription) }
             return
         }
+        sharedVideoIsPanorama = state.displayMode == .spanned
         let previousShared = sharedVideo
         let sharedItem = state.mirroredWallpaperID.flatMap { id in state.wallpapers.first { $0.id == id } }
         let nativeItem = sharedItem.flatMap { item -> Wallpaper? in
@@ -855,6 +864,11 @@ final class DesktopCoordinator {
                     readinessDelay: sharedVideoReadinessDelay, onIncompatible: { [weak self] in
                         guard let self, self.sharedVideoToken == token else { return }
                         self.rejectedSharedVideoIDs.insert(item.id);self.sharedVideo = nil
+                        if self.sharedVideoIsPanorama {
+                            // Independent transports would break the single panorama playhead.
+                            for target in self.targets() { onError(target.id, PanoramaError.sharedVideoUnavailable.localizedDescription) }
+                            return
+                        }
                         if let reschedule = self.reschedule { reschedule() }
                         else { self.rebuild(state: self.withCurrentAudio(state), store: store, paused: self.latestPaused,
                             force: true, onPhotoQuality: onPhotoQuality, onState: onState, onError: onError) }
@@ -862,6 +876,10 @@ final class DesktopCoordinator {
             } catch { sharedVideo = nil }
         } else { sharedVideo = nil;sharedVideoToken = UUID() }
         let nextShared = sharedVideo
+        if state.displayMode == .spanned, nativeItem != nil, currentTargets.count > 1, nextShared == nil {
+            for id in assigned { onError(id, PanoramaError.sharedVideoUnavailable.localizedDescription) }
+            return
+        }
         pendingReloads.formIntersection(connected.intersection(assigned))
         // Release shrinking charges first so a valid whole-state transition is
         // never rejected merely because a growing display was visited first.
@@ -937,6 +955,7 @@ final class DesktopCoordinator {
     func invalidate(displayID: String) {
         // Preserve the previous renderer and GIF charge until replacement succeeds.
         pendingReloads.insert(displayID)
+        if let entry = renderers[displayID] { rejectedSharedVideoIDs.remove(entry.wallpaperID) }
     }
 
     /// Hot audio changes do not rebuild windows, re-prepare media or seek players.
@@ -977,11 +996,12 @@ final class DesktopCoordinator {
 }
 
 private enum PanoramaError: LocalizedError {
-    case localVisualRequired, invalidGeometry
+    case localVisualRequired, invalidGeometry, sharedVideoUnavailable
     var errorDescription: String? {
         switch self {
-        case .localVisualRequired: "Escolha uma foto ou GIF local para usar o modo panorâmico. Vídeos ainda não são compatíveis."
+        case .localVisualRequired: "Escolha uma foto, GIF local ou vídeo nativo para usar o modo panorâmico. Fontes web não são compatíveis."
         case .invalidGeometry: "Não foi possível calcular a disposição dos monitores para o panorama."
+        case .sharedVideoUnavailable: "O vídeo não pôde ser exibido de forma compartilhada nestas telas. Recarregue o fundo para tentar novamente ou use o modo Espelhar."
         }
     }
 }
