@@ -51,6 +51,14 @@ typedef struct { const uint8_t *bytes; size_t length; } WMGifByteView;
 int32_t wm_gif_animation_decode(const uint8_t *bytes, size_t len,
     uint64_t max_encoded, uint64_t max_decoded, uint64_t max_working,
     uint32_t max_frames, const WMGifAnimation **out);
+// Positional regular-file decode; duplicates descriptor with close-on-exec,
+// preserves caller offset, rejects observed dev/ino/size/mtime/ctime changes.
+// 9=observed source change. No atomic-snapshot guarantee against hostile writers.
+// Input is streamed up to initial length without mmap/full encoded copy. Caller keeps
+// descriptor open during the call; successful output owns one reference.
+int32_t wm_gif_animation_decode_fd(int32_t descriptor,
+    uint64_t max_encoded, uint64_t max_decoded, uint64_t max_working,
+    uint32_t max_frames, const WMGifAnimation **out);
 // A successful decode yields one owned reference. retain adds one, release
 // consumes one; null retain/release is allowed. Never release a borrowed pointer.
 // Getters and retain require an already owned reference throughout the call;

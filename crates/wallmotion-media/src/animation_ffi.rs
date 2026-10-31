@@ -33,7 +33,7 @@ pub struct WMGifByteView {
     pub length: usize,
 }
 
-fn status(error: DecodeError) -> i32 {
+pub(crate) fn status(error: DecodeError) -> i32 {
     match error {
         DecodeError::Preflight(GifError::EncodedBudgetExceeded) => 4,
         DecodeError::Preflight(GifError::StructureBudgetExceeded) => 3,
@@ -95,6 +95,57 @@ pub unsafe extern "C" fn wm_gif_animation_decode(
             0
         }
         Err(error) => status(error),
+    }
+}
+
+/// # Safety
+/// descriptor stays open for this call. out is aligned writable storage, not
+/// aliasing the file or live handles. All failures preserve out. The duplicated
+/// descriptor is closed on return; no file mapping or input storage is retained.
+#[cfg(unix)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wm_gif_animation_decode_fd(
+    descriptor: i32,
+    max_encoded: u64,
+    max_decoded: u64,
+    max_working: u64,
+    max_frames: u32,
+    out: *mut *const WMGifAnimation,
+) -> i32 {
+    use crate::animation_file::{self, FileDecodeError};
+    use std::os::fd::BorrowedFd;
+    if descriptor < 0 || out.is_null() || !out.is_aligned() {
+        return 1;
+    }
+    let (Ok(encoded_bytes), Ok(working_bytes)) =
+        (usize::try_from(max_encoded), usize::try_from(max_working))
+    else {
+        return 6;
+    };
+    // SAFETY: Caller keeps the descriptor open throughout duplication and use.
+    let borrowed = unsafe { BorrowedFd::borrow_raw(descriptor) };
+    let Ok(owned) = borrowed.try_clone_to_owned() else {
+        return 1;
+    };
+    let file = std::fs::File::from(owned);
+    match animation_file::decode_file(
+        &file,
+        DecodeLimits {
+            encoded_bytes,
+            decoded_bytes: max_decoded,
+            working_bytes,
+            frames: max_frames as usize,
+        },
+    ) {
+        Ok(animation) => {
+            let owned = Arc::into_raw(Arc::new(WMGifAnimation { animation }));
+            // SAFETY: The caller supplies aligned writable disjoint output storage.
+            unsafe { ptr::write(out, owned) };
+            0
+        }
+        Err(FileDecodeError::Decode(error)) => status(error),
+        Err(FileDecodeError::Changed) => 9,
+        Err(FileDecodeError::Read) => 1,
     }
 }
 

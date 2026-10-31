@@ -2,7 +2,7 @@
 //! This layer has no file I/O, FFI, clock or application cache.
 use crate::compositor::{CompositionError, Compositor, Disposal, FrameRect, IndexedFrame, Pixel};
 use crate::{GifError, probe_gif_with_limits};
-use std::io::Cursor;
+use std::io::{Cursor, Read};
 use std::num::NonZeroU64;
 
 #[derive(Clone, Copy, Debug)]
@@ -95,6 +95,16 @@ impl Animation {
 pub fn decode(data: &[u8], limits: DecodeLimits) -> Result<Animation, DecodeError> {
     let info = probe_gif_with_limits(data, limits.decoded_bytes, limits.encoded_bytes as u64)
         .map_err(DecodeError::Preflight)?;
+    decode_reader(Cursor::new(data), info, limits)
+}
+
+/// Only callers that performed bounded structural admission may supply info.
+/// File callers separately check observed identity around their bounded reads.
+pub(crate) fn decode_reader(
+    reader: impl Read,
+    info: crate::GifInfo,
+    limits: DecodeLimits,
+) -> Result<Animation, DecodeError> {
     let frame_count = usize::try_from(info.frames).map_err(|_| DecodeError::Overflow)?;
     if frame_count > limits.frames {
         return Err(DecodeError::FrameLimit);
@@ -125,7 +135,7 @@ pub fn decode(data: &[u8], limits: DecodeLimits) -> Result<Animation, DecodeErro
         NonZeroU64::new(codec_limit as u64).unwrap(),
     ));
     let mut decoder = options
-        .read_info(Cursor::new(data))
+        .read_info(reader)
         .map_err(|_| DecodeError::InvalidData)?;
     if usize::from(decoder.width()) != width || usize::from(decoder.height()) != height {
         return Err(DecodeError::InvalidData);
