@@ -1,0 +1,183 @@
+{
+  "evidence_file_modified_utc": "2026-10-31T21:39:14.250215+00:00",
+  "host_architecture": "arm64",
+  "limits": "One opted-in URL, short fixed-order sample. Ten seconds may retain buffered variants. Preference is not a guaranteed cap. Color metadata and EDR capability do not certify visual color, no flicker, HDR/SDR transition, portrait physical display, energy or CPU improvement. No source URLs or raw errors exported.",
+  "manifest_sha256": "f2177c1350130e087f9d81af82f092ababfcfb34e5b01e52ff146a08b241e849",
+  "os": "Vers\u00e3o 27.0.1 (Compila\u00e7\u00e3o 26A434)",
+  "public_example": "Apple bipbop",
+  "rows": [
+    {
+      "CVImageBufferColorPrimaries": "ITU_R_709_2",
+      "CVImageBufferTransferFunction": "ITU_R_709_2",
+      "CVImageBufferYCbCrMatrix": "ITU_R_709_2",
+      "access_events": [
+        {
+          "bytes": 3335979,
+          "indicated_bitrate": 2227464,
+          "observed_bitrate": 18453955,
+          "stalls": 0
+        },
+        {
+          "bytes": 62794072,
+          "indicated_bitrate": 8399417,
+          "observed_bitrate": 59524918,
+          "stalls": 0
+        }
+      ],
+      "buffer_height": 1080,
+      "buffer_pixel_format": 641234480,
+      "buffer_width": 1920,
+      "layer_ready": true,
+      "muted": true,
+      "playhead_after": 9.818333102,
+      "playhead_before": 0,
+      "preference_height": 0,
+      "preference_width": 0,
+      "presentation_height": 1080,
+      "presentation_width": 1920,
+      "preset": "automatic",
+      "prevents_display_sleep": false,
+      "volume": 0
+    },
+    {
+      "CVImageBufferColorPrimaries": "ITU_R_709_2",
+      "CVImageBufferTransferFunction": "ITU_R_709_2",
+      "CVImageBufferYCbCrMatrix": "ITU_R_709_2",
+      "access_events": [
+        {
+          "bytes": 3335979,
+          "indicated_bitrate": 2227464,
+          "observed_bitrate": 18453955,
+          "stalls": 0
+        },
+        {
+          "bytes": 62794072,
+          "indicated_bitrate": 8399417,
+          "observed_bitrate": 59524918,
+          "stalls": 0
+        },
+        {
+          "bytes": 7499571,
+          "indicated_bitrate": 3510665,
+          "observed_bitrate": 58662514,
+          "stalls": 0
+        }
+      ],
+      "buffer_height": 1080,
+      "buffer_pixel_format": 641234480,
+      "buffer_width": 1920,
+      "layer_ready": true,
+      "muted": true,
+      "playhead_after": 19.836525893,
+      "playhead_before": 9.820333477,
+      "preference_height": 720,
+      "preference_width": 1280,
+      "presentation_height": 1080,
+      "presentation_width": 1920,
+      "preset": "hd720",
+      "prevents_display_sleep": false,
+      "volume": 0
+    },
+    {
+      "CVImageBufferColorPrimaries": "ITU_R_709_2",
+      "CVImageBufferTransferFunction": "ITU_R_709_2",
+      "CVImageBufferYCbCrMatrix": "ITU_R_709_2",
+      "access_events": [
+        {
+          "bytes": 3335979,
+          "indicated_bitrate": 2227464,
+          "observed_bitrate": 18453955,
+          "stalls": 0
+        },
+        {
+          "bytes": 62794072,
+          "indicated_bitrate": 8399417,
+          "observed_bitrate": 59524918,
+          "stalls": 0
+        },
+        {
+          "bytes": 7499571,
+          "indicated_bitrate": 3510665,
+          "observed_bitrate": 58662514,
+          "stalls": 0
+        },
+        {
+          "bytes": 66421196,
+          "indicated_bitrate": 8399417,
+          "observed_bitrate": 89604539,
+          "stalls": 0
+        }
+      ],
+      "buffer_height": 1080,
+      "buffer_pixel_format": 641234480,
+      "buffer_width": 1920,
+      "layer_ready": true,
+      "muted": true,
+      "playhead_after": 29.852065476,
+      "playhead_before": 19.843958352,
+      "preference_height": 2160,
+      "preference_width": 3840,
+      "presentation_height": 1080,
+      "presentation_width": 1920,
+      "preset": "uhd2160",
+      "prevents_display_sleep": false,
+      "volume": 0
+    },
+    {
+      "CVImageBufferColorPrimaries": "ITU_R_709_2",
+      "CVImageBufferTransferFunction": "ITU_R_709_2",
+      "CVImageBufferYCbCrMatrix": "ITU_R_709_2",
+      "access_events": [
+        {
+          "bytes": 3335979,
+          "indicated_bitrate": 2227464,
+          "observed_bitrate": 18453955,
+          "stalls": 0
+        },
+        {
+          "bytes": 62794072,
+          "indicated_bitrate": 8399417,
+          "observed_bitrate": 59524918,
+          "stalls": 0
+        },
+        {
+          "bytes": 7499571,
+          "indicated_bitrate": 3510665,
+          "observed_bitrate": 58662514,
+          "stalls": 0
+        },
+        {
+          "bytes": 72708859,
+          "indicated_bitrate": 8399417,
+          "observed_bitrate": 81454477,
+          "stalls": 0
+        }
+      ],
+      "buffer_height": 1080,
+      "buffer_pixel_format": 641234480,
+      "buffer_width": 1920,
+      "layer_ready": true,
+      "muted": true,
+      "playhead_after": 39.868800309,
+      "playhead_before": 29.852300185,
+      "preference_height": 0,
+      "preference_width": 0,
+      "presentation_height": 1080,
+      "presentation_width": 1920,
+      "preset": "automatic",
+      "prevents_display_sleep": false,
+      "volume": 0
+    }
+  ],
+  "schema_version": 1,
+  "screens": [
+    {
+      "edr_current": 1.2000000476837158,
+      "edr_potential": 16,
+      "height_points": 982,
+      "scale": 2,
+      "width_points": 1512
+    }
+  ],
+  "source_sha": "972bb8d91addc9d7aa82b40bc2d7471a55b7c3df"
+}
