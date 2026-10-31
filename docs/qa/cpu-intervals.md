@@ -34,3 +34,10 @@ wait "$fixture_pid"
 One local run completed 25 samples over 6.0259 observed seconds: busy-window mean 99.69%, measured idle-window counter-delta mean 0.0%, time-weighted mean 50.12%, interval p95 104.04%, sampled RSS maximum 18,595,840 bytes. The over-100 p95 for a single busy thread illustrates timestamp/quantization uncertainty; it is not evidence of extra threads. These are fixture observations, **not Wallmotion app performance or energy results**. The first interval was null. Raw local output remains in `/tmp/wallmotion-native-cpu-metrics.json`.
 
 Unit tests cover formats/resolution, first-sample nulls, multicore percentages, PID/counter changes, partial results, cadence after slow queries, weighted summaries, CSV compatibility and bounded C/UTC ps calls. The current user's running app and its data are not used by these tests. Remaining whole-app workload/energy protocol belongs to #8.
+
+## App workload measurements
+
+The [native policy matrix](runtime-policy-matrix.md) records four 120-second states
+in an instrumented isolated app using production policy/renderers and generated
+H.264. Its CSV preserves interval CPU and sampled RSS; the report separates those
+observations from energy, GPU and physical desktop certification.
