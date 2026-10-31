@@ -290,9 +290,11 @@ final class WallpaperRenderer {
     /// request, since policy/rebuild/seek may run without a new occlusion event.
     private func applyPlaybackState() {
         playbackState.setVisible(isWindowVisible(window))
-        player?.volume = Float(audioVolume)
-        player?.isMuted = !(audioEnabled && audioVolume > 0 && playbackState.shouldPlay)
-        webRenderer?.setAudioPolicy(enabled: audioEnabled && playbackState.shouldPlay, volume: audioVolume)
+        let audible = audioEnabled && audioVolume > 0 && playbackState.shouldPlay
+        let outputVolume = audible ? audioVolume : 0
+        player?.volume = Float(outputVolume)
+        player?.isMuted = !audible
+        webRenderer?.setAudioPolicy(enabled: audible, volume: outputVolume)
         webRenderer?.setPaused(!playbackState.shouldPlay)
         if let gifSubscriber { gifPlayback?.setActive(playbackState.shouldPlay, subscriber: gifSubscriber) }
         remotePlayback?.setPaused(!playbackState.shouldPlay)
@@ -406,6 +408,7 @@ final class DesktopCoordinator {
     private var reschedule: (@MainActor () -> Void)?
     private var rebuildGeneration = UUID()
     private var latestPaused = true
+    private var audioConfiguration = AudioConfiguration()
     private struct TargetGeometry: Equatable {
         let id: String
         let frame: CGRect
@@ -434,6 +437,14 @@ final class DesktopCoordinator {
         self.targets = targets
         self.isWindowVisible = isWindowVisible
         self.webDocument = webDocument
+    }
+
+    private func withCurrentAudio(_ state: LibraryState) -> LibraryState {
+        var next = state
+        next.settings.audioDisplayID = audioConfiguration.displayID
+        next.settings.audioVolume = audioConfiguration.masterVolume
+        next.audioGains = audioConfiguration.gains
+        return next
     }
 
     // Synchronous fixture helper. Production UI builds a small admission request
@@ -526,11 +537,12 @@ final class DesktopCoordinator {
                          onPhotoQuality: @escaping @MainActor (String, PhotoQualityInfo?) -> Void = { _, _ in },
                          onState: @escaping @MainActor (String, RemotePlaybackState) -> Void = { _, _ in },
                          onError: @escaping @MainActor (String, String) -> Void) {
+        audioConfiguration = state.audioConfiguration
         rebuildGeneration = UUID()
         let generation = rebuildGeneration
         reschedule = { [weak self] in
             guard let self else { return }
-            self.scheduleRebuild(state: state, store: store, paused: self.latestPaused, deferNewRenderers: deferNewRenderers, onPhotoQuality: onPhotoQuality, onState: onState, onError: onError)
+            self.scheduleRebuild(state: self.withCurrentAudio(state), store: store, paused: self.latestPaused, deferNewRenderers: deferNewRenderers, onPhotoQuality: onPhotoQuality, onState: onState, onError: onError)
         }
         latestPaused = paused
         let currentTargets = targets()
@@ -542,13 +554,13 @@ final class DesktopCoordinator {
             renderers.removeValue(forKey: id)?.renderer.stop()
         }
         gifBudget = gifBudget.retaining(displays: Set(renderers.keys))
-        for (id, entry) in renderers where state.settings.audioDisplayID != id || assignments[id] != entry.wallpaperID {
+        for (id, entry) in renderers where audioConfiguration.displayID != id || assignments[id] != entry.wallpaperID {
             entry.renderer.setAudioEnabled(false)
         }
         for (id, entry) in renderers {
             entry.renderer.setHLSResolution(state.settings.hlsResolution)
             entry.renderer.setPaused(paused)
-            entry.renderer.setAudioPolicy(enabled: state.settings.audioDisplayID == id && assignments[id] == entry.wallpaperID, volume: state.settings.audioVolume)
+            entry.renderer.setAudioPolicy(enabled: audioConfiguration.displayID == id && assignments[id] == entry.wallpaperID, volume: audioConfiguration.effectiveVolume(for: entry.wallpaperID))
         }
         if deferNewRenderers {
             photos.cancel(); gifs.cancel()
@@ -589,7 +601,7 @@ final class DesktopCoordinator {
         gifs.submit(gifRequests) { [weak self] outcome in
             guard let self, self.rebuildGeneration == generation else { return }
             guard self.geometry(self.targets()) == requestedGeometry else {
-                self.scheduleRebuild(state: state, store: store, paused: self.latestPaused, force: force, onPhotoQuality: onPhotoQuality, onState: onState, onError: onError)
+                self.scheduleRebuild(state: self.withCurrentAudio(state), store: store, paused: self.latestPaused, force: force, onPhotoQuality: onPhotoQuality, onState: onState, onError: onError)
                 return
             }
             let admission: GIFAdmissionBatch
@@ -602,7 +614,7 @@ final class DesktopCoordinator {
             self.photos.submit(requests) { [weak self] prepared in
                 guard let self, self.rebuildGeneration == generation else { return }
                 guard self.geometry(self.targets()) == requestedGeometry else {
-                    self.scheduleRebuild(state: state, store: store, paused: self.latestPaused, force: force, onPhotoQuality: onPhotoQuality, onState: onState, onError: onError)
+                    self.scheduleRebuild(state: self.withCurrentAudio(state), store: store, paused: self.latestPaused, force: force, onPhotoQuality: onPhotoQuality, onState: onState, onError: onError)
                     return
                 }
                 self.rebuild(state: state, store: store, paused: self.latestPaused, force: force,
@@ -613,7 +625,9 @@ final class DesktopCoordinator {
     }
 
     func rebuild(state: LibraryState, store: LibraryStore, paused: Bool, force: Bool = false, preparedPhotos: PhotoPreparation.Results = [:], requiresPreparedPhotos: Bool = false, preparedGIFs: SharedGIFPreparation.Results = [:], requiresPreparedGIFs: Bool = false, admissions: [String: GIFAdmission]? = nil, onPhotoQuality: @escaping @MainActor (String, PhotoQualityInfo?) -> Void = { _, _ in }, onState: @escaping @MainActor (String, RemotePlaybackState) -> Void = { _, _ in }, onError: @escaping @MainActor (String, String) -> Void) {
-        if !requiresPreparedPhotos || !requiresPreparedGIFs { rebuildGeneration = UUID() }
+        if !requiresPreparedPhotos || !requiresPreparedGIFs {
+            rebuildGeneration = UUID();audioConfiguration = state.audioConfiguration
+        }
         if !requiresPreparedPhotos { photos.cancel() }
         if !requiresPreparedGIFs { gifs.cancel() }
         latestPaused = paused
@@ -629,7 +643,7 @@ final class DesktopCoordinator {
         }
         gifBudget = gifBudget.retaining(displays: Set(renderers.keys))
         // Silence every existing player before any display receives audio ownership.
-        for (id, entry) in renderers where state.settings.audioDisplayID != id || assignments[id] != entry.wallpaperID {
+        for (id, entry) in renderers where audioConfiguration.displayID != id || assignments[id] != entry.wallpaperID {
             entry.renderer.setAudioEnabled(false)
         }
         let proposed: GIFPlaybackBudget
@@ -663,7 +677,7 @@ final class DesktopCoordinator {
                entry.mediaFit == mediaFit, entry.backingScale == target.backingScale, entry.panorama == layout {
                 entry.renderer.setHLSResolution(state.settings.hlsResolution)
                 entry.renderer.setPaused(paused)
-                entry.renderer.setAudioPolicy(enabled: state.settings.audioDisplayID == displayID, volume: state.settings.audioVolume)
+                entry.renderer.setAudioPolicy(enabled: audioConfiguration.displayID == displayID, volume: audioConfiguration.effectiveVolume(for: entry.wallpaperID))
                 onPhotoQuality(displayID, entry.renderer.photoQuality)
                 if let state = entry.renderer.remotePlaybackState { onState(displayID, state) }
                 continue
@@ -701,7 +715,7 @@ final class DesktopCoordinator {
                 gifBudget = nextBudget
                 renderers[displayID] = Entry(wallpaperID: wallpaperID, frame: target.frame, mediaFit: mediaFit, backingScale: target.backingScale, panorama: layout, token: token, renderer: renderer)
                 renderer.setPaused(paused)
-                renderer.setAudioPolicy(enabled: state.settings.audioDisplayID == displayID, volume: state.settings.audioVolume)
+                renderer.setAudioPolicy(enabled: audioConfiguration.displayID == displayID, volume: audioConfiguration.effectiveVolume(for: wallpaperID))
                 onPhotoQuality(displayID, renderer.photoQuality)
                 if let state = renderer.remotePlaybackState { onState(displayID, state) }
             } catch {
@@ -715,6 +729,20 @@ final class DesktopCoordinator {
     func invalidate(displayID: String) {
         // Preserve the previous renderer and GIF charge until replacement succeeds.
         pendingReloads.insert(displayID)
+    }
+
+    /// Hot audio changes do not rebuild windows, re-prepare media or seek players.
+    func setAudioPreferences(state: LibraryState) {
+        audioConfiguration = state.audioConfiguration
+        let connected = Set(targets().map(\.id))
+        let assignments = state.effectiveAssignments(for: Array(connected))
+        for (display, entry) in renderers where !connected.contains(display) || audioConfiguration.displayID != display || assignments[display] != entry.wallpaperID {
+            entry.renderer.setAudioEnabled(false)
+        }
+        for (display, entry) in renderers {
+            let ownsAudio = connected.contains(display) && audioConfiguration.displayID == display && assignments[display] == entry.wallpaperID
+            entry.renderer.setAudioPolicy(enabled: ownsAudio, volume: audioConfiguration.effectiveVolume(for: entry.wallpaperID))
+        }
     }
 
     func setPaused(_ value: Bool) {

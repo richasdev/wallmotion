@@ -109,7 +109,7 @@ struct BackgroundControls: View {
                                 draftVolume = $0
                                 volumeDirty = true
                             }), in: 0...1, step: 0.01, onEditingChanged: { isEditingVolume = $0 }) {
-                                Text("Volume do fundo")
+                                Text("Volume geral")
                             }
                             .accessibilityValue("\(Int((draftVolume * 100).rounded())) por cento")
                             Text("\(Int((draftVolume * 100).rounded()))%")
@@ -120,6 +120,10 @@ struct BackgroundControls: View {
                         Text(audioHelp)
                             .font(.caption).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
+                        if let item = model.audioWallpaper(on: selectedDisplay) {
+                            SourceAudioControls(model: model, wallpaperID: item.id)
+                                .id(item.id)
+                        }
                     }
                 }.padding(.top, 12)
             }.font(.callout.weight(.medium))
@@ -236,5 +240,67 @@ private extension MediaSource {
     var isWebEmbed: Bool {
         if case .web = self { return true }
         return false
+    }
+}
+
+
+/// Identity is the library item, so a disappearing slider can only commit its
+/// own source's draft even if the selected monitor has already changed media.
+@MainActor
+struct SourceAudioControls: View {
+    let model: LibraryModel
+    let wallpaperID: UUID
+    @State private var draft: Double
+    @State private var editing = false
+    @State private var dirty = false
+    private struct Edit: Hashable { let value: Double; let editing: Bool; let dirty: Bool }
+
+    init(model: LibraryModel, wallpaperID: UUID) {
+        self.model = model;self.wallpaperID = wallpaperID
+        _draft = State(initialValue: model.state.audioGain(for: wallpaperID))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Volume deste fundo").font(.callout.weight(.medium))
+                Spacer()
+                Button("Restaurar 100%") { dirty = false;editing = false;model.setAudioGain(1, for: wallpaperID);draft = model.state.audioGain(for: wallpaperID) }
+                    .font(.caption).disabled(draft == 1)
+            }
+            HStack(spacing: 12) {
+                Slider(value: Binding(get: { draft }, set: { draft = $0;dirty = true }), in: 0...1, step: 0.01,
+                    onEditingChanged: { editing = $0 }) { Text("Volume deste fundo") }
+                    .labelsHidden()
+                    .accessibilityValue("\(Int((draft * 100).rounded())) por cento")
+                    .accessibilityHint("Este ajuste é salvo para o fundo e combina com o volume geral.")
+                Text("\(Int((draft * 100).rounded()))%")
+                    .font(.caption.monospacedDigit()).frame(minWidth: 34, alignment: .trailing)
+            }
+            Text("Ajuste salvo para este item em qualquer monitor. Saída com o volume geral: \(Int((draft * model.state.settings.audioVolume * 100).rounded()))%.")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: 420)
+        .disabled(!model.canEdit)
+        .onChange(of: model.state.audioGain(for: wallpaperID)) { _, value in
+            editing = false;dirty = false;draft = value
+        }
+        .onChange(of: model.canEdit) { _, editable in
+            if !editable { editing = false;dirty = false;draft = model.state.audioGain(for: wallpaperID) }
+        }
+        .task(id: Edit(value: draft, editing: editing, dirty: dirty)) {
+            guard dirty, !editing else { return }
+            do { try await Task.sleep(for: .milliseconds(200)) } catch { return }
+            guard !Task.isCancelled else { return }
+            save()
+        }
+        .onDisappear { save() }
+    }
+
+    private func save() {
+        guard dirty else { return }
+        dirty = false
+        model.setAudioGain(draft, for: wallpaperID)
+        draft = model.state.audioGain(for: wallpaperID)
     }
 }

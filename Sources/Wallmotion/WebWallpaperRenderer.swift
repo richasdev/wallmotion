@@ -38,7 +38,8 @@ final class WebWallpaperRenderer: NSObject, WKNavigationDelegate {
     private func applyAudioPolicy() {
         guard documentReady, let webView else { return }
         // Only bounded numbers and a Swift Bool enter JavaScript.
-        let script = "window.setAudioPolicy(\(audioEnabled && audioVolume > 0 ? "true" : "false"),\(audioVolume))"
+        let outputVolume = audioEnabled ? audioVolume : 0
+        let script = "window.setAudioPolicy(\(audioEnabled && outputVolume > 0 ? "true" : "false"),\(outputVolume))"
         guard script != appliedAudioPolicy else { return }
         appliedAudioPolicy = script
         webView.evaluateJavaScript(script, completionHandler: nil)

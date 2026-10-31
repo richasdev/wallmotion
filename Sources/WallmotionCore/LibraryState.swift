@@ -45,8 +45,9 @@ public struct LibraryState: Codable, Equatable, Sendable {
     public var settings: PlaybackSettings
     // Display UUID → wallpaper UUID → proportional presentation mode.
     public var mediaFits: [String: [String: MediaFit]]
+    public var audioGains: [String: Double]
 
-    public init(version: Int = 4, wallpapers: [Wallpaper] = [], assignments: [String: UUID] = [:], settings: PlaybackSettings = .init(), mediaFits: [String: [String: MediaFit]] = [:], displayMode: DisplayMode = .independent, mirroredWallpaperID: UUID? = nil, mirroredMediaFit: MediaFit = .fit) {
+    public init(version: Int = 4, wallpapers: [Wallpaper] = [], assignments: [String: UUID] = [:], settings: PlaybackSettings = .init(), mediaFits: [String: [String: MediaFit]] = [:], displayMode: DisplayMode = .independent, mirroredWallpaperID: UUID? = nil, mirroredMediaFit: MediaFit = .fit, audioGains: [String: Double] = [:]) {
         self.version = version
         self.wallpapers = wallpapers
         self.assignments = assignments
@@ -55,10 +56,11 @@ public struct LibraryState: Codable, Equatable, Sendable {
         self.displayMode = displayMode
         self.mirroredWallpaperID = mirroredWallpaperID
         self.mirroredMediaFit = mirroredMediaFit
+        self.audioGains = audioGains
     }
 
     private enum CodingKeys: String, CodingKey {
-        case version, wallpapers, assignments, settings, mediaFits, displayMode, mirroredWallpaperID, mirroredMediaFit
+        case version, wallpapers, assignments, settings, mediaFits, displayMode, mirroredWallpaperID, mirroredMediaFit, audioGains
     }
 
     public init(from decoder: any Decoder) throws {
@@ -71,6 +73,7 @@ public struct LibraryState: Codable, Equatable, Sendable {
         mirroredWallpaperID = try values.decodeIfPresent(UUID.self, forKey: .mirroredWallpaperID)
         mirroredMediaFit = try values.decodeIfPresent(MediaFit.self, forKey: .mirroredMediaFit) ?? .fit
         mediaFits = try values.decodeIfPresent([String: [String: MediaFit]].self, forKey: .mediaFits) ?? [:]
+        audioGains = try values.decodeIfPresent([String: Double].self, forKey: .audioGains) ?? [:]
     }
 
     public func effectiveAssignments(for displayIDs: [String]) -> [String: UUID] {
@@ -93,8 +96,23 @@ public struct LibraryState: Codable, Equatable, Sendable {
         else { mediaFits[displayID, default: [:]][wallpaperID.uuidString] = fit }
     }
 
+    public func audioGain(for wallpaperID: UUID) -> Double { audioGains[wallpaperID.uuidString] ?? 1 }
+
+    public func effectiveAudioVolume(for wallpaperID: UUID) -> Double {
+        audioConfiguration.effectiveVolume(for: wallpaperID)
+    }
+
+    public var audioConfiguration: AudioConfiguration {
+        AudioConfiguration(displayID: settings.audioDisplayID, masterVolume: settings.audioVolume, gains: audioGains)
+    }
+
+    public mutating func setAudioGain(_ gain: Double, for wallpaperID: UUID) {
+        audioGains[wallpaperID.uuidString] = gain == 1 ? nil : gain
+    }
+
     public mutating func remove(id: UUID) {
         wallpapers.removeAll { $0.id == id }
+        audioGains[id.uuidString] = nil
         if mirroredWallpaperID == id { mirroredWallpaperID = nil }
         assignments = assignments.filter { $0.value != id }
         for display in Array(mediaFits.keys) {
@@ -118,6 +136,10 @@ public struct LibraryState: Codable, Equatable, Sendable {
         let fitIDs = Set(wallpapers.map { $0.id.uuidString })
         guard mediaFits.allSatisfy({ display, fits in
             !display.isEmpty && fits.keys.allSatisfy { fitIDs.contains($0) }
+        }) else { throw LibraryError.invalidState }
+        let videoIDs = Set(wallpapers.filter { $0.kind == .video }.map { $0.id.uuidString })
+        guard audioGains.allSatisfy({ id, gain in
+            videoIDs.contains(id) && gain.isFinite && (0...1).contains(gain)
         }) else { throw LibraryError.invalidState }
         for item in wallpapers {
             switch item.source {
