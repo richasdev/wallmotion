@@ -488,6 +488,17 @@ final class WebWallpaperRendererTests: XCTestCase {
         if embed.provider == .youtube { muted = try await renderer.webView?.evaluateJavaScript(script) }
         else { muted = try await renderer.webView?.callAsyncJavaScript("return await player.getMuted()", in: nil, contentWorld: .page) }
         XCTAssertEqual(muted as? Bool, true)
+        func position() async throws -> Double {
+            let value: Any?
+            if embed.provider == .youtube { value = try await renderer.webView?.evaluateJavaScript("player.getCurrentTime()") }
+            else { value = try await renderer.webView?.callAsyncJavaScript("return await player.getCurrentTime()", in: nil, contentWorld: .page) }
+            return try XCTUnwrap(value as? NSNumber).doubleValue
+        }
+        let before = try await position()
+        try await Task.sleep(for: .milliseconds(500))
+        let after = try await position()
+        XCTAssertTrue(before.isFinite && after.isFinite)
+        XCTAssertGreaterThan(abs(after-before),0.05,"Provider time must advance, not just emit playing")
         renderer.setAudioPolicy(enabled: false, volume: 0.25)
         let volumeDeadline = ContinuousClock.now + .seconds(5)
         var observedVolume: Double?
@@ -496,10 +507,12 @@ final class WebWallpaperRendererTests: XCTestCase {
             if embed.provider == .youtube { result = try await renderer.webView?.evaluateJavaScript("player.getVolume()") }
             else { result = try await renderer.webView?.callAsyncJavaScript("return await player.getVolume()", in: nil, contentWorld: .page) }
             observedVolume = (result as? NSNumber)?.doubleValue
-            if let observedVolume, abs(observedVolume - (embed.provider == .youtube ? 25 : 0.25)) < 0.001 { break }
+            if let observedVolume, abs(observedVolume) < 0.001 { break }
             try await Task.sleep(for: .milliseconds(50))
         }
-        XCTAssertEqual(try XCTUnwrap(observedVolume), embed.provider == .youtube ? 25 : 0.25, accuracy: 0.001)
+        // Disabled output intentionally sends zero to the SDK. Requested gain
+        // stays stored separately; never unmute a live QA provider to inspect it.
+        XCTAssertEqual(try XCTUnwrap(observedVolume),0, accuracy: 0.001)
         if let path = ProcessInfo.processInfo.environment["WALLMOTION_WEB_SNAPSHOT_PATH"] {
             let snapshot = try await renderer.webView?.takeSnapshot(configuration: nil)
             let image = try XCTUnwrap(snapshot)
@@ -508,8 +521,20 @@ final class WebWallpaperRendererTests: XCTestCase {
             let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
             try png.write(to: URL(fileURLWithPath: path))
         }
+        weak let discarded = renderer.webView
         renderer.setPaused(true)
         XCTAssertNil(renderer.webView)
+        let releaseDeadline = ContinuousClock.now + .seconds(5)
+        while discarded != nil, ContinuousClock.now < releaseDeadline { try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertNil(discarded,"The paused native webview should release after outstanding callbacks finish")
+        renderer.setPaused(false)
+        let resumeDeadline = ContinuousClock.now + .seconds(30)
+        while !renderer.isPlaying && failure == nil && ContinuousClock.now < resumeDeadline { try await Task.sleep(for: .milliseconds(100)) }
+        XCTAssertNil(failure);XCTAssertTrue(renderer.isPlaying)
+        let resumedMute: Any?
+        if embed.provider == .youtube { resumedMute = try await renderer.webView?.evaluateJavaScript("player.isMuted()") }
+        else { resumedMute = try await renderer.webView?.callAsyncJavaScript("return await player.getMuted()", in: nil, contentWorld: .page) }
+        XCTAssertEqual(resumedMute as? Bool,true)
         renderer.stop()
         XCTAssertTrue(renderer.surface.subviews.isEmpty)
     }
