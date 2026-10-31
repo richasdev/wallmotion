@@ -1,0 +1,29 @@
+{
+  "source_sha": "f2b93815b5b8e9fa28e5b5912f189b829962c0ae",
+  "host": "macOS27.0.1 arm64",
+  "cases": [
+    {
+      "provider": "youtube",
+      "public_url": "https://youtu.be/M7lc1UVf-VE",
+      "passed": true
+    },
+    {
+      "provider": "vimeo",
+      "public_url": "https://vimeo.com/19231868",
+      "passed": true
+    }
+  ],
+  "claims": [
+    "muted autoplay",
+    "provider time advances",
+    "disabled output volume zero",
+    "pause discards native webview and releases it",
+    "resume recreates playing muted view",
+    "stop empties surface"
+  ],
+  "limits": [
+    "one public example per provider, one host/network",
+    "no live unlisted/password/DRM certification",
+    "no physical audible or power/CPU measurement"
+  ]
+}
