@@ -15,6 +15,9 @@ final class LibraryModel {
     var errorMessage: String?
     @ObservationIgnored private let thermalState: @MainActor () -> ThermalPausePolicy.Pressure
     @ObservationIgnored private let memoryMonitor: any MemoryPressureMonitoring
+    @ObservationIgnored private let visibleApplicationMonitor: any VisibleApplicationMonitoring
+    private var visibleApplicationMonitorRunning = false
+    private(set) var visibleAppPausedDisplays = Set<String>()
     @ObservationIgnored private let purgeThumbnails: @MainActor () -> Void
     private var lastMemoryPressure: MemoryPressurePolicy.Pressure?
     private(set) var resourcesReleasedForMemory = false
@@ -59,6 +62,7 @@ final class LibraryModel {
             }
         },
         memoryMonitor: any MemoryPressureMonitoring = SystemMemoryPressureMonitor(),
+        visibleApplicationMonitor: any VisibleApplicationMonitoring = VisibleApplicationMonitor(),
         purgeThumbnails: @escaping @MainActor () -> Void = { ThumbnailCache.purge() },
         store: LibraryStore = LibraryStore(),
         engine: DesktopCoordinator = DesktopCoordinator(),
@@ -70,6 +74,7 @@ final class LibraryModel {
         beforeRollbackCleanup: (@MainActor () async -> Void)? = nil
     ) {
         self.memoryMonitor = memoryMonitor
+        self.visibleApplicationMonitor = visibleApplicationMonitor
         self.purgeThumbnails = purgeThumbnails
         self.thermalState = thermalState
         self.store = store
@@ -105,7 +110,20 @@ final class LibraryModel {
         if state.settings.pauseOnThermalPressure && policy.thermal.isPaused { return "Pausado · pressão térmica" }
         if lowPower && state.settings.pauseOnLowPower { return "Pausado · baixo consumo" }
         if shouldDeferNewRenderers { return "Ativo · novas mídias aguardam memória" }
+        let assigned = Set(state.effectiveAssignments(for: displays.map(\.id)).keys)
+        if state.settings.pauseWhenOtherAppsVisible, !assigned.isEmpty, assigned.isSubset(of: visibleAppPausedDisplays) {
+            return "Pausado · outros apps nos monitores"
+        }
         return "Reprodução ativa"
+    }
+
+    func isPausedForVisibleApp(on displayID: String) -> Bool {
+        state.settings.pauseWhenOtherAppsVisible && visibleAppPausedDisplays.contains(displayID) && activeWallpaperID(on: displayID) != nil
+    }
+
+    func playbackDescription(on displayID: String) -> String {
+        if !isPaused, isPausedForVisibleApp(on: displayID) { return "Pausado · outro app neste monitor" }
+        return playbackDescription
     }
 
     func localMediaURL(for wallpaper: Wallpaper) -> URL? {
@@ -121,7 +139,9 @@ final class LibraryModel {
         policy.memory = MemoryPressurePolicy()
         memoryMonitor.start { [weak self] pressure in self?.receiveMemoryPressure(pressure) }
         let workspace = NSWorkspace.shared.notificationCenter
-        observe(NSApplication.didChangeScreenParametersNotification, in: .default) { $0.refreshPlayback(force: false) }
+        observe(NSApplication.didChangeScreenParametersNotification, in: .default) {
+            $0.refreshPlayback(force: false); $0.visibleApplicationMonitor.refresh()
+        }
         observe(NSWorkspace.willSleepNotification, in: workspace) { $0.policy.sleeping = true; $0.applyPolicy() }
         observe(NSWorkspace.didWakeNotification, in: workspace) { $0.policy.sleeping = false; $0.applyPolicy() }
         observe(NSWorkspace.screensDidSleepNotification, in: workspace) { $0.policy.screenAsleep = true; $0.applyPolicy() }
@@ -174,6 +194,7 @@ final class LibraryModel {
         resourcesReleasedForMemory = true
         purgeThumbnails()
         engine.stop() // Cancels pending photo publication and releases owned surfaces.
+        syncVisibleApplicationMonitor()
         playbackErrors = [:]
         remotePlaybackStates = [:]
         photoQualityByDisplay = [:]
@@ -181,10 +202,41 @@ final class LibraryModel {
 
     private func applyPolicy() {
         if shouldReleaseForMemory { releaseMemoryResources() }
-        else { engine.setPaused(isPaused) }
+        else {
+            engine.setPaused(isPaused)
+            syncVisibleApplicationMonitor()
+        }
+    }
+
+    private func syncVisibleApplicationMonitor() {
+        let assigned = Set(state.effectiveAssignments(for: displays.map(\.id)).keys)
+        guard started, state.settings.pauseWhenOtherAppsVisible, !isPaused, !resourcesReleasedForMemory, !assigned.isEmpty else {
+            if visibleApplicationMonitorRunning { visibleApplicationMonitor.stop() }
+            visibleApplicationMonitorRunning = false
+            visibleAppPausedDisplays = []
+            engine.setVisibleAppPausedDisplays([])
+            return
+        }
+        visibleAppPausedDisplays.formIntersection(assigned)
+        engine.setVisibleAppPausedDisplays(visibleAppPausedDisplays)
+        if visibleApplicationMonitorRunning {
+            visibleApplicationMonitor.update(displayIDs: assigned)
+        } else {
+            visibleApplicationMonitorRunning = true
+            visibleApplicationMonitor.start(displayIDs: assigned) { [weak self] occupied in
+                guard let self, self.visibleApplicationMonitorRunning,
+                      self.state.settings.pauseWhenOtherAppsVisible, !self.isPaused else { return }
+                let assigned = Set(self.state.effectiveAssignments(for: self.displays.map(\.id)).keys)
+                self.visibleAppPausedDisplays = occupied.intersection(assigned)
+                self.engine.setVisibleAppPausedDisplays(self.visibleAppPausedDisplays)
+            }
+        }
     }
 
     func stop() {
+        visibleApplicationMonitorRunning = false
+        visibleApplicationMonitor.stop()
+        visibleAppPausedDisplays = []
         cancelPendingAssignments()
         memoryMonitor.stop()
         lastMemoryPressure = nil
@@ -586,13 +638,21 @@ final class LibraryModel {
         if update(next) {
             if !isAutomaticallyPaused, wasPaused != isPaused { engine.setManuallyPaused(isPaused) }
             else { engine.setPaused(isPaused) }
+            syncVisibleApplicationMonitor()
         }
     }
 
     func setPauseOnLowPower(_ value: Bool) {
         var next = state
         next.settings.pauseOnLowPower = value
-        if update(next) { engine.setPaused(isPaused) }
+        if update(next) { engine.setPaused(isPaused); syncVisibleApplicationMonitor() }
+    }
+
+    func setPauseWhenOtherAppsVisible(_ value: Bool) {
+        guard value != state.settings.pauseWhenOtherAppsVisible else { return }
+        var next = state
+        next.settings.pauseWhenOtherAppsVisible = value
+        if update(next) { syncVisibleApplicationMonitor() }
     }
 
     func setPauseOnMemoryPressure(_ value: Bool) {
@@ -628,6 +688,7 @@ final class LibraryModel {
         disconnected.forEach { cancelPendingAssignment($0) }
         if shouldReleaseForMemory { releaseMemoryResources(); return }
         resourcesReleasedForMemory = false
+        syncVisibleApplicationMonitor()
         let effectivePhotos = state.effectiveAssignments(for: displays.map(\.id))
         photoQualityByDisplay = photoQualityByDisplay.filter { effectivePhotos[$0.key] == $0.value.wallpaperID }
         if force {

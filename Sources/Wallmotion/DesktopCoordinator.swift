@@ -205,6 +205,7 @@ final class WallpaperRenderer {
     private(set) var playbackState = RendererPlaybackState()
     private(set) var audioEnabled = false
     private(set) var audioVolume: Double = 1
+    private var visibleAppPaused = false
     private let isWindowVisible: @MainActor (NSWindow) -> Bool
     private let seekToStart: @MainActor (AVPlayer, @escaping @MainActor @Sendable (Bool) -> Void) -> Void
 
@@ -389,7 +390,7 @@ final class WallpaperRenderer {
             applyingPlaybackState = false
             if playbackStateNeedsApply { playbackStateNeedsApply = false;applyPlaybackState() }
         }
-        playbackState.setVisible(isWindowVisible(window))
+        playbackState.setVisible(isWindowVisible(window) && !visibleAppPaused)
         if playbackState.isStopped || !playbackState.isVisible || playbackState.pendingRestart != nil ||
             !audioEnabled || audioVolume <= 0 || nativeAudioFailed { cancelAudioFade() }
 
@@ -450,12 +451,12 @@ final class WallpaperRenderer {
 
     func setManuallyPaused(_ value: Bool) {
         guard !playbackState.isStopped else { return }
-        playbackState.setVisible(isWindowVisible(window))
+        playbackState.setVisible(isWindowVisible(window) && !visibleAppPaused)
         if value == playbackState.isPaused { applyPlaybackState();return }
         let current = audioFadeValue(at: audioClock())
         cancelAudioFade()
         playbackState.setPaused(value)
-        window.orderBack(nil)
+        if sharedVideo == nil || !visibleAppPaused { window.orderBack(nil) }
         if let webRenderer, playbackState.isVisible, audioEnabled, audioVolume > 0 {
             webRenderer.setManuallyPaused(value, enabled: audioEnabled, volume: audioVolume)
             return
@@ -520,7 +521,19 @@ final class WallpaperRenderer {
         guard !playbackState.isStopped else { return }
         cancelAudioFade();webRenderer?.cancelManualAudioTransition()
         playbackState.setPaused(value)
-        window.orderBack(nil)
+        if sharedVideo == nil || !visibleAppPaused { window.orderBack(nil) }
+        applyPlaybackState()
+    }
+
+    func setVisibleAppPaused(_ value: Bool) {
+        guard !playbackState.isStopped, visibleAppPaused != value else { return }
+        visibleAppPaused = value
+        // A shared AVPlayer cannot freeze one layer independently. Hide only
+        // this desktop window, revealing the system background underneath;
+        // the uncovered display retains its synchronized native transport/HDR.
+        if sharedVideo != nil {
+            if value { window.orderOut(nil) } else { window.orderBack(nil) }
+        }
         applyPlaybackState()
     }
 
@@ -582,6 +595,7 @@ enum RendererError: LocalizedError {
 
 @MainActor
 final class DesktopCoordinator {
+    private var visibleAppPausedDisplays = Set<String>()
     private struct Entry {
         let wallpaperID: UUID
         let frame: CGRect
@@ -921,6 +935,7 @@ final class DesktopCoordinator {
                entry.mediaFit == mediaFit || entry.renderer.updateVideoFit(mediaFit) {
                 entry.mediaFit = mediaFit
                 renderers[displayID] = entry
+                entry.renderer.setVisibleAppPaused(visibleAppPausedDisplays.contains(displayID))
                 entry.renderer.setHLSResolution(state.settings.hlsResolution)
                 entry.renderer.setPaused(paused)
                 entry.renderer.setAudioPolicy(enabled: audioConfiguration.displayID == displayID, volume: audioConfiguration.effectiveVolume(for: entry.wallpaperID))
@@ -960,6 +975,7 @@ final class DesktopCoordinator {
                 renderers.removeValue(forKey: displayID)?.renderer.stop()
                 gifBudget = nextBudget
                 renderers[displayID] = Entry(wallpaperID: wallpaperID, frame: target.frame, mediaFit: mediaFit, backingScale: target.backingScale, panorama: layout, token: token, renderer: renderer)
+                renderer.setVisibleAppPaused(visibleAppPausedDisplays.contains(displayID))
                 renderer.setAudioPolicy(enabled: audioConfiguration.displayID == displayID, volume: audioConfiguration.effectiveVolume(for: wallpaperID))
                 if latestPauseIsManual { renderer.setManuallyPaused(paused) }
                 else { renderer.setPaused(paused) }
@@ -998,6 +1014,14 @@ final class DesktopCoordinator {
         renderers.values.forEach { $0.renderer.setManuallyPaused(value) }
     }
 
+    /// Renderer-local pause reason; global manual/energy/system intent remains
+    /// untouched and shared transports continue while any other display votes.
+    func setVisibleAppPausedDisplays(_ ids: Set<String>) {
+        guard visibleAppPausedDisplays != ids else { return }
+        visibleAppPausedDisplays = ids
+        for (id, entry) in renderers { entry.renderer.setVisibleAppPaused(ids.contains(id)) }
+    }
+
     func setPaused(_ value: Bool) {
         latestPaused = value;latestPauseIsManual = false
         renderers.values.forEach { $0.renderer.setPaused(value) }
@@ -1011,6 +1035,7 @@ final class DesktopCoordinator {
         renderers.removeAll()
         gifBudget = GIFPlaybackBudget(limit: gifBudget.limit)
         pendingReloads.removeAll()
+        visibleAppPausedDisplays.removeAll()
         previous.forEach { $0.renderer.stop() }
         sharedVideo?.stop();sharedVideo = nil;sharedVideoToken = UUID();rejectedSharedVideoIDs.removeAll()
     }
