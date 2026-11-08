@@ -107,7 +107,7 @@ struct BackgroundControls: View {
                             .accessibilityHint(fitDescription(fit))
                             .accessibilityAddTraits(model.mediaFit(on: selectedDisplay) == fit ? .isSelected : [])
                     }
-                }
+                }.modifier(StudioControlGlass())
                 }
                 Text(compactFitDescription).font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: scheme))
             } else {
@@ -242,6 +242,7 @@ struct BackgroundControls: View {
             return "Volume em zero · \(display.name)."
         }
         if model.isPaused { return "Reprodução pausada · som permitido em \(display.name)." }
+        if model.isPausedForVisibleApp(on: owner) { return "Som pausado · outro app em \(display.name)." }
         return "Som permitido em \(display.name). Vídeos web podem exigir interação."
     }
 

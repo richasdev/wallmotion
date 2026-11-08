@@ -30,7 +30,7 @@ final class AccessibleLibraryTests: XCTestCase {
     }
 
     func testEnabledScenarioCaptionInkHasContrastOnNativeGlassAndOpaqueFallback() throws {
-        for (scheme, backgrounds) in [(ColorScheme.light, [0xE9E9E9, 0xE1E1E1, 0xFFFFFF]), (.dark, [0x4A4A4A, 0x505050, 0x1E1E1E])] {
+        for (scheme, backgrounds) in [(ColorScheme.light, [0xF3F3F3, 0xE9E9E9, 0xE1E1E1, 0xFFFFFF]), (.dark, [0x262525, 0x4A4A4A, 0x505050, 0x1E1E1E])] {
             let foreground = try luminance(NSColor(BrandTheme.secondaryInk(for: scheme)))
             for hex in backgrounds {
                 let surface = NSColor(srgbRed: CGFloat((hex >> 16) & 255) / 255,
@@ -44,7 +44,7 @@ final class AccessibleLibraryTests: XCTestCase {
     }
 
     func testSelectedTextContrastOnCompositorMeasuredTintedGlass() throws {
-        for (scheme, hex) in [(ColorScheme.light, 0xECD8D2), (.dark, 0x604F4C)] {
+        for (scheme, hex) in [(ColorScheme.light, 0xEBD9D6), (.light, 0xF4E4E1), (.dark, 0x54413D), (.dark, 0x402E2B)] {
             let foreground = try luminance(NSColor(BrandTheme.selection(for: scheme)))
             let surface = NSColor(srgbRed: CGFloat((hex >> 16) & 255) / 255,
                                   green: CGFloat((hex >> 8) & 255) / 255,

@@ -19,7 +19,8 @@ enum BrandTheme {
 
 /// One continuous frosted window, including the native titlebar region. All
 /// backgrounds share the system window's contour; no separately rounded panels
-/// create another silhouette. Cards never add glass render passes.
+/// create another silhouette. Liquid Glass belongs to the controls above it;
+/// the shell uses one behind-window material rather than stacking two blurs.
 struct ScenarioSurface: ViewModifier {
     @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
@@ -29,13 +30,9 @@ struct ScenarioSurface: ViewModifier {
             Group {
                 if reduceTransparency || contrast == .increased {
                     Color(nsColor: .windowBackgroundColor)
-                } else if #available(macOS 26.0, *) {
-                    Rectangle()
-                        .fill(scheme == .dark ? Color.black.opacity(0.28) : Color.white.opacity(0.5))
-                        .glassEffect(.regular, in: Rectangle())
                 } else {
                     StudioWindowBackdrop()
-                        .overlay(scheme == .dark ? Color.black.opacity(0.28) : Color.white.opacity(0.5))
+                        .overlay(scheme == .dark ? Color.black.opacity(0.12) : Color.white.opacity(0.5))
                 }
             }
             .overlay {
@@ -44,6 +41,20 @@ struct ScenarioSurface: ViewModifier {
                 }
             }
             .ignoresSafeArea()
+        }
+    }
+}
+
+/// A single native Liquid Glass surface for the framing controls on macOS 26+.
+/// The window's frosted backdrop remains separate from this control layer.
+struct StudioControlGlass: ViewModifier {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var contrast
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, *), !reduceTransparency, contrast != .increased {
+            content.glassEffect(.regular, in: RoundedRectangle(cornerRadius: 11))
+        } else {
+            content
         }
     }
 }

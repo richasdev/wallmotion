@@ -917,6 +917,10 @@ final class LibraryModelTests: XCTestCase {
             configuration.colorSpaceName = CGColorSpace.sRGB
             // Native glass has an initial compositing transition; let that settle.
             try await Task.sleep(for: .seconds(2))
+            print("compositor_activation requested=\(activateFixture) app_active=\(NSApp.isActive) key=\(window.isKeyWindow)")
+            if activateFixture, !NSApp.isActive || !window.isKeyWindow {
+                throw XCTSkip("The QA host could not activate its own window; active-glass validation remains pending.")
+            }
             let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
             print("compositor_qa window=\(window.frame) backing_scale=\(window.backingScaleFactor) filter_rect=\(filter.contentRect) filter_scale=\(scale) output=\(image.width)x\(image.height)")
             let composed = NSBitmapImageRep(cgImage: image)

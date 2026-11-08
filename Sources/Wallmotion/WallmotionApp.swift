@@ -115,6 +115,10 @@ struct WallpaperMenu: View {
         }
         Button(model.manualPauseActionTitle) { model.togglePause() }
             .disabled(!model.canEdit)
+        Toggle("Pausar com outros apps visíveis", isOn: Binding(
+            get: { model.state.settings.pauseWhenOtherAppsVisible },
+            set: { model.setPauseWhenOtherAppsVisible($0) }
+        )).disabled(!model.canEdit)
         Button(model.state.settings.audioDisplayID == nil ? "Ativar som" : "Desativar som") {
             model.toggleAudioPermission()
         }

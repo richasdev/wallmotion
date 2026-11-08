@@ -316,7 +316,7 @@ struct LibraryView: View {
                     Spacer(minLength: 12)
                     VStack(alignment: .leading, spacing: 10) {
                         Image(systemName: hasAppliedWallpaper ? "waveform.path" : "display").font(.title2).foregroundStyle(BrandTheme.cyan)
-                        Text(hasAppliedWallpaper ? model.playbackDescription : "Pronto para ganhar vida.")
+                        Text(hasAppliedWallpaper ? model.playbackDescription(on: selectedDisplay) : "Pronto para ganhar vida.")
                             .font(.caption.weight(.medium)).fixedSize(horizontal: false, vertical: true)
                         Button { model.togglePause() } label: {
                             Label(model.state.settings.isManuallyPaused ? "Retomar tudo" : "Pausar tudo", systemImage: model.state.settings.isManuallyPaused ? "play.fill" : "pause.fill")
@@ -343,6 +343,9 @@ struct LibraryView: View {
     private var performanceControls: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Desempenho").font(.headline)
+            Toggle("Pausar com outros apps visíveis", isOn: Binding(get: { model.state.settings.pauseWhenOtherAppsVisible }, set: { model.setPauseWhenOtherAppsVisible($0) }))
+            Text("Pausa só nas telas com janelas de outros apps. Retoma ao minimizar, fechar ou mover a janela. Em espelho/panorama, a cópia pausada pode revelar o fundo do macOS enquanto a tela livre continua.")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Toggle("Pausar em baixo consumo", isOn: Binding(get: { model.state.settings.pauseOnLowPower }, set: { model.setPauseOnLowPower($0) }))
             Toggle("Pausar sob pressão térmica", isOn: Binding(get: { model.state.settings.pauseOnThermalPressure }, set: { model.setPauseOnThermalPressure($0) }))
             Toggle("Liberar fundos com memória crítica", isOn: Binding(get: { model.state.settings.pauseOnMemoryPressure }, set: { model.setPauseOnMemoryPressure($0) }))
@@ -399,6 +402,10 @@ struct LibraryView: View {
                                         .font(.caption2).lineLimit(1)
                                 }
                                 if model.state.settings.audioDisplayID == display.id { Image(systemName: "speaker.wave.2.fill").font(.caption) }
+                                if model.isPausedForVisibleApp(on: display.id) {
+                                    Image(systemName: "pause.circle.fill").font(.caption)
+                                        .accessibilityLabel("Fundo pausado por outro app")
+                                }
                             }.frame(width: 165, alignment: .leading).padding(10)
                                 .foregroundStyle(selectedDisplay == display.id ? BrandTheme.selection(for: colorScheme) : .primary)
                                 .background(selectedDisplay == display.id ? BrandTheme.action.opacity(0.12) : Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 12))
@@ -428,7 +435,8 @@ struct LibraryView: View {
     private func displayAccessibilityValue(_ display: Display) -> String {
         let selection = selectedDisplay == display.id ? "Monitor selecionado" : "Monitor disponível"
         let wallpaper = appliedWallpaper(on: display.id).map { "Fundo aplicado: \($0.title)" } ?? "Fundo do sistema"
-        return [selection, wallpaper, model.remotePlaybackStates[display.id]?.description]
+        let pauseReason = model.isPausedForVisibleApp(on: display.id) ? "Fundo pausado porque há outro app neste monitor" : nil
+        return [selection, wallpaper, pauseReason, model.remotePlaybackStates[display.id]?.description]
             .compactMap { $0 }.joined(separator: ". ")
     }
 
