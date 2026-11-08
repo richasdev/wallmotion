@@ -856,14 +856,17 @@ final class LibraryModelTests: XCTestCase {
             // Current-process-only enumeration needs no TCC grant and never captures another app.
             let content = try await SCShareableContent.currentProcess
             let ownWindow = try XCTUnwrap(content.windows.first { $0.windowID == CGWindowID(window.windowNumber) })
+            let filter = SCContentFilter(desktopIndependentWindow: ownWindow)
+            let scale = CGFloat(filter.pointPixelScale)
             let configuration = SCStreamConfiguration()
-            configuration.width = Int(bounds.width * window.backingScaleFactor)
-            configuration.height = Int(bounds.height * window.backingScaleFactor)
+            configuration.width = Int((filter.contentRect.width * scale).rounded())
+            configuration.height = Int((filter.contentRect.height * scale).rounded())
             configuration.showsCursor = false
             configuration.captureResolution = .best
+            configuration.ignoreShadowsSingleWindow = true
             configuration.colorSpaceName = CGColorSpace.sRGB
-            let filter = SCContentFilter(desktopIndependentWindow: ownWindow)
             let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
+            print("compositor_qa window=\(window.frame) backing_scale=\(window.backingScaleFactor) filter_rect=\(filter.contentRect) filter_scale=\(scale) output=\(image.width)x\(image.height)")
             let composed = NSBitmapImageRep(cgImage: image)
             XCTAssertTrue(LibrarySnapshotCapture.hasContent(composed))
             let composedURL = destination.deletingPathExtension().appendingPathExtension("compositor.png")

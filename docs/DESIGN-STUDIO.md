@@ -17,7 +17,7 @@ The library answers: **what is applied to this screen, and how can I frame or si
 - Routine jobs: apply media, frame it, permit/silence audio, change volume, pause playback.
 - The applied library item's thumbnail and title identify the current scenario; they are real state, not decorative sample data.
 - Audio ownership is a permission, not a claim that a stream is audible. Disconnected owner, zero gain and paused playback get explicit copy.
-- Enabled shelf captions use measured adaptive ink (#B4B4B4 dark, #5F6368 light), checked against native compositor surfaces at 4.5:1 minimum. The capture requests sRGB at the window backing scale with best native resolution; antialiased glyph edges are not treated as solid text ink.
+- Enabled shelf captions use measured adaptive ink (#B4B4B4 dark, #5F6368 light), checked against native compositor surfaces at 4.5:1 minimum. The capture requests sRGB at the own-window filter pixel scale/content rectangle, excludes shadows and uses best native resolution; antialiased glyph edges are not treated as solid text ink.
 - Source gain in advanced controls follows the actual audio owner, even when another display is selected.
 - Missing remote artwork says “Sem prévia”; no invented preview or additional playback instance.
 - Empty collection offers import/link actions. Provider-controlled web framing is explained in place.
