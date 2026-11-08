@@ -93,7 +93,7 @@ final class ImageSurface: NSView {
 @MainActor
 final class VideoSurface: NSView {
     let playerLayer = AVPlayerLayer()
-    private let mediaFit: MediaFit
+    private var mediaFit: MediaFit
     private let panorama: PanoramaLayout?
     private let targetFrame: CGRect
     private var itemObserver: NSKeyValueObservation?
@@ -133,10 +133,19 @@ final class VideoSurface: NSView {
 
     required init?(coder: NSCoder) { fatalError("Not supported") }
 
+    /// Geometry only: keep the attached layer, item observers and decoder intact.
+    func setMediaFit(_ value: MediaFit) {
+        guard mediaFit != value else { return }
+        mediaFit = value
+        needsLayout = true
+        layoutSubtreeIfNeeded()
+    }
+
     override func layout() {
         super.layout()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
+        playerLayer.videoGravity = panorama != nil || mediaFit == .stretch ? .resize : (mediaFit == .fill ? .resizeAspectFill : .resizeAspect)
         if let panorama {
             playerLayer.frame = panorama.imageFrame(sourcePixels: presentationSize, fit: mediaFit, on: targetFrame)
         } else {
@@ -483,6 +492,15 @@ final class WallpaperRenderer {
         remotePlayback?.setHLSResolution(value)
     }
 
+    /// Only native video can change fit without re-admission or decode work.
+    /// Photos/GIFs retain their existing preparation and budget checks; web
+    /// providers own their geometry and never enter this path.
+    func updateVideoFit(_ value: MediaFit) -> Bool {
+        guard !playbackState.isStopped, let surface = window.contentView as? VideoSurface else { return false }
+        surface.setMediaFit(value)
+        return true
+    }
+
     func setAudioEnabled(_ enabled: Bool) {
         setAudioPolicy(enabled: enabled, volume: audioVolume)
     }
@@ -567,7 +585,7 @@ final class DesktopCoordinator {
     private struct Entry {
         let wallpaperID: UUID
         let frame: CGRect
-        let mediaFit: MediaFit
+        var mediaFit: MediaFit
         let backingScale: CGFloat
         let panorama: PanoramaLayout?
         let token: UUID
@@ -897,9 +915,12 @@ final class DesktopCoordinator {
             let mediaFit = state.mediaFit(for: wallpaperID, on: displayID)
             let preparedIdentity = try? preparedGIFs[displayID]?.get().identity
             let sameGIF = wallpaper.kind != .gif || !requiresPreparedGIFs || (preparedIdentity != nil && renderers[displayID]?.renderer.gifIdentity == preparedIdentity)
-            if !force, !reloadRequested, sameGIF, let entry = renderers[displayID], entry.wallpaperID == wallpaperID, entry.frame == target.frame,
-               entry.mediaFit == mediaFit, entry.backingScale == target.backingScale, entry.panorama == layout,
-               entry.renderer.usesSharedVideo(nextShared) {
+            if !force, !reloadRequested, sameGIF, var entry = renderers[displayID], entry.wallpaperID == wallpaperID, entry.frame == target.frame,
+               entry.backingScale == target.backingScale, entry.panorama == layout,
+               entry.renderer.usesSharedVideo(nextShared),
+               entry.mediaFit == mediaFit || entry.renderer.updateVideoFit(mediaFit) {
+                entry.mediaFit = mediaFit
+                renderers[displayID] = entry
                 entry.renderer.setHLSResolution(state.settings.hlsResolution)
                 entry.renderer.setPaused(paused)
                 entry.renderer.setAudioPolicy(enabled: audioConfiguration.displayID == displayID, volume: audioConfiguration.effectiveVolume(for: entry.wallpaperID))
