@@ -8,7 +8,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 BRAND = ROOT / "resources" / "branding"
-NS = {"svg": "http://www.w3.org/2000/svg"}
 
 
 def render(renderer: str, source: Path, output: Path, size: int) -> None:
@@ -29,14 +28,24 @@ def main() -> None:
         source = BRAND / "wallmotion-icon.svg"
         small_source = temporary / "small.svg"
         small = ET.parse(source)
-        horizon = small.find(".//svg:g[@id='horizon']", NS)
-        assert horizon is not None
-        parent = small.find(".//svg:g[@clip-path]", NS)
-        assert parent is not None
-        parent.remove(horizon)
-        mark = small.find(".//svg:path[@id='mark']", NS)
-        assert mark is not None
-        mark.set("stroke-width", "96")
+        # Keep the monitor silhouette and all three broad waves at 16px;
+        # remove detail below a pixel and strengthen the small display bezel.
+        for identifier in ("fineDetails", "screenRim", "powerLight", "tileRim"):
+            element = small.find(f".//*[@id='{identifier}']")
+            if element is not None:
+                for parent in small.iter():
+                    if element in list(parent):
+                        parent.remove(element)
+                        break
+        for element in small.iter():
+            element.attrib.pop("filter", None)
+        bezel = small.find(".//*[@id='monitorBezel']")
+        if bezel is None:
+            raise SystemExit("Missing monitor bezel in canonical SVG.")
+        bezel.set("x", "160")
+        bezel.set("y", "222")
+        bezel.set("width", "704")
+        bezel.set("height", "486")
         small.write(small_source, encoding="utf-8", xml_declaration=True)
         for points in (16, 32, 128, 256, 512):
             for scale in (1, 2):
