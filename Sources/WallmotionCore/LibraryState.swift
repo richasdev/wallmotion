@@ -1,6 +1,7 @@
 import Foundation
 
 public struct PlaybackSettings: Codable, Equatable, Sendable {
+    public var pauseWhenOtherAppsVisible: Bool
     public var pauseOnMemoryPressure: Bool
     public var pauseOnThermalPressure: Bool
     public var pauseOnLowPower: Bool
@@ -9,7 +10,8 @@ public struct PlaybackSettings: Codable, Equatable, Sendable {
     public var hlsResolution: HLSResolution
     public var audioVolume: Double
 
-    public init(pauseOnLowPower: Bool = true, isManuallyPaused: Bool = false, audioDisplayID: String? = nil, audioVolume: Double = 1, pauseOnThermalPressure: Bool = true, hlsResolution: HLSResolution = .automatic, pauseOnMemoryPressure: Bool = true) {
+    public init(pauseOnLowPower: Bool = true, isManuallyPaused: Bool = false, audioDisplayID: String? = nil, audioVolume: Double = 1, pauseOnThermalPressure: Bool = true, hlsResolution: HLSResolution = .automatic, pauseOnMemoryPressure: Bool = true, pauseWhenOtherAppsVisible: Bool = false) {
+        self.pauseWhenOtherAppsVisible = pauseWhenOtherAppsVisible
         self.pauseOnMemoryPressure = pauseOnMemoryPressure
         self.hlsResolution = hlsResolution
         self.pauseOnThermalPressure = pauseOnThermalPressure
@@ -20,11 +22,13 @@ public struct PlaybackSettings: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
+        case pauseWhenOtherAppsVisible
         case pauseOnLowPower, isManuallyPaused, audioDisplayID, audioVolume, pauseOnThermalPressure, hlsResolution, pauseOnMemoryPressure
     }
 
     public init(from decoder: any Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
+        pauseWhenOtherAppsVisible = try values.decodeIfPresent(Bool.self, forKey: .pauseWhenOtherAppsVisible) ?? false
         pauseOnMemoryPressure = try values.decodeIfPresent(Bool.self, forKey: .pauseOnMemoryPressure) ?? true
         hlsResolution = try values.decodeIfPresent(HLSResolution.self, forKey: .hlsResolution) ?? .automatic
         pauseOnThermalPressure = try values.decodeIfPresent(Bool.self, forKey: .pauseOnThermalPressure) ?? true
