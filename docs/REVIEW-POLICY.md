@@ -36,4 +36,4 @@ These agents use the same authenticated GitHub account, richasdev. GitHub does n
 
 ## Validation
 
-Use the checks appropriate to each change and record their exact commands and results. The billing failure in issue #11 prevents the remote workflow from starting; this is a recorded external limitation, not a passing check. Any configured GitHub required check or branch protection still applies and must not be bypassed.
+Use the local checks appropriate to each change and record their exact commands and results. On 2026-11-08 the user explicitly ordered GitHub Actions stopped; repository Actions and the macOS checks workflow are disabled. Do not trigger, rerun, dispatch or re-enable Actions without a new explicit user instruction. Issue #11 records the earlier billing limitation. No remote CI success is claimed. Any configured GitHub required check or branch protection still applies and must not be bypassed.

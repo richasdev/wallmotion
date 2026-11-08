@@ -94,7 +94,7 @@ struct BackgroundControls: View {
                     ForEach(MediaFit.allCases, id: \.self) { fit in
                         Button { model.setMediaFit(fit, on: selectedDisplay) } label: {
                             VStack(spacing: 4) {
-                                Image(systemName: fitSymbol(fit)).font(.system(size: 17, weight: .regular))
+                                Image(systemName: fitSymbol(fit)).font(.system(size: 17, weight: .regular)).frame(height: 20)
                                 Text(fitTitle(fit)).font(.caption2.weight(.medium)).lineLimit(1)
                             }
                             .frame(maxWidth: .infinity).padding(.vertical, 7)

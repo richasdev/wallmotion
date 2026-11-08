@@ -42,6 +42,11 @@ struct LibraryView: View {
         })
     }
 
+    private var findInLibrary: (@MainActor () -> Void)? {
+        guard model.canEdit, !model.state.wallpapers.isEmpty else { return nil }
+        return { searchFocused = true }
+    }
+
     private var renameTargetExists: Bool {
         guard let pendingRename else { return true }
         return model.state.wallpapers.contains { $0.id == pendingRename.id }
@@ -79,7 +84,7 @@ struct LibraryView: View {
             else { StudioWindowBackdrop() }
         }
         .tint(BrandTheme.selection(for: colorScheme))
-        .focusedSceneValue(\.librarySearchAction, { searchFocused = true })
+        .focusedSceneValue(\.librarySearchAction, findInLibrary)
         .onAppear { selectAvailableDisplay() }
         .onChange(of: model.displays) { _, _ in selectAvailableDisplay() }
         .onChange(of: renameTargetExists, initial: true) { _, exists in

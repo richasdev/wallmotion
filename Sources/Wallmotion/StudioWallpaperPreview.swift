@@ -22,7 +22,7 @@ struct StudioWallpaperPreview: View {
         }
         .overlay(alignment: .bottomLeading) {
             if item != nil {
-                Text("Miniatura da mídia").font(.system(size: 9, weight: .medium))
+                Text("Miniatura da mídia").font(.caption2.weight(.medium))
                     .foregroundStyle(.white).padding(.horizontal, 7).padding(.vertical, 4)
                     .background(.black.opacity(0.7), in: Capsule()).padding(10)
             }

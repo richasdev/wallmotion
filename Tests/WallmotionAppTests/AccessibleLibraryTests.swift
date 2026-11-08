@@ -43,6 +43,18 @@ final class AccessibleLibraryTests: XCTestCase {
         }
     }
 
+    func testSelectedTextContrastOnCompositorMeasuredTintedGlass() throws {
+        for (scheme, hex) in [(ColorScheme.light, 0xECD8D2), (.dark, 0x604F4C)] {
+            let foreground = try luminance(NSColor(BrandTheme.selection(for: scheme)))
+            let surface = NSColor(srgbRed: CGFloat((hex >> 16) & 255) / 255,
+                                  green: CGFloat((hex >> 8) & 255) / 255,
+                                  blue: CGFloat(hex & 255) / 255, alpha: 1)
+            let background = try luminance(surface)
+            let ratio = (max(foreground, background) + 0.05) / (min(foreground, background) + 0.05)
+            XCTAssertGreaterThanOrEqual(ratio, 4.5, "Selected monitor and framing labels must remain readable on tinted glass")
+        }
+    }
+
     private func nodes(_ root: AnyObject) -> [any NSAccessibilityProtocol] {
         var result: [any NSAccessibilityProtocol] = [], seen = Set<ObjectIdentifier>()
         func visit(_ value: AnyObject, depth: Int) {

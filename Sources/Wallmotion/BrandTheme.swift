@@ -13,7 +13,7 @@ enum BrandTheme {
     }
 
     static func selection(for scheme: ColorScheme) -> Color {
-        scheme == .dark ? Color(red: 255/255, green: 169/255, blue: 148/255) : Color(red: 166/255, green: 46/255, blue: 26/255)
+        scheme == .dark ? Color(red: 255/255, green: 196/255, blue: 181/255) : Color(red: 166/255, green: 46/255, blue: 26/255)
     }
 }
 
@@ -51,7 +51,7 @@ struct StudioWindowBackdrop: NSViewRepresentable {
         let view = NSVisualEffectView()
         view.blendingMode = .behindWindow
         view.material = .underWindowBackground
-        view.state = .active
+        view.state = .followsWindowActiveState
         view.setAccessibilityElement(false)
         return view
     }
