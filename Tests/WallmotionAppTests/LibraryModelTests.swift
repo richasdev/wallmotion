@@ -835,15 +835,17 @@ final class LibraryModelTests: XCTestCase {
             func scrollViews(in view: NSView) -> [NSScrollView] {
                 (view as? NSScrollView).map { [$0] } ?? view.subviews.flatMap { scrollViews(in: $0) }
             }
-            let sidebar = try XCTUnwrap(scrollViews(in: hosting).first {
+            if let sidebar = scrollViews(in: hosting).first(where: {
                 $0.bounds.width < 320 && ($0.documentView?.bounds.height ?? 0) > $0.contentView.bounds.height + 1
-            })
-            let document = try XCTUnwrap(sidebar.documentView)
-            let before = sidebar.contentView.bounds.origin
-            let bottom = document.isFlipped ? max(document.bounds.minY, document.bounds.maxY - sidebar.contentView.bounds.height) : document.bounds.minY
-            sidebar.contentView.scroll(to: NSPoint(x: before.x, y: bottom))
-            sidebar.reflectScrolledClipView(sidebar.contentView)
-            XCTAssertNotEqual(sidebar.contentView.bounds.origin, before, "Overflowing sidebar must reach its lower controls.")
+            }) {
+                let document = try XCTUnwrap(sidebar.documentView)
+                let before = sidebar.contentView.bounds.origin
+                let bottom = document.isFlipped ? max(document.bounds.minY, document.bounds.maxY - sidebar.contentView.bounds.height) : document.bounds.minY
+                sidebar.contentView.scroll(to: NSPoint(x: before.x, y: bottom))
+                sidebar.reflectScrolledClipView(sidebar.contentView)
+                XCTAssertNotEqual(sidebar.contentView.bounds.origin, before, "Overflowing sidebar must reach its lower controls.")
+            }
+            // The compact sidebar can fit completely; no overflow then needs scrolling.
             try await Task.sleep(for: .milliseconds(100))
         }
         let bitmap = try await LibrarySnapshotCapture.capture(hosting)

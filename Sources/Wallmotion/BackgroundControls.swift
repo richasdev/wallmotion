@@ -141,39 +141,39 @@ struct BackgroundControls: View {
     }
 
     private var advancedSettings: some View {
-VStack(alignment: .leading, spacing: 16) {
-                    Picker("Somente este monitor emite som", selection: Binding(
-                        get: { audioSelection },
-                        set: { model.setAudioDisplayID($0.isEmpty ? nil : $0) }
-                    )) {
-                        Text("Desativado").tag("")
-                        ForEach(Array(model.displays.enumerated()), id: \.element.id) { index, display in
-                            Text("\(index + 1) · \(display.name)").tag(display.id)
-                        }
-                    }
-                    Text(audioHelp).font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: scheme))
-                        .fixedSize(horizontal: false, vertical: true)
-                    if let owner = model.state.settings.audioDisplayID,
-                       model.displays.contains(where: { $0.id == owner }),
-                       let item = model.audioWallpaper(on: owner) {
-                        SourceAudioControls(model: model, wallpaperID: item.id).id(item.id)
-                    }
-                    Picker("Qualidade de links HLS", selection: Binding(
-                        get: { model.state.settings.hlsResolution },
-                        set: { model.setHLSResolution($0) }
-                    )) {
-                        Text("Automática").tag(HLSResolution.automatic)
-                        Text("HD · 1280 × 720").tag(HLSResolution.hd720)
-                        Text("Full HD · 1920 × 1080").tag(HLSResolution.fullHD1080)
-                        Text("4K · 3840 × 2160").tag(HLSResolution.uhd2160)
-                    }
-                    Text("Preferência para links HLS. O servidor e o macOS definem a resolução disponível; arquivos locais e vídeos web mantêm suas próprias regras.")
-                        .font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: scheme))
-                        .fixedSize(horizontal: false, vertical: true)
-                    if let quality = model.photoQuality(on: selectedDisplay) {
-                        PhotoQualityDetails(quality: quality)
-                    }
-                }.padding(.top, 12)
+        VStack(alignment: .leading, spacing: 16) {
+            Picker("Somente este monitor emite som", selection: Binding(
+                get: { audioSelection },
+                set: { model.setAudioDisplayID($0.isEmpty ? nil : $0) }
+            )) {
+                Text("Desativado").tag("")
+                ForEach(Array(model.displays.enumerated()), id: \.element.id) { index, display in
+                    Text("\(index + 1) · \(display.name)").tag(display.id)
+                }
+            }
+            Text(audioHelp).font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: scheme))
+                .fixedSize(horizontal: false, vertical: true)
+            if let owner = model.state.settings.audioDisplayID,
+               model.displays.contains(where: { $0.id == owner }),
+               let item = model.audioWallpaper(on: owner) {
+                SourceAudioControls(model: model, wallpaperID: item.id).id(item.id)
+            }
+            Picker("Qualidade de links HLS", selection: Binding(
+                get: { model.state.settings.hlsResolution },
+                set: { model.setHLSResolution($0) }
+            )) {
+                Text("Automática").tag(HLSResolution.automatic)
+                Text("HD · 1280 × 720").tag(HLSResolution.hd720)
+                Text("Full HD · 1920 × 1080").tag(HLSResolution.fullHD1080)
+                Text("4K · 3840 × 2160").tag(HLSResolution.uhd2160)
+            }
+            Text("Preferência para links HLS. O servidor e o macOS definem a resolução disponível; arquivos locais e vídeos web mantêm suas próprias regras.")
+                .font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: scheme))
+                .fixedSize(horizontal: false, vertical: true)
+            if let quality = model.photoQuality(on: selectedDisplay) {
+                PhotoQualityDetails(quality: quality)
+            }
+        }.padding(.top, 12)
     }
 
     private var soundButton: some View {

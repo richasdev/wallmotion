@@ -44,4 +44,4 @@ The user's 2026-11-08 request explicitly restores multiple Codex agents plus one
 
 The user's supplied reference adds a compact ordinary-window requirement: 880×620 pt by default, retaining the 820×560 accessible minimum. The reference informs the narrow navigation, rounded floating control grouping and calm hierarchy; its health dashboard content is not copied. Monitors and framing sit in adjacent fields when space allows, sound and details share a footer, and the first gallery row exposes title and Apply. Power rules move to a named sidebar disclosure. Native glass and measured caption contrast remain.
 
-Window restoration is disabled on macOS 15+ using the native scene API. A small AppKit startup adapter handles macOS 14 and legacy restored fullscreen once, preserves later manual resizing/fullscreen and never changes global preferences. The app remains resizable.
+A small native AppKit startup adapter disables restoration and normalizes the initial window on every supported macOS version, including a one-time exit from legacy restored fullscreen. It preserves later manual resizing/fullscreen and never changes global preferences. The app remains resizable.
