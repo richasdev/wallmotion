@@ -18,6 +18,7 @@ struct LibraryView: View {
     @State private var isDropTargeted = false
     @State private var dropMessage = ""
     @State private var showingPerformance = false
+    @FocusState private var searchFocused: Bool
     private let initialSceneControls: Bool
 
     init(model: LibraryModel, initialQuery: LibraryQuery = .init(), initialRename: Wallpaper? = nil, initialSceneControls: Bool = false) {
@@ -77,7 +78,8 @@ struct LibraryView: View {
             if reduceTransparency || contrast == .increased { Color(nsColor: .windowBackgroundColor) }
             else { StudioWindowBackdrop() }
         }
-        .tint(BrandTheme.action)
+        .tint(BrandTheme.selection(for: colorScheme))
+        .focusedSceneValue(\.librarySearchAction, { searchFocused = true })
         .onAppear { selectAvailableDisplay() }
         .onChange(of: model.displays) { _, _ in selectAvailableDisplay() }
         .onChange(of: renameTargetExists, initial: true) { _, exists in
@@ -200,7 +202,7 @@ struct LibraryView: View {
                 Text("Solte uma foto, GIF ou vídeo. Transforme um link em atmosfera.")
                     .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 HStack {
-                    Button("Importar mídia…", systemImage: "plus") { model.chooseFiles() }.buttonStyle(.borderedProminent)
+                    Button("Importar mídia…", systemImage: "plus") { model.chooseFiles() }.buttonStyle(.borderedProminent).tint(BrandTheme.action).foregroundStyle(BrandTheme.graphite)
                     Button("Adicionar link", systemImage: "link") { pendingURLDraft = MediaURLDraft() }.buttonStyle(.bordered)
                 }.disabled(model.isImporting)
             }
@@ -228,9 +230,9 @@ struct LibraryView: View {
             Spacer(minLength: 8)
             TextField("Buscar", text: searchBinding)
                 .textFieldStyle(.roundedBorder).frame(maxWidth: 160)
-                .accessibilityLabel("Buscar na biblioteca")
+                .accessibilityLabel("Buscar na biblioteca").focused($searchFocused)
             Text("\(filteredItems.count) de \(model.state.wallpapers.count) mídias")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: colorScheme))
                 .accessibilityLabel("\(filteredItems.count) de \(model.state.wallpapers.count) mídias exibidas")
             if mediaFilter != .all || !searchDraft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Button("Limpar filtros", systemImage: "xmark.circle", action: clearQuery)
@@ -327,6 +329,7 @@ struct LibraryView: View {
                         Label("Desempenho", systemImage: "leaf").font(.caption)
                     }.buttonStyle(.plain).popover(isPresented: $showingPerformance) {
                         performanceControls.padding(20).frame(width: 300)
+                            .foregroundStyle(.primary).environment(\.colorScheme, colorScheme)
                     }
                 }
                 .frame(maxWidth: .infinity, minHeight: max(0, viewport.size.height - 28), alignment: .topLeading)
@@ -344,7 +347,7 @@ struct LibraryView: View {
             Toggle("Pausar em baixo consumo", isOn: Binding(get: { model.state.settings.pauseOnLowPower }, set: { model.setPauseOnLowPower($0) }))
             Toggle("Pausar sob pressão térmica", isOn: Binding(get: { model.state.settings.pauseOnThermalPressure }, set: { model.setPauseOnThermalPressure($0) }))
             Toggle("Liberar fundos com memória crítica", isOn: Binding(get: { model.state.settings.pauseOnMemoryPressure }, set: { model.setPauseOnMemoryPressure($0) }))
-            Text("As pausas de proteção valem para todos os monitores.").font(.caption).foregroundStyle(.secondary)
+            Text("As pausas de proteção valem para todos os monitores.").font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: colorScheme))
         }.disabled(!model.canEdit)
     }
 
@@ -356,16 +359,21 @@ struct LibraryView: View {
                 Text("Seu espaço. Seu movimento.").font(.callout).foregroundStyle(BrandTheme.secondaryInk(for: colorScheme))
             }
             Spacer(minLength: 8)
-            Menu {
-                Button("Importar fotos, GIFs e vídeos…", systemImage: "folder.badge.plus") { model.chooseFiles() }
-                Button("Adicionar link de vídeo…", systemImage: "link") { pendingURLDraft = MediaURLDraft() }
-            } label: {
-                Label("Adicionar", systemImage: "plus").font(.callout.weight(.semibold))
-                    .padding(.horizontal, 12).padding(.vertical, 8)
-            }.menuStyle(.borderlessButton).fixedSize()
-                .foregroundStyle(BrandTheme.graphite).background(BrandTheme.action, in: Capsule())
-                .disabled(!model.canEdit || model.isImporting)
-                .accessibilityLabel("Adicionar mídia").help("Importar arquivos ou adicionar link de vídeo · ⌘O")
+            HStack(spacing: 8) {
+                Button { model.chooseFiles() } label: {
+                    Label("Importar", systemImage: "plus")
+                        .labelStyle(.titleAndIcon).font(.callout.weight(.semibold))
+                        .foregroundStyle(BrandTheme.graphite)
+                        .padding(.horizontal, 12).padding(.vertical, 8)
+                        .background(BrandTheme.action, in: Capsule())
+                }.buttonStyle(.plain).help("Importar fotos, GIFs e vídeos · ⌘O")
+                Button { pendingURLDraft = MediaURLDraft() } label: {
+                    Image(systemName: "link").font(.callout.weight(.medium))
+                        .foregroundStyle(BrandTheme.selection(for: colorScheme))
+                        .frame(width: 32, height: 32)
+                        .background(BrandTheme.action.opacity(0.14), in: Circle())
+                }.buttonStyle(.plain).accessibilityLabel("Adicionar link de vídeo").help("Adicionar URL de vídeo")
+            }.disabled(!model.canEdit || model.isImporting)
         }
     }
 
@@ -378,7 +386,7 @@ struct LibraryView: View {
                     Text("Separados").tag(DisplayMode.independent)
                     Text("Espelhar").tag(DisplayMode.mirrored)
                     Text("Panorama").tag(DisplayMode.spanned)
-                }.pickerStyle(.menu).fixedSize().disabled(!model.canEdit || selectedDisplay.isEmpty)
+                }.pickerStyle(.menu).labelsHidden().fixedSize().disabled(!model.canEdit || selectedDisplay.isEmpty)
             }
             ScrollView(.horizontal) {
                 HStack(spacing: 8) {

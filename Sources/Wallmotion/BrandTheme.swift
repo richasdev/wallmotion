@@ -19,6 +19,7 @@ enum BrandTheme {
 
 /// A single native glass sheet. Collection cards never add glass render passes.
 struct ScenarioSurface: ViewModifier {
+    @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
     private let shape = RoundedRectangle(cornerRadius: 24, style: .continuous)
@@ -28,7 +29,9 @@ struct ScenarioSurface: ViewModifier {
             if reduceTransparency || contrast == .increased {
                 content.background(Color(nsColor: .windowBackgroundColor), in: shape)
             } else if #available(macOS 26.0, *) {
-                content.glassEffect(.regular, in: shape)
+                content
+                    .background(scheme == .dark ? Color.black.opacity(0.1) : Color.white.opacity(0.3))
+                    .glassEffect(.regular, in: shape)
             } else {
                 content.background(.regularMaterial, in: shape)
             }

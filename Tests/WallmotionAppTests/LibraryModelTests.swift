@@ -822,6 +822,9 @@ final class LibraryModelTests: XCTestCase {
         hosting.frame = bounds
         let window = NSWindow(contentRect: bounds, styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.titlebarAppearsTransparent = true
         window.appearance = NSAppearance(named: appearance)
         window.contentView = hosting
         let compositorCapture = environment["WALLMOTION_COMPOSITOR_SNAPSHOT"] == "1"

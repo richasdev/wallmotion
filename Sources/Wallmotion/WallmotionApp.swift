@@ -11,6 +11,7 @@ struct WallmotionApp: App {
             ApplicationSettingsContent(session: delegate.session, events: delegate.events, onRetry: delegate.retryStartup)
         }
         .commands {
+            CommandGroup(after: .textEditing) { LibrarySearchCommand() }
             CommandGroup(replacing: .newItem) {
                 ImportMediaCommand(session: delegate.session)
             }

@@ -5,7 +5,7 @@ import WallmotionCore
 @MainActor
 struct BackgroundControls: View {
     @Environment(\.colorScheme) private var scheme
-    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.dynamicTypeSize) private var typeSize
     let model: LibraryModel
     let selectedDisplay: String
     let supportsMediaFit: Bool
@@ -35,7 +35,7 @@ struct BackgroundControls: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
             framingSettings
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 10) { soundButton; volumeSlider.frame(minWidth: 80, maxWidth: .infinity) }
@@ -85,14 +85,19 @@ struct BackgroundControls: View {
                 if model.state.displayMode.isShared { Text("Todas as telas").font(.caption) }
             }
             if supportsMediaFit {
+                if typeSize.isAccessibilitySize {
+                    Picker("Enquadramento", selection: Binding(get: { model.mediaFit(on: selectedDisplay) }, set: { model.setMediaFit($0, on: selectedDisplay) })) {
+                        ForEach(MediaFit.allCases, id: \.self) { fit in Text(fitTitle(fit)).tag(fit) }
+                    }.pickerStyle(.menu)
+                } else {
                 HStack(spacing: 6) {
                     ForEach(MediaFit.allCases, id: \.self) { fit in
                         Button { model.setMediaFit(fit, on: selectedDisplay) } label: {
-                            VStack(spacing: 5) {
+                            VStack(spacing: 4) {
                                 Image(systemName: fitSymbol(fit)).font(.system(size: 17, weight: .regular))
-                                Text(fitTitle(fit)).font(.system(size: 10, weight: .medium)).lineLimit(1)
+                                Text(fitTitle(fit)).font(.caption2.weight(.medium)).lineLimit(1)
                             }
-                            .frame(maxWidth: .infinity).padding(.vertical, 9)
+                            .frame(maxWidth: .infinity).padding(.vertical, 7)
                             .foregroundStyle(model.mediaFit(on: selectedDisplay) == fit ? BrandTheme.selection(for: scheme) : .primary)
                             .background(model.mediaFit(on: selectedDisplay) == fit ? BrandTheme.action.opacity(0.13) : Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 11))
                             .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(model.mediaFit(on: selectedDisplay) == fit ? BrandTheme.selection(for: scheme) : .clear, lineWidth: 1.5))
@@ -102,6 +107,7 @@ struct BackgroundControls: View {
                             .accessibilityHint(fitDescription(fit))
                             .accessibilityAddTraits(model.mediaFit(on: selectedDisplay) == fit ? .isSelected : [])
                     }
+                }
                 }
                 Text(compactFitDescription).font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: scheme))
             } else {
@@ -132,7 +138,7 @@ struct BackgroundControls: View {
             }
         } label: {
             Label("Saída de som", systemImage: "display.speaker").font(.caption)
-        }.menuStyle(.borderlessButton).fixedSize().help("Escolher o único monitor que pode emitir som")
+        }.menuStyle(.borderlessButton).fixedSize().tint(BrandTheme.selection(for: scheme)).foregroundStyle(BrandTheme.selection(for: scheme)).help("Escolher o único monitor que pode emitir som")
     }
 
     private var compactFitDescription: String {
@@ -147,7 +153,7 @@ struct BackgroundControls: View {
 
     private var detailsButton: some View {
         Button("Detalhes", systemImage: "slider.horizontal.3") { showingDetails.toggle() }
-            .labelStyle(.titleAndIcon).buttonStyle(.borderless).font(.callout)
+            .labelStyle(.titleAndIcon).buttonStyle(.borderless).font(.caption).foregroundStyle(BrandTheme.selection(for: scheme))
             .accessibilityLabel("Detalhes: qualidade e opções de som")
             .accessibilityValue(showingDetails ? "Expandido" : "Recolhido")
             .help("Escolher monitor do som, qualidade HLS e volume por fundo")
@@ -195,7 +201,7 @@ struct BackgroundControls: View {
             model.setAudioEnabled(!enabled, on: selectedDisplay)
         } label: {
             Label(enabled ? "Silenciar" : "Ativar som aqui", systemImage: enabled ? "speaker.wave.2.fill" : "speaker.slash")
-                .font(.caption.weight(.semibold)).padding(.horizontal, 10).padding(.vertical, 8)
+                .font(.caption.weight(.semibold)).padding(.horizontal, 10).padding(.vertical, 7)
                 .foregroundStyle(enabled ? BrandTheme.graphite : Color.primary)
                 .background(enabled ? BrandTheme.action : Color.primary.opacity(0.06), in: Capsule())
                 .contentShape(Capsule())
@@ -223,7 +229,7 @@ struct BackgroundControls: View {
     private var audioSummary: String {
         guard let owner = model.state.settings.audioDisplayID else {
             return model.audioWallpaper(on: selectedDisplay) == nil
-                ? "Som desativado. Aplique um vídeo para ativar; fotos e GIFs são silenciosos."
+                ? "Fotos e GIFs são silenciosos."
                 : "Som desativado em todos os monitores."
         }
         guard let display = model.displays.first(where: { $0.id == owner }) else {

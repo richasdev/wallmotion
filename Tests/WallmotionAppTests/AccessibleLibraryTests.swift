@@ -30,7 +30,7 @@ final class AccessibleLibraryTests: XCTestCase {
     }
 
     func testEnabledScenarioCaptionInkHasContrastOnNativeGlassAndOpaqueFallback() throws {
-        for (scheme, backgrounds) in [(ColorScheme.light, [0xEEEEEE, 0xFFFFFF]), (.dark, [0x323232, 0x1E1E1E])] {
+        for (scheme, backgrounds) in [(ColorScheme.light, [0xE9E9E9, 0xE1E1E1, 0xFFFFFF]), (.dark, [0x4A4A4A, 0x505050, 0x1E1E1E])] {
             let foreground = try luminance(NSColor(BrandTheme.secondaryInk(for: scheme)))
             for hex in backgrounds {
                 let surface = NSColor(srgbRed: CGFloat((hex >> 16) & 255) / 255,
@@ -79,7 +79,7 @@ final class AccessibleLibraryTests: XCTestCase {
         XCTAssertTrue(elements.contains { $0.accessibilityValue() as? String == "Fundo aplicado" })
         let rename = try XCTUnwrap(elements.first { $0.accessibilityLabel() == "Renomear Aurora de teste" })
         let remove = try XCTUnwrap(elements.first { $0.accessibilityLabel() == "Remover Aurora de teste da biblioteca" })
-        let apply = try XCTUnwrap(elements.first { ($0.accessibilityLabel() ?? "").contains("Aplicado") && $0.accessibilityRole() == .button })
+        let apply = try XCTUnwrap(elements.first { ($0.accessibilityLabel() ?? "").contains("Reaplicar") && $0.accessibilityRole() == .button })
         XCTAssertTrue(rename.accessibilityPerformPress());XCTAssertTrue(renamed)
         XCTAssertTrue(remove.accessibilityPerformPress());XCTAssertTrue(removed)
         XCTAssertTrue(apply.accessibilityPerformPress());XCTAssertTrue(applied)
