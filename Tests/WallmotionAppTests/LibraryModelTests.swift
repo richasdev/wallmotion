@@ -1,4 +1,5 @@
 import AppKit
+import ScreenCaptureKit
 import SwiftUI
 import XCTest
 import WallmotionCore
@@ -765,9 +766,11 @@ final class LibraryModelTests: XCTestCase {
         hosting.frame = bounds
         let window = NSWindow(contentRect: bounds, styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: appearance)
         window.contentView = hosting
-        window.setFrameOrigin(NSPoint(x: -10000, y: -10000))
-        window.orderBack(nil)
+        let compositorCapture = environment["WALLMOTION_COMPOSITOR_SNAPSHOT"] == "1"
+        window.setFrameOrigin(compositorCapture ? NSPoint(x: 80, y: 80) : NSPoint(x: -10000, y: -10000))
+        if compositorCapture { window.makeKeyAndOrderFront(nil) } else { window.orderBack(nil) }
         defer { window.orderOut(nil); window.close() }
         // Let fixture thumbnail tasks start; this delay alone is not a pass condition.
         try await Task.sleep(for: .milliseconds(250))
@@ -792,6 +795,22 @@ final class LibraryModelTests: XCTestCase {
         let destination = URL(fileURLWithPath: path)
         try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
         try png.write(to: destination, options: .atomic)
+        if compositorCapture {
+            guard #available(macOS 14.4, *) else { throw XCTSkip("Own-window compositor capture requires macOS 14.4") }
+            // Current-process-only enumeration needs no TCC grant and never captures another app.
+            let content = try await SCShareableContent.currentProcess
+            let ownWindow = try XCTUnwrap(content.windows.first { $0.windowID == CGWindowID(window.windowNumber) })
+            let configuration = SCStreamConfiguration()
+            configuration.width = Int(bounds.width * 2)
+            configuration.height = Int(bounds.height * 2)
+            configuration.showsCursor = false
+            let filter = SCContentFilter(desktopIndependentWindow: ownWindow)
+            let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
+            let composed = NSBitmapImageRep(cgImage: image)
+            XCTAssertTrue(LibrarySnapshotCapture.hasContent(composed))
+            let composedURL = destination.deletingPathExtension().appendingPathExtension("compositor.png")
+            try XCTUnwrap(composed.representation(using: .png, properties: [:])).write(to: composedURL, options: .atomic)
+        }
         XCTAssertGreaterThan(bitmap.pixelsWide, 0)
         XCTAssertGreaterThan(bitmap.pixelsHigh, 0)
     }

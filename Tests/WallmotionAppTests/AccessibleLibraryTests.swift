@@ -89,6 +89,7 @@ final class AccessibleLibraryTests: XCTestCase {
             let (host, window) = host(view, size: CGSize(width: 820,height: 560))
             defer { window.orderOut(nil);window.close() }
             host.appearance = NSAppearance(named: scheme == .light ? .accessibilityHighContrastAqua : .accessibilityHighContrastDarkAqua)
+            window.appearance = host.appearance
             let bitmap = try await LibrarySnapshotCapture.capture(host)
             XCTAssertEqual(host.bounds.size, CGSize(width: 820,height: 560))
             XCTAssertTrue(LibrarySnapshotCapture.hasContent(bitmap))

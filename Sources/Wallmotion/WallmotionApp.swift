@@ -19,8 +19,11 @@ struct WallmotionApp: App {
                 ImportMediaCommand(session: delegate.session)
             }
         }
-        MenuBarExtra("Wallmotion", systemImage: "play.rectangle.on.rectangle") {
+        MenuBarExtra {
             ApplicationMenuContent(session: delegate.session)
+        } label: {
+            Image(nsImage: WallmotionMenuIcon.image)
+                .accessibilityLabel("Wallmotion")
         }
     }
 }

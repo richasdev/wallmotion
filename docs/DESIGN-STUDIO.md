@@ -32,7 +32,7 @@ The user's explicit native glass request overrides taste's generic no-glass rule
 
 Motion is native interaction feedback only. No ambient animation, refresh timer or live preview player is added. Existing thumbnail scheduling/cache limits and volume debounce remain intact. Native rendering stays in AVFoundation/AppKit; this UI change does not need an additional Rust bridge.
 
-Primary API evidence: Apple's [Liquid Glass guidance](https://developer.apple.com/documentation/TechnologyOverviews/adopting-liquid-glass) and [custom view API](https://developer.apple.com/documentation/swiftui/applying-liquid-glass-to-custom-views), cross-checked against Xcode 27 SwiftUICore interfaces (`glassEffect` availability macOS 26.0). Older-system runtime behavior requires a physical older macOS host; the deployment target remains 14.
+Primary API evidence: Apple's [Liquid Glass guidance](https://developer.apple.com/documentation/TechnologyOverviews/adopting-liquid-glass) and [custom view API](https://developer.apple.com/documentation/swiftui/applying-liquid-glass-to-custom-views), cross-checked against Xcode 27 SwiftUICore interfaces (`glassEffect` availability macOS 26.0). Older-system runtime behavior requires a physical older macOS host; the deployment target remains 14. For compositor QA, the opt-in fixture captures only its own on-screen test window through `SCShareableContent.currentProcess` and `SCScreenshotManager` on macOS 14.4+. It never enumerates unrestricted windows or requests/changes TCC permissions. The QA window appearance must match its host appearance; native glass uses the window appearance. Offscreen `cacheDisplay` cannot certify backdrop optics.
 
 ## Review policy for this batch
 

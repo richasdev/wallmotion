@@ -4,6 +4,7 @@ import WallmotionCore
 /// Explicit, persistent controls; no previews that create additional media players.
 @MainActor
 struct BackgroundControls: View {
+    @Environment(\.colorSchemeContrast) private var contrast
     let model: LibraryModel
     let selectedDisplay: String
     let supportsMediaFit: Bool
@@ -57,7 +58,10 @@ struct BackgroundControls: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Enquadramento").font(.callout.weight(.semibold))
                 if supportsMediaFit {
-                    mediaFitPicker.pickerStyle(.segmented)
+                    ViewThatFits(in: .horizontal) {
+                        mediaFitPicker.pickerStyle(.segmented).fixedSize(horizontal: true, vertical: false)
+                        mediaFitPicker.pickerStyle(.menu)
+                    }
                     Text(fitDescription(model.mediaFit(on: selectedDisplay)))
                         .font(.caption).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -153,13 +157,13 @@ struct BackgroundControls: View {
         } label: {
             Label(model.state.settings.audioDisplayID == nil ? "Ativar som" : "Desativar som",
                   systemImage: model.state.settings.audioDisplayID == nil ? "speaker.slash" : "speaker.wave.2")
+                .labelStyle(.titleAndIcon)
+                .padding(.horizontal, 12).padding(.vertical, 8)
+                .background(.primary.opacity(0.08), in: Capsule())
+                .overlay(Capsule().strokeBorder(.primary.opacity(contrast == .increased ? 0.7 : 0.25), lineWidth: 1))
+                .contentShape(Capsule())
         }
-        .labelStyle(.titleAndIcon)
         .buttonStyle(.plain)
-        .padding(.horizontal, 12).padding(.vertical, 8)
-        .background(.primary.opacity(0.08), in: Capsule())
-        .overlay(Capsule().strokeBorder(.primary.opacity(0.18), lineWidth: 1))
-        .contentShape(Capsule())
         .disabled(model.state.settings.audioDisplayID == nil && model.audioWallpaper(on: selectedDisplay) == nil)
         .accessibilityHint("Permite som em um único monitor ou silencia todos os fundos. O volume é preservado.")
         .help(model.state.settings.audioDisplayID == nil ? "Permitir som no monitor selecionado" : "Silenciar todos os fundos")
