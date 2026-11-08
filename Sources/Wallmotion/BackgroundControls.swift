@@ -35,95 +35,33 @@ struct BackgroundControls: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 12) {
             ViewThatFits(in: .horizontal) {
-                HStack(spacing: 16) {
-                    Label("Monitores", systemImage: "display.2")
-                        .font(.callout.weight(.semibold))
-                    Spacer(minLength: 12)
-                    displayModePicker
+                HStack(alignment: .top, spacing: 16) {
+                    displayOrganization.frame(width: 230, alignment: .leading)
+                    framingSettings.frame(minWidth: 300, maxWidth: .infinity, alignment: .leading)
+                }
+                VStack(alignment: .leading, spacing: 12) {
+                    displayOrganization
+                    framingSettings
+                }
+            }
+            Divider()
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) {
+                    soundButton
+                    volumeSlider.frame(width: 180)
+                    Spacer(minLength: 0)
+                    detailsButton
                 }
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Monitores").font(.callout.weight(.semibold))
-                    displayModePicker
+                    HStack { soundButton; Spacer(minLength: 8); detailsButton }
+                    volumeSlider
                 }
             }
-            if model.state.displayMode != .independent {
-                Text(model.state.displayMode == .spanned
-                     ? "Uma paisagem atravessa todas as telas, incluindo os espaços entre elas."
-                     : "A mesma mídia e o mesmo enquadramento em todas as telas.")
-                    .font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: scheme))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Divider()
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Enquadramento").font(.callout.weight(.semibold))
-                if supportsMediaFit {
-                    ViewThatFits(in: .horizontal) {
-                        mediaFitPicker.pickerStyle(.segmented).fixedSize(horizontal: true, vertical: false)
-                        mediaFitPicker.pickerStyle(.menu)
-                    }
-                    Text(fitDescription(model.mediaFit(on: selectedDisplay)))
-                        .font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: scheme))
-                        .fixedSize(horizontal: false, vertical: true)
-                } else {
-                    Text(model.activeWallpaperID(on: selectedDisplay) == nil
-                         ? "Aplique uma mídia da coleção para ajustar o enquadramento."
-                         : "O provedor controla o enquadramento deste vídeo web.")
-                        .font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: scheme))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            Divider()
-            VStack(alignment: .leading, spacing: 8) {
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 16) {
-                        soundButton
-                        volumeSlider.frame(width: 220)
-                    }
-                    VStack(alignment: .leading, spacing: 10) {
-                        soundButton
-                        volumeSlider
-                    }
-                }
-                Text(audioSummary).font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: scheme))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            DisclosureGroup("Qualidade e opções de som", isExpanded: $showingDetails) {
-                VStack(alignment: .leading, spacing: 16) {
-                    Picker("Somente este monitor emite som", selection: Binding(
-                        get: { audioSelection },
-                        set: { model.setAudioDisplayID($0.isEmpty ? nil : $0) }
-                    )) {
-                        Text("Desativado").tag("")
-                        ForEach(Array(model.displays.enumerated()), id: \.element.id) { index, display in
-                            Text("\(index + 1) · \(display.name)").tag(display.id)
-                        }
-                    }
-                    Text(audioHelp).font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: scheme))
-                        .fixedSize(horizontal: false, vertical: true)
-                    if let owner = model.state.settings.audioDisplayID,
-                       model.displays.contains(where: { $0.id == owner }),
-                       let item = model.audioWallpaper(on: owner) {
-                        SourceAudioControls(model: model, wallpaperID: item.id).id(item.id)
-                    }
-                    Picker("Qualidade de links HLS", selection: Binding(
-                        get: { model.state.settings.hlsResolution },
-                        set: { model.setHLSResolution($0) }
-                    )) {
-                        Text("Automática").tag(HLSResolution.automatic)
-                        Text("HD · 1280 × 720").tag(HLSResolution.hd720)
-                        Text("Full HD · 1920 × 1080").tag(HLSResolution.fullHD1080)
-                        Text("4K · 3840 × 2160").tag(HLSResolution.uhd2160)
-                    }
-                    Text("Preferência para links HLS. O servidor e o macOS definem a resolução disponível; arquivos locais e vídeos web mantêm suas próprias regras.")
-                        .font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: scheme))
-                        .fixedSize(horizontal: false, vertical: true)
-                    if let quality = model.photoQuality(on: selectedDisplay) {
-                        PhotoQualityDetails(quality: quality)
-                    }
-                }.padding(.top, 12)
-            }.font(.callout)
+            Text(audioSummary).font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: scheme))
+                .fixedSize(horizontal: false, vertical: true)
+            if showingDetails { advancedSettings }
         }
         .disabled(!model.canEdit || selectedDisplay.isEmpty)
         .onChange(of: model.state.settings.audioVolume) { _, value in
@@ -150,6 +88,92 @@ struct BackgroundControls: View {
             saveVolume()
         }
         .onDisappear { saveVolume() }
+    }
+
+    private var displayOrganization: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text("Monitores").font(.callout.weight(.semibold))
+            displayModePicker
+            Text(model.state.displayMode == .independent ? "Um fundo por tela."
+                 : model.state.displayMode == .mirrored ? "Mesma mídia em todas as telas." : "Uma paisagem entre as telas.")
+                .font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: scheme))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var framingSettings: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text("Enquadramento").font(.callout.weight(.semibold))
+            if supportsMediaFit {
+                ViewThatFits(in: .horizontal) {
+                    mediaFitPicker.pickerStyle(.segmented).fixedSize(horizontal: true, vertical: false)
+                    mediaFitPicker.pickerStyle(.menu)
+                }
+                Text(compactFitDescription).font(.caption)
+                    .foregroundStyle(BrandTheme.secondaryInk(for: scheme))
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text(model.activeWallpaperID(on: selectedDisplay) == nil
+                     ? "Aplique uma mídia para ajustar."
+                     : "O provedor controla o enquadramento.")
+                    .font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: scheme))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private var compactFitDescription: String {
+        if model.state.displayMode == .spanned { return "Ajuste aplicado ao conjunto das telas." }
+        return switch model.mediaFit(on: selectedDisplay) {
+        case .fit: "Mídia inteira, sem distorção."
+        case .fill: "Preenche sem distorcer."
+        case .center: "Tamanho original, ao centro."
+        case .stretch: "Ocupa a tela; pode distorcer."
+        }
+    }
+
+    private var detailsButton: some View {
+        Button("Detalhes", systemImage: "slider.horizontal.3") { showingDetails.toggle() }
+            .labelStyle(.titleAndIcon).buttonStyle(.borderless).font(.callout)
+            .accessibilityLabel("Qualidade e opções de som")
+            .accessibilityValue(showingDetails ? "Expandido" : "Recolhido")
+            .help("Escolher monitor do som, qualidade HLS e volume por fundo")
+    }
+
+    private var advancedSettings: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Picker("Somente este monitor emite som", selection: Binding(
+                get: { audioSelection },
+                set: { model.setAudioDisplayID($0.isEmpty ? nil : $0) }
+            )) {
+                Text("Desativado").tag("")
+                ForEach(Array(model.displays.enumerated()), id: \.element.id) { index, display in
+                    Text("\(index + 1) · \(display.name)").tag(display.id)
+                }
+            }
+            Text(audioHelp).font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: scheme))
+                .fixedSize(horizontal: false, vertical: true)
+            if let owner = model.state.settings.audioDisplayID,
+               model.displays.contains(where: { $0.id == owner }),
+               let item = model.audioWallpaper(on: owner) {
+                SourceAudioControls(model: model, wallpaperID: item.id).id(item.id)
+            }
+            Picker("Qualidade de links HLS", selection: Binding(
+                get: { model.state.settings.hlsResolution },
+                set: { model.setHLSResolution($0) }
+            )) {
+                Text("Automática").tag(HLSResolution.automatic)
+                Text("HD · 1280 × 720").tag(HLSResolution.hd720)
+                Text("Full HD · 1920 × 1080").tag(HLSResolution.fullHD1080)
+                Text("4K · 3840 × 2160").tag(HLSResolution.uhd2160)
+            }
+            Text("Preferência para links HLS. O servidor e o macOS definem a resolução disponível; arquivos locais e vídeos web mantêm suas próprias regras.")
+                .font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: scheme))
+                .fixedSize(horizontal: false, vertical: true)
+            if let quality = model.photoQuality(on: selectedDisplay) {
+                PhotoQualityDetails(quality: quality)
+            }
+        }.padding(.top, 12)
     }
 
     private var soundButton: some View {
@@ -236,9 +260,9 @@ struct BackgroundControls: View {
             get: { model.state.displayMode },
             set: { model.setDisplayMode($0, sourceDisplayID: selectedDisplay) }
         )) {
-            Text("Separados").tag(DisplayMode.independent)
+            Text("Por tela").tag(DisplayMode.independent)
             Text("Espelhar").tag(DisplayMode.mirrored)
-            Text("Panorâmico").tag(DisplayMode.spanned)
+            Text("Panorama").tag(DisplayMode.spanned)
         }.labelsHidden().accessibilityLabel("Organização dos monitores")
             .accessibilityHint("No modo separado, cada monitor mantém sua escolha de fundo.")
     }

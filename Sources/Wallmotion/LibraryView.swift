@@ -65,7 +65,7 @@ struct LibraryView: View {
     var body: some View {
         NavigationSplitView {
             sidebar
-                .navigationSplitViewColumnWidth(min: 220, ideal: 240, max: 290)
+                .navigationSplitViewColumnWidth(min: 170, ideal: 180, max: 220)
         } detail: {
             detail
             .toolbar {
@@ -130,13 +130,13 @@ struct LibraryView: View {
 
     private var detail: some View {
         ScrollView {
-        VStack(alignment: .leading, spacing: 20) {
-            VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 12) {
                 header
                 BackgroundControls(model: model, selectedDisplay: selectedDisplay,
                                    supportsMediaFit: supportsMediaFit, initialDetails: initialSceneControls)
             }
-            .padding(18)
+            .padding(16)
             .modifier(ScenarioSurface())
             if let notice = searchDraft.notice {
                 HStack(alignment: .top, spacing: 12) {
@@ -156,7 +156,7 @@ struct LibraryView: View {
             libraryContent
             if model.isImporting { ProgressView("Copiando mídia para a biblioteca…").controlSize(.small) }
         }
-        .padding(24)
+        .padding(20)
         }
         .background(Color(nsColor: .windowBackgroundColor))
         .overlay {
@@ -216,8 +216,19 @@ struct LibraryView: View {
     }
 
     private var catalogControls: some View {
-        VStack(alignment: .leading, spacing: 14) {
-        Text("Sua coleção").font(.title2.weight(.semibold)).accessibilityAddTraits(.isHeader)
+        VStack(alignment: .leading, spacing: 10) {
+        HStack(alignment: .firstTextBaseline) {
+            Text("Sua coleção").font(.title3.weight(.semibold)).accessibilityAddTraits(.isHeader)
+            Spacer(minLength: 8)
+            Text("\(filteredItems.count) de \(model.state.wallpapers.count) mídias")
+                .font(.caption).foregroundStyle(.secondary)
+                .accessibilityLabel("\(filteredItems.count) de \(model.state.wallpapers.count) mídias exibidas")
+            if mediaFilter != .all || !searchDraft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Button("Limpar filtros", systemImage: "xmark.circle", action: clearQuery)
+                    .buttonStyle(.borderless).font(.caption)
+                    .accessibilityLabel("Limpar busca e filtro de tipo")
+            }
+        }
         HStack(spacing: 12) {
             ViewThatFits(in: .horizontal) {
                 mediaFilterPicker.pickerStyle(.segmented).fixedSize(horizontal: true, vertical: false)
@@ -232,17 +243,6 @@ struct LibraryView: View {
                 .accessibilityLabel("Ordenação da biblioteca")
                 .help("Ordenar as mídias da biblioteca")
         }
-            HStack {
-                Text("\(filteredItems.count) de \(model.state.wallpapers.count) mídias")
-                    .font(.caption).foregroundStyle(.secondary)
-                    .accessibilityLabel("\(filteredItems.count) de \(model.state.wallpapers.count) mídias exibidas")
-                Spacer()
-                if mediaFilter != .all || !searchDraft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Button("Limpar filtros", systemImage: "xmark.circle", action: clearQuery)
-                        .buttonStyle(.borderless).font(.caption)
-                        .accessibilityLabel("Limpar busca e filtro de tipo")
-                }
-            }
         }
         .controlSize(.regular)
         .accessibilityElement(children: .contain)
@@ -280,7 +280,7 @@ struct LibraryView: View {
             ScrollView {
                 sidebarContent
                     .frame(maxWidth: .infinity, minHeight: max(0, viewport.size.height - 36), alignment: .topLeading)
-                    .padding(18)
+                    .padding(14)
             }
         }
     }
@@ -288,12 +288,11 @@ struct LibraryView: View {
     private var sidebarContent: some View {
         VStack(alignment: .leading, spacing: 20) {
             HStack(spacing: 10) {
-                BrandLogoView(size: 36)
+                BrandLogoView(size: 28)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Wallmotion").font(.title2.weight(.bold))
-                    Text("Seu cenário, em movimento").font(.caption).foregroundStyle(.secondary)
+                    Text("Wallmotion").font(.system(size: 18, weight: .semibold))
                 }
-            }.padding(.top, 18).padding(.bottom, 8)
+            }.padding(.top, 12).padding(.bottom, 4)
             Text("Monitores").font(.callout.weight(.semibold)).foregroundStyle(.secondary)
                 .accessibilityAddTraits(.isHeader)
             if model.displays.isEmpty {
@@ -305,7 +304,7 @@ struct LibraryView: View {
                     HStack(spacing: 12) {
                         Image(systemName: "display").font(.title3)
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(display.name).font(.callout.weight(.medium)).lineLimit(2)
+                            Text("\(index + 1) · \(display.name)").font(.callout.weight(.medium)).lineLimit(1).help(display.name)
                             Text(appliedWallpaper(on: display.id)?.title ?? "Fundo do sistema")
                                 .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                             if let state = model.remotePlaybackStates[display.id] {
@@ -317,7 +316,7 @@ struct LibraryView: View {
                             Image(systemName: "checkmark.circle.fill").foregroundStyle(BrandTheme.selection(for: colorScheme))
                         }
                     }
-                    .padding(12)
+                    .padding(10)
                     .background(selectedDisplay == display.id ? Color.primary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 10))
                     .contentShape(Rectangle())
                 }
@@ -347,6 +346,8 @@ struct LibraryView: View {
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
+            DisclosureGroup("Desempenho") {
+                VStack(alignment: .leading, spacing: 12) {
             Toggle("Pausar em baixo consumo", isOn: Binding(get: { model.state.settings.pauseOnLowPower }, set: { model.setPauseOnLowPower($0) }))
                 .font(.caption).disabled(!model.canEdit)
             Toggle("Pausar sob pressão térmica", isOn: Binding(get: { model.state.settings.pauseOnThermalPressure }, set: { model.setPauseOnThermalPressure($0) }))
@@ -355,6 +356,8 @@ struct LibraryView: View {
             Toggle("Liberar fundos com memória crítica", isOn: Binding(get: { model.state.settings.pauseOnMemoryPressure }, set: { model.setPauseOnMemoryPressure($0) }))
                 .font(.caption).disabled(!model.canEdit)
                 .help("Sob aviso, novas mídias aguardam. Em pressão crítica, libera os fundos e retoma ao normal, respeitando outras pausas. Vídeos reiniciam.")
+                }.padding(.top, 8)
+            }.font(.caption)
             Text("Arquivos originais preservados")
                 .font(.caption2).foregroundStyle(.secondary)
         }
@@ -410,13 +413,13 @@ struct LibraryView: View {
     @ViewBuilder private var scenarioThumbnail: some View {
         if let item = appliedWallpaper(on: selectedDisplay) {
             MediaThumbnail(item: item, localURL: model.localMediaURL(for: item), compact: true)
-                .frame(width: 88, height: 58)
+                .frame(width: 72, height: 48)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
                 .accessibilityHidden(true)
         } else {
             Image(systemName: "display")
                 .font(.system(size: 28, weight: .light)).foregroundStyle(.secondary)
-                .frame(width: 88, height: 58)
+                .frame(width: 72, height: 48)
                 .background(.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
                 .accessibilityHidden(true)
         }

@@ -26,7 +26,7 @@ struct WallpaperCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             MediaThumbnail(item: item, localURL: localURL)
-                .frame(height: 174)
+                .frame(height: 118)
                 .overlay(alignment: .topLeading) {
                     Text(kindLabel).font(.caption.weight(.semibold))
                         .foregroundStyle(.white).padding(.horizontal, 9).padding(.vertical, 6)
@@ -39,7 +39,7 @@ struct WallpaperCard: View {
                             .padding(8).background(.black.opacity(0.75), in: Capsule()).padding(10)
                     }
                 }
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 8) {
                 Text(item.title).font(.headline).lineLimit(1).help(item.title)
                 HStack {
                     Text(kindLabel).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
@@ -65,7 +65,7 @@ struct WallpaperCard: View {
                     .help(applyDisabledReason ?? "Aplicar este fundo com a organização de monitores selecionada")
                     .accessibilityHint(Text(applyDisabledReason ?? "Aplica o fundo com a organização de monitores selecionada"))
             }
-            .padding(14)
+            .padding(12)
         }
         .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 18))
         .overlay(RoundedRectangle(cornerRadius: 18).stroke(isApplied ? BrandTheme.selection(for: colorScheme) : .primary.opacity(0.07), lineWidth: isApplied ? (contrast == .increased ? 3 : 2) : 1))

@@ -38,3 +38,10 @@ Primary API evidence: Apple's [Liquid Glass guidance](https://developer.apple.co
 ## Review policy for this batch
 
 The user's 2026-11-08 request explicitly restores multiple Codex agents plus one AGY and one Claude Code, superseding the historical two-agent count. Implementation uses isolated worktrees. Each PR is reviewed on its exact HEAD by at least three non-author agents, with explicit findings, checks, limitations and verdict. AGY is the designated merger and must use `--match-head-commit`; no direct main pushes, admin bypass or self-approval. Same-account agent verdicts are evidence of separate agents, not separate GitHub-account approvals.
+
+
+## Compact-window refinement · issue #176
+
+The user's supplied reference adds a compact ordinary-window requirement: 880×620 pt by default, retaining the 820×560 accessible minimum. The reference informs the narrow navigation, rounded floating control grouping and calm hierarchy; its health dashboard content is not copied. Monitors and framing sit in adjacent fields when space allows, sound and details share a footer, and the first gallery row exposes title and Apply. Power rules move to a named sidebar disclosure. Native glass and measured caption contrast remain.
+
+A small native AppKit startup adapter disables restoration and normalizes the initial window on every supported macOS version, including a one-time exit from legacy restored fullscreen. It preserves later manual resizing/fullscreen and never changes global preferences. The app remains resizable.

@@ -6,11 +6,7 @@ struct WallmotionApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
     var body: some Scene {
-        Window("Wallmotion", id: "library") {
-            LibraryWindowContent(session: delegate.session, events: delegate.events, onRetry: delegate.retryStartup)
-                .frame(minWidth: 820, minHeight: 560)
-        }
-        .defaultSize(width: 1040, height: 700)
+        libraryWindow
         Settings {
             ApplicationSettingsContent(session: delegate.session, events: delegate.events, onRetry: delegate.retryStartup)
         }
@@ -26,6 +22,17 @@ struct WallmotionApp: App {
                 .accessibilityLabel("Wallmotion")
         }
     }
+
+    private var libraryWindow: some Scene {
+        Window("Wallmotion", id: "library") {
+            LibraryWindowContent(session: delegate.session, events: delegate.events, onRetry: delegate.retryStartup)
+                .frame(minWidth: 820, minHeight: 560)
+                .background(CompactLibraryWindow().frame(width: 0, height: 0).allowsHitTesting(false))
+        }
+        .defaultSize(LibraryWindowStartup.contentSize)
+        .windowResizability(.contentMinSize)
+    }
+
 }
 
 @MainActor
