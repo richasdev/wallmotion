@@ -14,10 +14,11 @@ Read and follow `/Users/uemuradev/.codex/RTK.md`. Prefix shell commands with `/o
 
 These rules apply to every new change from 2026-10-30 onward, including documentation and maintenance.
 
-### Two-Agent Protocol (User Override)
+### Multi-agent Protocol (User Override · 2026-11-08)
 
-Per explicit user instruction, the project operates under a coordinated two-agent workflow:
-- **rootCodex (Author):** Implements features, refactors, runtime and UI in isolated feature branches; creates draft PRs. The author never reviews or merges their own PR.
+Per the latest explicit user instruction (2026-11-08), multiple Codex agents, one AGY and one Claude Code work together. This supersedes the earlier two-agent count. Implementers use isolated worktrees; each exact PR HEAD requires at least three substantive non-author agent reviews:
+- **Codex implementers (Authors):** Implements features, refactors, runtime and UI in isolated feature branches; creates draft PRs. The author never reviews or merges their own PR.
+- **Codex and Claude Code (Independent Reviewers):** Audit PRs they did not author, covering bugs, controls/UX, compatibility and performance. Publish explicit exact-HEAD verdicts with real evidence; a new commit invalidates previous approvals.
 - **AGY (Reviewer & Merger):** Audits the exact PR HEAD SHA; publishes substantive findings, verification evidence, limitations and an explicit APPROVE or REQUEST_CHANGES verdict; verifies mergeability; marks PR ready and executes the merge guarded with `--match-head-commit <sha>`. Administrative overrides (`--admin`) and direct pushes to `main` are strictly forbidden.
 - **Reciprocal Policy Reviews:** For policy or documentation PRs authored by AGY, rootCodex independently reviews and authorizes the exact HEAD SHA before AGY executes the merge.
 - **Emergency Takeover (User Authorized):** Se AGY parar de responder ou sua quota estiver indisponível, rootCodex está autorizado pelo usuário a assumir o ciclo (criação de issues, revisão e merge), auditando o PR, HEAD SHA e checagens locais reais sem fingir revisão independente de contas, preservando sempre `--match-head-commit` e sem `--admin`, respeitando o teto semanal de 60% do Codex.

@@ -29,6 +29,20 @@ final class AccessibleLibraryTests: XCTestCase {
         }
     }
 
+    func testEnabledScenarioCaptionInkHasContrastOnNativeGlassAndOpaqueFallback() throws {
+        for (scheme, backgrounds) in [(ColorScheme.light, [0xEEEEEE, 0xFFFFFF]), (.dark, [0x323232, 0x1E1E1E])] {
+            let foreground = try luminance(NSColor(BrandTheme.secondaryInk(for: scheme)))
+            for hex in backgrounds {
+                let surface = NSColor(srgbRed: CGFloat((hex >> 16) & 255) / 255,
+                                      green: CGFloat((hex >> 8) & 255) / 255,
+                                      blue: CGFloat(hex & 255) / 255, alpha: 1)
+                let background = try luminance(surface)
+                let ratio = (max(foreground, background) + 0.05) / (min(foreground, background) + 0.05)
+                XCTAssertGreaterThanOrEqual(ratio, 4.5, "Enabled captions must remain legible on the compositor-measured shelf and opaque fallback")
+            }
+        }
+    }
+
     private func nodes(_ root: AnyObject) -> [any NSAccessibilityProtocol] {
         var result: [any NSAccessibilityProtocol] = [], seen = Set<ObjectIdentifier>()
         func visit(_ value: AnyObject, depth: Int) {
@@ -89,6 +103,7 @@ final class AccessibleLibraryTests: XCTestCase {
             let (host, window) = host(view, size: CGSize(width: 820,height: 560))
             defer { window.orderOut(nil);window.close() }
             host.appearance = NSAppearance(named: scheme == .light ? .accessibilityHighContrastAqua : .accessibilityHighContrastDarkAqua)
+            window.appearance = host.appearance
             let bitmap = try await LibrarySnapshotCapture.capture(host)
             XCTAssertEqual(host.bounds.size, CGSize(width: 820,height: 560))
             XCTAssertTrue(LibrarySnapshotCapture.hasContent(bitmap))

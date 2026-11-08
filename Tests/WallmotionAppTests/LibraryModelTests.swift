@@ -1,4 +1,5 @@
 import AppKit
+import ScreenCaptureKit
 import SwiftUI
 import XCTest
 import WallmotionCore
@@ -663,6 +664,62 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: store.stateURL), bytes)
     }
 
+    func testQuickSoundActionUsesRealOwnerRejectsSilentTargetsAndPreservesLevels() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = LibraryStore(rootURL: directory)
+        let photo = Wallpaper(title: "Foto", kind: .image, source: .local(filename: "photo.png"))
+        let video = try Wallpaper.remote("https://example.invalid/video.mp4")
+        var state = LibraryState(wallpapers: [photo, video], assignments: ["photo": photo.id, "video": video.id],
+                                 settings: .init(isManuallyPaused: true, audioVolume: 0.37))
+        state.setAudioGain(0.4, for: video.id)
+        try store.save(state)
+        let connected = TestDisplays([Display(id: "photo", name: "Foto"), Display(id: "video", name: "Vídeo")])
+        let model = LibraryModel(thermalState: { .nominal }, memoryMonitor: TestMemoryPressureMonitor(),
+            store: store, engine: DesktopCoordinator(targets: { [] }), connectedDisplays: { connected.values })
+        defer { model.stop() }
+        model.refreshPlayback(force: false)
+        model.toggleAudioPermission(preferredDisplayID: "photo")
+        model.toggleAudioPermission(preferredDisplayID: "disconnected")
+        XCTAssertNil(model.state.settings.audioDisplayID)
+        model.toggleAudioPermission() // The menu skips the first, silent display.
+        XCTAssertEqual(model.state.settings.audioDisplayID, "video")
+        model.toggleAudioPermission(preferredDisplayID: "photo") // Global mute clears the real owner.
+        XCTAssertNil(model.state.settings.audioDisplayID)
+        model.toggleAudioPermission(preferredDisplayID: "video")
+        XCTAssertEqual(model.state.settings.audioDisplayID, "video")
+        connected.values.removeLast()
+        model.refreshPlayback(force: false)
+        XCTAssertEqual(model.state.settings.audioDisplayID, "video")
+        model.toggleAudioPermission(preferredDisplayID: "photo") // Disconnected owners can also be cleared.
+        XCTAssertNil(model.state.settings.audioDisplayID)
+        model.toggleAudioPermission()
+        XCTAssertNil(model.state.settings.audioDisplayID)
+        XCTAssertEqual(model.state.settings.audioVolume, 0.37)
+        XCTAssertEqual(model.state.audioGain(for: video.id), 0.4)
+        XCTAssertTrue(model.state.settings.isManuallyPaused)
+        XCTAssertEqual(try store.load(), model.state)
+    }
+
+    func testQuickSoundSaveFailureDoesNotArmAudioOrChangeVolume() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = LibraryStore(rootURL: directory)
+        let video = try Wallpaper.remote("https://example.invalid/video.mp4")
+        let state = LibraryState(wallpapers: [video], assignments: ["video": video.id], settings: .init(audioVolume: 0.42))
+        try store.save(state)
+        let model = LibraryModel(thermalState: { .nominal }, memoryMonitor: TestMemoryPressureMonitor(),
+            store: store, engine: DesktopCoordinator(targets: { [] }), connectedDisplays: { [Display(id: "video", name: "Vídeo")] })
+        defer { model.stop() }
+        model.refreshPlayback(force: false)
+        try FileManager.default.removeItem(at: store.stateURL)
+        try FileManager.default.createDirectory(at: store.stateURL, withIntermediateDirectories: false)
+        model.toggleAudioPermission(preferredDisplayID: "video")
+        XCTAssertNil(model.state.settings.audioDisplayID)
+        XCTAssertEqual(model.state.settings.audioVolume, 0.42)
+        XCTAssertNotNil(model.errorMessage)
+    }
+
     func testAudioSaveFailurePreservesSelection() throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -739,9 +796,14 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertTrue(model.addURL("https://media.example.com/Cidade-noturna.m3u8"))
         model.refreshPlayback(force: false)
 
-        if let display = model.displays.first, let photo = model.state.wallpapers.first {
-            model.apply(photo, to: display.id)
+        if let display = model.displays.first, environment["WALLMOTION_SNAPSHOT_NO_ASSIGNMENT"] != "1" {
+            let index = environment["WALLMOTION_SNAPSHOT_APPLY_INDEX"].flatMap(Int.init) ?? 0
+            guard model.state.wallpapers.indices.contains(index) else { throw XCTSkip("Invalid fixture index") }
+            model.apply(model.state.wallpapers[index], to: display.id)
             model.setMediaFit(.fill, on: display.id)
+            if environment["WALLMOTION_SNAPSHOT_AUDIO"] == "1" {
+                model.setAudioDisplayID(display.id)
+            }
         }
         let compact = environment["WALLMOTION_SNAPSHOT_COMPACT"] == "1"
         if environment["WALLMOTION_SNAPSHOT_MIRRORED"] == "1", let display = model.displays.first {
@@ -760,9 +822,11 @@ final class LibraryModelTests: XCTestCase {
         hosting.frame = bounds
         let window = NSWindow(contentRect: bounds, styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: appearance)
         window.contentView = hosting
-        window.setFrameOrigin(NSPoint(x: -10000, y: -10000))
-        window.orderBack(nil)
+        let compositorCapture = environment["WALLMOTION_COMPOSITOR_SNAPSHOT"] == "1"
+        window.setFrameOrigin(compositorCapture ? NSPoint(x: 80, y: 80) : NSPoint(x: -10000, y: -10000))
+        if compositorCapture { window.makeKeyAndOrderFront(nil) } else { window.orderBack(nil) }
         defer { window.orderOut(nil); window.close() }
         // Let fixture thumbnail tasks start; this delay alone is not a pass condition.
         try await Task.sleep(for: .milliseconds(250))
@@ -787,6 +851,27 @@ final class LibraryModelTests: XCTestCase {
         let destination = URL(fileURLWithPath: path)
         try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
         try png.write(to: destination, options: .atomic)
+        if compositorCapture {
+            guard #available(macOS 14.4, *) else { throw XCTSkip("Own-window compositor capture requires macOS 14.4") }
+            // Current-process-only enumeration needs no TCC grant and never captures another app.
+            let content = try await SCShareableContent.currentProcess
+            let ownWindow = try XCTUnwrap(content.windows.first { $0.windowID == CGWindowID(window.windowNumber) })
+            let filter = SCContentFilter(desktopIndependentWindow: ownWindow)
+            let scale = CGFloat(filter.pointPixelScale)
+            let configuration = SCStreamConfiguration()
+            configuration.width = Int((filter.contentRect.width * scale).rounded())
+            configuration.height = Int((filter.contentRect.height * scale).rounded())
+            configuration.showsCursor = false
+            configuration.captureResolution = .best
+            configuration.ignoreShadowsSingleWindow = true
+            configuration.colorSpaceName = CGColorSpace.sRGB
+            let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
+            print("compositor_qa window=\(window.frame) backing_scale=\(window.backingScaleFactor) filter_rect=\(filter.contentRect) filter_scale=\(scale) output=\(image.width)x\(image.height)")
+            let composed = NSBitmapImageRep(cgImage: image)
+            XCTAssertTrue(LibrarySnapshotCapture.hasContent(composed))
+            let composedURL = destination.deletingPathExtension().appendingPathExtension("compositor.png")
+            try XCTUnwrap(composed.representation(using: .png, properties: [:])).write(to: composedURL, options: .atomic)
+        }
         XCTAssertGreaterThan(bitmap.pixelsWide, 0)
         XCTAssertGreaterThan(bitmap.pixelsHigh, 0)
     }

@@ -15,11 +15,11 @@ struct LibraryView: View {
     @State private var pendingRemoval: Wallpaper?
     @State private var isDropTargeted = false
     @State private var dropMessage = ""
-    @State private var showingSceneControls = false
+    private let initialSceneControls: Bool
 
     init(model: LibraryModel, initialQuery: LibraryQuery = .init(), initialRename: Wallpaper? = nil, initialSceneControls: Bool = false) {
         self.model = model
-        _showingSceneControls = State(initialValue: initialSceneControls)
+        self.initialSceneControls = initialSceneControls
         _pendingRename = State(initialValue: initialRename)
         _searchDraft = State(initialValue: LibrarySearchDraft(text: initialQuery.text))
         _mediaFilter = State(initialValue: initialQuery.filter)
@@ -131,16 +131,13 @@ struct LibraryView: View {
     private var detail: some View {
         ScrollView {
         VStack(alignment: .leading, spacing: 20) {
-            header
-            DisclosureGroup(isExpanded: $showingSceneControls) {
-                BackgroundControls(model: model, selectedDisplay: selectedDisplay, supportsMediaFit: supportsMediaFit)
-                    .padding(.top, 10)
-            } label: {
-                Label("Ajustar cenário · monitores, enquadramento e som", systemImage: "slider.horizontal.3")
-                    .font(.callout.weight(.medium))
+            VStack(alignment: .leading, spacing: 18) {
+                header
+                BackgroundControls(model: model, selectedDisplay: selectedDisplay,
+                                   supportsMediaFit: supportsMediaFit, initialDetails: initialSceneControls)
             }
-            .padding(14)
-            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 14))
+            .padding(18)
+            .modifier(ScenarioSurface())
             if let notice = searchDraft.notice {
                 HStack(alignment: .top, spacing: 12) {
                     Label(notice, systemImage: "text.magnifyingglass")
@@ -161,7 +158,7 @@ struct LibraryView: View {
         }
         .padding(24)
         }
-        .background(colorScheme == .dark ? Color(red: 0.055, green: 0.065, blue: 0.095) : Color(red: 0.95, green: 0.95, blue: 0.98))
+        .background(Color(nsColor: .windowBackgroundColor))
         .overlay {
             RoundedRectangle(cornerRadius: 12)
                 .stroke(isDropTargeted ? Color.accentColor : .clear, lineWidth: 3)
@@ -202,7 +199,7 @@ struct LibraryView: View {
                 }.disabled(model.isImporting)
             }
             .padding(32).frame(maxWidth: .infinity)
-            .background(BrandTheme.cardBackground.opacity(0.35), in: RoundedRectangle(cornerRadius: 20))
+            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 18))
         } else if items.isEmpty {
             ContentUnavailableView {
                 Label("Nenhuma mídia corresponde", systemImage: "line.3.horizontal.decrease.circle")
@@ -220,7 +217,7 @@ struct LibraryView: View {
 
     private var catalogControls: some View {
         VStack(alignment: .leading, spacing: 14) {
-        Text("Sua coleção").font(.title2.weight(.bold)).accessibilityAddTraits(.isHeader)
+        Text("Sua coleção").font(.title2.weight(.semibold)).accessibilityAddTraits(.isHeader)
         HStack(spacing: 12) {
             ViewThatFits(in: .horizontal) {
                 mediaFilterPicker.pickerStyle(.segmented).fixedSize(horizontal: true, vertical: false)
@@ -294,11 +291,10 @@ struct LibraryView: View {
                 BrandLogoView(size: 36)
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Wallmotion").font(.title2.weight(.bold))
-                    Text("DESKTOP STUDIO").font(.system(size: 9, weight: .semibold, design: .monospaced)).tracking(2).foregroundStyle(.secondary)
+                    Text("Seu cenário, em movimento").font(.caption).foregroundStyle(.secondary)
                 }
             }.padding(.top, 18).padding(.bottom, 8)
-            Label("SEU CENÁRIO", systemImage: "circle.hexagongrid.fill").font(.caption2.weight(.bold)).foregroundStyle(Color.accentColor)
-            Text("MONITORES").font(.caption.weight(.semibold)).tracking(1).foregroundStyle(.secondary)
+            Text("Monitores").font(.callout.weight(.semibold)).foregroundStyle(.secondary)
                 .accessibilityAddTraits(.isHeader)
             if model.displays.isEmpty {
                 Label("Nenhum monitor disponível", systemImage: "display.trianglebadge.exclamationmark")
@@ -318,11 +314,11 @@ struct LibraryView: View {
                         }
                         Spacer(minLength: 0)
                         if selectedDisplay == display.id {
-                            Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.accentColor)
+                            Image(systemName: "checkmark.circle.fill").foregroundStyle(BrandTheme.selection(for: colorScheme))
                         }
                     }
                     .padding(12)
-                    .background(selectedDisplay == display.id ? BrandTheme.selection(for: colorScheme).opacity(0.14) : .clear, in: RoundedRectangle(cornerRadius: 10))
+                    .background(selectedDisplay == display.id ? Color.primary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 10))
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -359,8 +355,6 @@ struct LibraryView: View {
             Toggle("Liberar fundos com memória crítica", isOn: Binding(get: { model.state.settings.pauseOnMemoryPressure }, set: { model.setPauseOnMemoryPressure($0) }))
                 .font(.caption).disabled(!model.canEdit)
                 .help("Sob aviso, novas mídias aguardam. Em pressão crítica, libera os fundos e retoma ao normal, respeitando outras pausas. Vídeos reiniciam.")
-            Label(model.state.settings.audioDisplayID == nil ? "Som desativado" : "Som em um monitor", systemImage: model.state.settings.audioDisplayID == nil ? "speaker.slash" : "speaker.wave.2")
-                .font(.caption).foregroundStyle(.secondary)
             Text("Arquivos originais preservados")
                 .font(.caption2).foregroundStyle(.secondary)
         }
@@ -375,21 +369,19 @@ struct LibraryView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 18) {
-            LibraryHero(count: model.state.wallpapers.count)
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 16) {
+                    scenarioThumbnail
                     monitorContext
                     Spacer(minLength: 8)
-                    restoreSystemButton
+                    scenarioActions
                 }
                 VStack(alignment: .leading, spacing: 12) {
-                    monitorContext
-                    restoreSystemButton
+                    HStack(spacing: 12) { scenarioThumbnail; monitorContext }
+                    scenarioActions
                 }
             }
-            .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.accentColor.opacity(0.07), in: RoundedRectangle(cornerRadius: 12))
             if let error = model.playbackErrors[selectedDisplay] {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(alignment: .top, spacing: 8) {
@@ -415,16 +407,44 @@ struct LibraryView: View {
         }
     }
 
-    private var monitorContext: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "display").font(.title2).foregroundStyle(Color.accentColor)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(model.state.displayMode.isShared ? (model.state.displayMode == .spanned ? "Panorama · todas as telas" : "Todos os monitores · mesmo fundo") : targetDisplayName)
-                    .font(.callout.weight(.semibold)).lineLimit(2)
-                Text(appliedWallpaper(on: selectedDisplay).map { "Fundo: \($0.title)" } ?? "Escolha uma mídia para este monitor")
-                    .font(.caption).foregroundStyle(.secondary).lineLimit(2)
-            }
+    @ViewBuilder private var scenarioThumbnail: some View {
+        if let item = appliedWallpaper(on: selectedDisplay) {
+            MediaThumbnail(item: item, localURL: model.localMediaURL(for: item), compact: true)
+                .frame(width: 88, height: 58)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .accessibilityHidden(true)
+        } else {
+            Image(systemName: "display")
+                .font(.system(size: 28, weight: .light)).foregroundStyle(.secondary)
+                .frame(width: 88, height: 58)
+                .background(.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
+                .accessibilityHidden(true)
         }
+    }
+
+    private var monitorContext: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(appliedWallpaper(on: selectedDisplay)?.title ?? "Cenário do macOS")
+                .font(.title3.weight(.semibold)).lineLimit(2)
+                .accessibilityAddTraits(.isHeader)
+            Text(model.state.displayMode.isShared
+                 ? (model.state.displayMode == .spanned ? "Panorama · todas as telas" : "Mesmo fundo · todas as telas")
+                 : targetDisplayName)
+                .font(.callout).foregroundStyle(BrandTheme.secondaryInk(for: colorScheme)).lineLimit(2)
+        }
+    }
+
+    private var scenarioActions: some View {
+        Menu {
+            restoreSystemButton
+            Button("Recarregar reprodução", systemImage: "arrow.clockwise") { model.refreshPlayback() }
+                .disabled(!model.canEdit)
+        } label: {
+            Label("Ações do cenário", systemImage: "ellipsis")
+                .labelStyle(.iconOnly)
+        }
+        .menuStyle(.borderlessButton).fixedSize()
+        .accessibilityLabel("Ações do cenário")
     }
 
     private var restoreSystemButton: some View {

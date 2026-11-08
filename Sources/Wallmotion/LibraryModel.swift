@@ -426,6 +426,19 @@ final class LibraryModel {
         pendingAssignments[scope] = PendingAssignment(token: token, intent: intent, task: task)
     }
 
+    /// Shared action for the scenario shelf and menu. Muting always clears the
+    /// real owner; enabling requires a connected video and never changes volume.
+    func toggleAudioPermission(preferredDisplayID: String? = nil) {
+        guard canEdit else { return }
+        if state.settings.audioDisplayID != nil {
+            setAudioDisplayID(nil)
+            return
+        }
+        guard let target = preferredDisplayID ?? displays.first(where: { audioWallpaper(on: $0.id) != nil })?.id,
+              displays.contains(where: { $0.id == target }), audioWallpaper(on: target) != nil else { return }
+        setAudioDisplayID(target)
+    }
+
     func setAudioDisplayID(_ id: String?) {
         guard id == nil || displays.contains(where: { $0.id == id }) else { return }
         var next = state

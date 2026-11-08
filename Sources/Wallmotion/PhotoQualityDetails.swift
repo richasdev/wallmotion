@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct PhotoQualityDetails: View {
+    @Environment(\.colorScheme) private var scheme
     let quality: PhotoQualityInfo
 
     var body: some View {
@@ -14,7 +15,7 @@ struct PhotoQualityDetails: View {
                 Text("Resolução reduzida para o enquadramento e o limite de memória.")
             }
         }
-        .font(.caption2).foregroundStyle(.secondary)
+        .font(.caption2).foregroundStyle(BrandTheme.secondaryInk(for: scheme))
         .fixedSize(horizontal: false, vertical: true)
     }
 }
