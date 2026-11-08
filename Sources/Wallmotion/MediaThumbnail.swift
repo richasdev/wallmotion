@@ -20,6 +20,7 @@ enum ThumbnailCache {
 struct MediaThumbnail: View {
     let item: Wallpaper
     let localURL: URL?
+    var compact = false
     @Environment(\.displayScale) private var displayScale
     @State private var presentation = ThumbnailPresentation()
 
@@ -33,10 +34,10 @@ struct MediaThumbnail: View {
                     Image(nsImage: image).resizable().scaledToFill()
                 } else {
                     VStack(spacing: 8) {
-                        Image(systemName: fallbackSymbol).font(.system(size: 28, weight: .light))
-                        Text("Sem prévia").font(.caption2.weight(.medium))
+                        Image(systemName: fallbackSymbol).font(.system(size: compact ? 20 : 28, weight: .light))
+                        if !compact { Text("Sem prévia").font(.caption.weight(.medium)) }
                     }
-                    .foregroundStyle(.secondary).padding(14)
+                    .foregroundStyle(.secondary).padding(compact ? 8 : 14)
                 }
             }
             .frame(width: geometry.size.width, height: geometry.size.height)

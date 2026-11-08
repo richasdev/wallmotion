@@ -409,7 +409,7 @@ struct LibraryView: View {
 
     @ViewBuilder private var scenarioThumbnail: some View {
         if let item = appliedWallpaper(on: selectedDisplay) {
-            MediaThumbnail(item: item, localURL: model.localMediaURL(for: item))
+            MediaThumbnail(item: item, localURL: model.localMediaURL(for: item), compact: true)
                 .frame(width: 88, height: 58)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
                 .accessibilityHidden(true)

@@ -739,9 +739,14 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertTrue(model.addURL("https://media.example.com/Cidade-noturna.m3u8"))
         model.refreshPlayback(force: false)
 
-        if let display = model.displays.first, let photo = model.state.wallpapers.first {
-            model.apply(photo, to: display.id)
+        if let display = model.displays.first, environment["WALLMOTION_SNAPSHOT_NO_ASSIGNMENT"] != "1" {
+            let index = environment["WALLMOTION_SNAPSHOT_APPLY_INDEX"].flatMap(Int.init) ?? 0
+            guard model.state.wallpapers.indices.contains(index) else { throw XCTSkip("Invalid fixture index") }
+            model.apply(model.state.wallpapers[index], to: display.id)
             model.setMediaFit(.fill, on: display.id)
+            if environment["WALLMOTION_SNAPSHOT_AUDIO"] == "1" {
+                model.setAudioDisplayID(display.id)
+            }
         }
         let compact = environment["WALLMOTION_SNAPSHOT_COMPACT"] == "1"
         if environment["WALLMOTION_SNAPSHOT_MIRRORED"] == "1", let display = model.displays.first {

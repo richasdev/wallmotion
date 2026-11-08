@@ -160,6 +160,7 @@ struct BackgroundControls: View {
         .background(.primary.opacity(0.08), in: Capsule())
         .overlay(Capsule().strokeBorder(.primary.opacity(0.18), lineWidth: 1))
         .contentShape(Capsule())
+        .disabled(model.state.settings.audioDisplayID == nil && model.audioWallpaper(on: selectedDisplay) == nil)
         .accessibilityHint("Permite som em um único monitor ou silencia todos os fundos. O volume é preservado.")
         .help(model.state.settings.audioDisplayID == nil ? "Permitir som no monitor selecionado" : "Silenciar todos os fundos")
     }
@@ -180,7 +181,11 @@ struct BackgroundControls: View {
     }
 
     private var audioSummary: String {
-        guard let owner = model.state.settings.audioDisplayID else { return "Som desativado em todos os monitores." }
+        guard let owner = model.state.settings.audioDisplayID else {
+            return model.audioWallpaper(on: selectedDisplay) == nil
+                ? "Som desativado. Aplique um vídeo para ativar; fotos e GIFs são silenciosos."
+                : "Som desativado em todos os monitores."
+        }
         guard let display = model.displays.first(where: { $0.id == owner }) else {
             return "Monitor de som desconectado. Nenhum fundo emite som."
         }
