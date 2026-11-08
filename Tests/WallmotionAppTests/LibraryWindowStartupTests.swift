@@ -44,6 +44,11 @@ final class LibraryWindowStartupTests: XCTestCase {
         window.isRestorable = true
         CompactLibraryWindow.prepare(window)
         XCTAssertFalse(window.isRestorable)
+        XCTAssertFalse(window.isOpaque, "An opaque window hides the desktop glass backdrop")
+        XCTAssertEqual(window.backgroundColor, .clear)
+        XCTAssertTrue(window.titlebarAppearsTransparent)
+        XCTAssertEqual(window.titleVisibility, .hidden)
+        XCTAssertTrue(window.isMovableByWindowBackground)
         XCTAssertEqual(window.styleMask, mask)
         XCTAssertEqual(window.collectionBehavior, behavior)
         XCTAssertFalse(window.styleMask.contains(.fullScreen))

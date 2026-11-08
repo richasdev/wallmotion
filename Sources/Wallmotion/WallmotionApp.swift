@@ -29,6 +29,7 @@ struct WallmotionApp: App {
                 .frame(minWidth: 820, minHeight: 560)
                 .background(CompactLibraryWindow().frame(width: 0, height: 0).allowsHitTesting(false))
         }
+        .windowStyle(.hiddenTitleBar)
         .defaultSize(LibraryWindowStartup.contentSize)
         .windowResizability(.contentMinSize)
     }
