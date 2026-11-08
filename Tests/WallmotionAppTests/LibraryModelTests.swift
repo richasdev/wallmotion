@@ -860,6 +860,8 @@ final class LibraryModelTests: XCTestCase {
             configuration.width = Int(bounds.width * window.backingScaleFactor)
             configuration.height = Int(bounds.height * window.backingScaleFactor)
             configuration.showsCursor = false
+            configuration.captureResolution = .best
+            configuration.colorSpaceName = CGColorSpace.sRGB
             let filter = SCContentFilter(desktopIndependentWindow: ownWindow)
             let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
             let composed = NSBitmapImageRep(cgImage: image)
