@@ -664,6 +664,62 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: store.stateURL), bytes)
     }
 
+    func testQuickSoundActionUsesRealOwnerRejectsSilentTargetsAndPreservesLevels() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = LibraryStore(rootURL: directory)
+        let photo = Wallpaper(title: "Foto", kind: .image, source: .local(filename: "photo.png"))
+        let video = try Wallpaper.remote("https://example.invalid/video.mp4")
+        var state = LibraryState(wallpapers: [photo, video], assignments: ["photo": photo.id, "video": video.id],
+                                 settings: .init(isManuallyPaused: true, audioVolume: 0.37))
+        state.setAudioGain(0.4, for: video.id)
+        try store.save(state)
+        let connected = TestDisplays([Display(id: "photo", name: "Foto"), Display(id: "video", name: "Vídeo")])
+        let model = LibraryModel(thermalState: { .nominal }, memoryMonitor: TestMemoryPressureMonitor(),
+            store: store, engine: DesktopCoordinator(targets: { [] }), connectedDisplays: { connected.values })
+        defer { model.stop() }
+        model.refreshPlayback(force: false)
+        model.toggleAudioPermission(preferredDisplayID: "photo")
+        model.toggleAudioPermission(preferredDisplayID: "disconnected")
+        XCTAssertNil(model.state.settings.audioDisplayID)
+        model.toggleAudioPermission() // The menu skips the first, silent display.
+        XCTAssertEqual(model.state.settings.audioDisplayID, "video")
+        model.toggleAudioPermission(preferredDisplayID: "photo") // Global mute clears the real owner.
+        XCTAssertNil(model.state.settings.audioDisplayID)
+        model.toggleAudioPermission(preferredDisplayID: "video")
+        XCTAssertEqual(model.state.settings.audioDisplayID, "video")
+        connected.values.removeLast()
+        model.refreshPlayback(force: false)
+        XCTAssertEqual(model.state.settings.audioDisplayID, "video")
+        model.toggleAudioPermission(preferredDisplayID: "photo") // Disconnected owners can also be cleared.
+        XCTAssertNil(model.state.settings.audioDisplayID)
+        model.toggleAudioPermission()
+        XCTAssertNil(model.state.settings.audioDisplayID)
+        XCTAssertEqual(model.state.settings.audioVolume, 0.37)
+        XCTAssertEqual(model.state.audioGain(for: video.id), 0.4)
+        XCTAssertTrue(model.state.settings.isManuallyPaused)
+        XCTAssertEqual(try store.load(), model.state)
+    }
+
+    func testQuickSoundSaveFailureDoesNotArmAudioOrChangeVolume() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = LibraryStore(rootURL: directory)
+        let video = try Wallpaper.remote("https://example.invalid/video.mp4")
+        let state = LibraryState(wallpapers: [video], assignments: ["video": video.id], settings: .init(audioVolume: 0.42))
+        try store.save(state)
+        let model = LibraryModel(thermalState: { .nominal }, memoryMonitor: TestMemoryPressureMonitor(),
+            store: store, engine: DesktopCoordinator(targets: { [] }), connectedDisplays: { [Display(id: "video", name: "Vídeo")] })
+        defer { model.stop() }
+        model.refreshPlayback(force: false)
+        try FileManager.default.removeItem(at: store.stateURL)
+        try FileManager.default.createDirectory(at: store.stateURL, withIntermediateDirectories: false)
+        model.toggleAudioPermission(preferredDisplayID: "video")
+        XCTAssertNil(model.state.settings.audioDisplayID)
+        XCTAssertEqual(model.state.settings.audioVolume, 0.42)
+        XCTAssertNotNil(model.errorMessage)
+    }
+
     func testAudioSaveFailurePreservesSelection() throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -801,8 +857,8 @@ final class LibraryModelTests: XCTestCase {
             let content = try await SCShareableContent.currentProcess
             let ownWindow = try XCTUnwrap(content.windows.first { $0.windowID == CGWindowID(window.windowNumber) })
             let configuration = SCStreamConfiguration()
-            configuration.width = Int(bounds.width * 2)
-            configuration.height = Int(bounds.height * 2)
+            configuration.width = Int(bounds.width * window.backingScaleFactor)
+            configuration.height = Int(bounds.height * window.backingScaleFactor)
             configuration.showsCursor = false
             let filter = SCContentFilter(desktopIndependentWindow: ownWindow)
             let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)

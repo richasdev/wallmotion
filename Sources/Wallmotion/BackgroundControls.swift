@@ -4,6 +4,7 @@ import WallmotionCore
 /// Explicit, persistent controls; no previews that create additional media players.
 @MainActor
 struct BackgroundControls: View {
+    @Environment(\.colorScheme) private var scheme
     @Environment(\.colorSchemeContrast) private var contrast
     let model: LibraryModel
     let selectedDisplay: String
@@ -51,7 +52,7 @@ struct BackgroundControls: View {
                 Text(model.state.displayMode == .spanned
                      ? "Uma paisagem atravessa todas as telas, incluindo os espaços entre elas."
                      : "A mesma mídia e o mesmo enquadramento em todas as telas.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: scheme))
                     .fixedSize(horizontal: false, vertical: true)
             }
             Divider()
@@ -63,13 +64,13 @@ struct BackgroundControls: View {
                         mediaFitPicker.pickerStyle(.menu)
                     }
                     Text(fitDescription(model.mediaFit(on: selectedDisplay)))
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: scheme))
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
                     Text(model.activeWallpaperID(on: selectedDisplay) == nil
                          ? "Aplique uma mídia da coleção para ajustar o enquadramento."
                          : "O provedor controla o enquadramento deste vídeo web.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: scheme))
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -85,7 +86,7 @@ struct BackgroundControls: View {
                         volumeSlider
                     }
                 }
-                Text(audioSummary).font(.caption).foregroundStyle(.secondary)
+                Text(audioSummary).font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: scheme))
                     .fixedSize(horizontal: false, vertical: true)
             }
             DisclosureGroup("Qualidade e opções de som", isExpanded: $showingDetails) {
@@ -99,7 +100,7 @@ struct BackgroundControls: View {
                             Text("\(index + 1) · \(display.name)").tag(display.id)
                         }
                     }
-                    Text(audioHelp).font(.caption).foregroundStyle(.secondary)
+                    Text(audioHelp).font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: scheme))
                         .fixedSize(horizontal: false, vertical: true)
                     if let owner = model.state.settings.audioDisplayID,
                        model.displays.contains(where: { $0.id == owner }),
@@ -116,7 +117,7 @@ struct BackgroundControls: View {
                         Text("4K · 3840 × 2160").tag(HLSResolution.uhd2160)
                     }
                     Text("Preferência para links HLS. O servidor e o macOS definem a resolução disponível; arquivos locais e vídeos web mantêm suas próprias regras.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: scheme))
                         .fixedSize(horizontal: false, vertical: true)
                     if let quality = model.photoQuality(on: selectedDisplay) {
                         PhotoQualityDetails(quality: quality)
@@ -153,7 +154,7 @@ struct BackgroundControls: View {
 
     private var soundButton: some View {
         Button {
-            model.setAudioDisplayID(model.state.settings.audioDisplayID == nil ? selectedDisplay : nil)
+            model.toggleAudioPermission(preferredDisplayID: selectedDisplay)
         } label: {
             Label(model.state.settings.audioDisplayID == nil ? "Ativar som" : "Desativar som",
                   systemImage: model.state.settings.audioDisplayID == nil ? "speaker.slash" : "speaker.wave.2")
@@ -289,6 +290,7 @@ private extension MediaSource {
 /// own source's draft even if the selected monitor has already changed media.
 @MainActor
 struct SourceAudioControls: View {
+    @Environment(\.colorScheme) private var scheme
     let model: LibraryModel
     let wallpaperID: UUID
     @State private var draft: Double
@@ -319,7 +321,7 @@ struct SourceAudioControls: View {
                     .font(.caption.monospacedDigit()).frame(minWidth: 34, alignment: .trailing)
             }
             Text("Ajuste salvo para este item em qualquer monitor. Saída com o volume geral: \(Int((draft * model.state.settings.audioVolume * 100).rounded()))%.")
-                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                .font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: scheme)).fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: 420)
         .disabled(!model.canEdit)

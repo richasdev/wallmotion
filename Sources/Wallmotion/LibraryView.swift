@@ -430,7 +430,7 @@ struct LibraryView: View {
             Text(model.state.displayMode.isShared
                  ? (model.state.displayMode == .spanned ? "Panorama · todas as telas" : "Mesmo fundo · todas as telas")
                  : targetDisplayName)
-                .font(.callout).foregroundStyle(.secondary).lineLimit(2)
+                .font(.callout).foregroundStyle(BrandTheme.secondaryInk(for: colorScheme)).lineLimit(2)
         }
     }
 

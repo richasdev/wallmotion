@@ -4,6 +4,12 @@ import SwiftUI
 enum BrandTheme {
     static let cyan = Color(red: 98/255, green: 222/255, blue: 206/255)
 
+    /// Enabled instructional text on native glass must retain 4.5:1 contrast.
+    static func secondaryInk(for scheme: ColorScheme) -> Color {
+        scheme == .dark ? Color(red: 180/255, green: 180/255, blue: 180/255)
+                        : Color(red: 95/255, green: 99/255, blue: 104/255)
+    }
+
     static func selection(for scheme: ColorScheme) -> Color {
         scheme == .dark ? cyan : Color(red: 0/255, green: 103/255, blue: 92/255)
     }
