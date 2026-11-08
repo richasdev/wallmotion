@@ -58,8 +58,8 @@ struct WallpaperCard: View {
             }
             .padding(10)
         }
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 18))
-        .overlay(RoundedRectangle(cornerRadius: 18).stroke(isApplied ? BrandTheme.selection(for: colorScheme) : .primary.opacity(0.07), lineWidth: isApplied ? (contrast == .increased ? 3 : 2) : 1))
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.72), in: RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(isApplied ? BrandTheme.selection(for: colorScheme) : .clear, lineWidth: contrast == .increased ? 3 : 2))
         .clipShape(RoundedRectangle(cornerRadius: 18))
         .contextMenu {
             Button("Renomear…", systemImage: "pencil", action: onRename)

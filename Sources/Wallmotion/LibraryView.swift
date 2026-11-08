@@ -72,17 +72,11 @@ struct LibraryView: View {
     }
 
     var body: some View {
-        HStack(spacing: 12) {
-            sidebar.frame(width: 132)
+        HStack(spacing: 0) {
+            sidebar.frame(width: 152)
             detail
-                .modifier(ScenarioSurface())
         }
-        .padding(12)
-        .ignoresSafeArea(.container, edges: .top)
-        .background {
-            if reduceTransparency || contrast == .increased { Color(nsColor: .windowBackgroundColor) }
-            else { StudioWindowBackdrop() }
-        }
+        .modifier(ScenarioSurface())
         .tint(BrandTheme.selection(for: colorScheme))
         .focusedSceneValue(\.librarySearchAction, findInLibrary)
         .onAppear { selectAvailableDisplay() }
@@ -342,7 +336,7 @@ struct LibraryView: View {
             }.scrollIndicators(.hidden)
         }
         .foregroundStyle(.white)
-        .background(BrandTheme.graphite.opacity(0.96), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .background(BrandTheme.graphite.opacity(reduceTransparency || contrast == .increased ? 1 : 0.82))
         .environment(\.colorScheme, .dark)
     }
 

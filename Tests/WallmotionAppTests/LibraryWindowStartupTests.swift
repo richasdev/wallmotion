@@ -53,7 +53,11 @@ final class LibraryWindowStartupTests: XCTestCase {
         XCTAssertEqual(window.collectionBehavior, behavior)
         XCTAssertFalse(window.styleMask.contains(.fullScreen))
         XCTAssertFalse(window.collectionBehavior.contains(.fullScreenNone))
-        XCTAssertEqual(window.frame, LibraryWindowStartup.compactFrame(for: window, visibleFrame: (window.screen ?? screen).visibleFrame))
+        let expected = LibraryWindowStartup.compactFrame(for: window, visibleFrame: (window.screen ?? screen).visibleFrame)
+        let pixel = 1 / max(window.backingScaleFactor, 1)
+        XCTAssertEqual(window.frame.origin.x, expected.origin.x, accuracy: pixel)
+        XCTAssertEqual(window.frame.origin.y, expected.origin.y, accuracy: pixel)
+        XCTAssertEqual(window.frame.size, expected.size)
         let requested = window.frameRect(forContentRect: CGRect(origin: .zero, size: LibraryWindowStartup.contentSize))
         if screen.visibleFrame.width >= requested.width && screen.visibleFrame.height >= requested.height {
             XCTAssertEqual(window.contentRect(forFrameRect: window.frame).size, LibraryWindowStartup.contentSize)

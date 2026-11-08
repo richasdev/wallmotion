@@ -813,24 +813,69 @@ final class LibraryModelTests: XCTestCase {
             model.setDisplayMode(.spanned, sourceDisplayID: display.id)
         }
         let bounds = NSRect(x: 0, y: 0, width: compact ? 820 : 880, height: compact ? 560 : 620)
-        let appearance: NSAppearance.Name = environment["WALLMOTION_SNAPSHOT_LIGHT"] == "1" ? .aqua : .darkAqua
+        let light = environment["WALLMOTION_SNAPSHOT_LIGHT"] == "1"
+        let highContrast = environment["WALLMOTION_SNAPSHOT_HIGH_CONTRAST"] == "1"
+        let appearance: NSAppearance.Name = highContrast
+            ? (light ? .accessibilityHighContrastAqua : .accessibilityHighContrastDarkAqua)
+            : (light ? .aqua : .darkAqua)
         let query = LibraryQuery(text: environment["WALLMOTION_SNAPSHOT_SEARCH"] ?? "",
             filter: LibraryMediaFilter(rawValue: environment["WALLMOTION_SNAPSHOT_FILTER"] ?? "") ?? .all,
             sort: LibrarySortOrder(rawValue: environment["WALLMOTION_SNAPSHOT_SORT"] ?? "") ?? .recent)
-        let hosting = NSHostingView(rootView: LibraryView(model: model, initialQuery: query, initialSceneControls: environment["WALLMOTION_SNAPSHOT_SCENE_CONTROLS"] == "1"))
+        let fixture = LibraryView(model: model, initialQuery: query, initialSceneControls: environment["WALLMOTION_SNAPSHOT_SCENE_CONTROLS"] == "1")
+        let hosting = NSHostingView(rootView: fixture)
         hosting.appearance = NSAppearance(named: appearance)
         hosting.frame = bounds
-        let window = NSWindow(contentRect: bounds, styleMask: [.borderless], backing: .buffered, defer: false)
+        let nativeChrome = environment["WALLMOTION_SNAPSHOT_NATIVE_CHROME"] == "1"
+        let style: NSWindow.StyleMask = nativeChrome ? [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView] : [.borderless]
+        let window = NSWindow(contentRect: bounds, styleMask: style, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.isOpaque = false
         window.backgroundColor = .clear
         window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.title = "Wallmotion"
+        if nativeChrome {
+            window.setFrame(NSRect(origin: window.frame.origin, size: bounds.size), display: false)
+            for kind in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+                let button = try XCTUnwrap(window.standardWindowButton(kind))
+                XCTAssertFalse(button.isHidden)
+            }
+            XCTAssertTrue(window.styleMask.contains(.fullSizeContentView))
+        }
         window.appearance = NSAppearance(named: appearance)
         window.contentView = hosting
         let compositorCapture = environment["WALLMOTION_COMPOSITOR_SNAPSHOT"] == "1"
+        let activateFixture = nativeChrome && environment["WALLMOTION_SNAPSHOT_ACTIVE"] == "1"
+        let previousApplication = activateFixture ? NSWorkspace.shared.frontmostApplication : nil
+        let previousActivationPolicy = NSApp.activationPolicy()
         window.setFrameOrigin(compositorCapture ? NSPoint(x: 80, y: 80) : NSPoint(x: -10000, y: -10000))
+        // A private, opaque test backdrop prevents native material QA from
+        // sampling unrelated apps and makes the amount of frosting observable.
+        var backdrop: NSWindow?
+        if compositorCapture && nativeChrome {
+            let behind = NSWindow(contentRect: window.frame.insetBy(dx: -20, dy: -20), styleMask: .borderless, backing: .buffered, defer: false)
+            behind.isReleasedWhenClosed = false
+            behind.contentView = NSHostingView(rootView: HStack(spacing: 0) {
+                Color(red: 0.1, green: 0.55, blue: 0.65)
+                Color(red: 0.92, green: 0.36, blue: 0.24)
+                Color(red: 0.72, green: 0.8, blue: 0.82)
+            })
+            behind.orderFront(nil)
+            backdrop = behind
+        }
+        if activateFixture {
+            NSApp.setActivationPolicy(.accessory)
+            NSApp.activate(ignoringOtherApps: true)
+        }
         if compositorCapture { window.makeKeyAndOrderFront(nil) } else { window.orderBack(nil) }
-        defer { window.orderOut(nil); window.close() }
+        defer {
+            window.orderOut(nil); window.close()
+            backdrop?.orderOut(nil); backdrop?.close()
+            if activateFixture, NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier {
+                previousApplication?.activate(options: [])
+            }
+            if activateFixture { NSApp.setActivationPolicy(previousActivationPolicy) }
+        }
         // Let fixture thumbnail tasks start; this delay alone is not a pass condition.
         try await Task.sleep(for: .milliseconds(250))
         if environment["WALLMOTION_SNAPSHOT_SIDEBAR_BOTTOM"] == "1" {
