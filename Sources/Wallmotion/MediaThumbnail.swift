@@ -28,7 +28,7 @@ struct MediaThumbnail: View {
             let size = pixelDimensions(for: geometry.size)
             let cacheKey = localURL.map { ThumbnailCache.key($0, kind: item.kind.rawValue, width: size.width, height: size.height) }
             ZStack {
-                LivingArtwork(warm: item.kind == .video)
+                Color(nsColor: .controlBackgroundColor)
                 if let image = presentation.image {
                     Image(nsImage: image).resizable().scaledToFill()
                 } else {
@@ -36,8 +36,7 @@ struct MediaThumbnail: View {
                         Image(systemName: fallbackSymbol).font(.system(size: 28, weight: .light))
                         Text("Sem prévia").font(.caption2.weight(.medium))
                     }
-                    .foregroundStyle(.white).padding(14)
-                    .background(.black.opacity(0.65), in: RoundedRectangle(cornerRadius: 16))
+                    .foregroundStyle(.secondary).padding(14)
                 }
             }
             .frame(width: geometry.size.width, height: geometry.size.height)

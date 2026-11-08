@@ -17,9 +17,9 @@ struct WallpaperCard: View {
 
     private var kindLabel: String {
         switch item.kind {
-        case .image: "FOTO"
+        case .image: "Foto"
         case .gif: "GIF"
-        case .video: "VÍDEO"
+        case .video: "Vídeo"
         }
     }
 
@@ -28,14 +28,14 @@ struct WallpaperCard: View {
             MediaThumbnail(item: item, localURL: localURL)
                 .frame(height: 174)
                 .overlay(alignment: .topLeading) {
-                    Text(kindLabel).font(.system(size: 9, weight: .bold, design: .monospaced)).tracking(1.5)
+                    Text(kindLabel).font(.caption.weight(.semibold))
                         .foregroundStyle(.white).padding(.horizontal, 9).padding(.vertical, 6)
                         .background(.black.opacity(0.65), in: Capsule()).padding(12)
                 }
                 .overlay(alignment: .bottomTrailing) {
                     if isApplied {
-                        Label("EM CENA", systemImage: "checkmark.circle.fill")
-                            .font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
+                        Label("Em cena", systemImage: "checkmark.circle.fill")
+                            .font(.caption.weight(.semibold)).foregroundStyle(.white)
                             .padding(8).background(.black.opacity(0.75), in: Capsule()).padding(10)
                     }
                 }

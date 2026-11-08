@@ -1,34 +1,43 @@
 import SwiftUI
 
-/// Wallmotion 4-tone visual identity palette:
-/// 1. Obsidian Black (deep space background)
-/// 2. Pure White (geometric typography and monogram)
-/// 3. Electric Cyan (kinetic aurora wave)
-/// 4. Electric Violet (deep kinetic aurora wave)
+/// Neutral native surfaces let the library's artwork carry the color.
 enum BrandTheme {
-    static let black = Color(red: 10/255, green: 11/255, blue: 16/255)
+    static let black = Color(red: 16/255, green: 17/255, blue: 18/255)
     static let white = Color.white
-    static let cyan = Color(red: 0/255, green: 242/255, blue: 254/255)
-    static let violet = Color(red: 127/255, green: 0/255, blue: 255/255)
+    static let cyan = Color(red: 98/255, green: 222/255, blue: 206/255)
+    static let violet = Color(red: 98/255, green: 222/255, blue: 206/255)
 
-    /// Decorative cyan remains unchanged; selection contours need darker ink on light surfaces.
     static func selection(for scheme: ColorScheme) -> Color {
-        scheme == .dark ? cyan : Color(red: 107/255, green: 56/255, blue: 204/255)
+        scheme == .dark ? cyan : Color(red: 0/255, green: 103/255, blue: 92/255)
     }
+}
 
-    /// Dynamic Aurora Linear Gradient (Cyan to Violet)
-    static let auroraGradient = LinearGradient(
-        colors: [cyan, violet],
-        startPoint: .topLeading,
-        endPoint: .bottomTrailing
-    )
+/// One glass controls layer, with deterministic accessibility and older-system fallbacks.
+/// Wallpaper cards remain opaque: scrolling the collection never multiplies glass surfaces.
+struct ScenarioSurface: ViewModifier {
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var contrast
+    private let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
 
-    /// Subtle Aurora card accent background
-    static let cardBackground = LinearGradient(
-        colors: [cyan.opacity(0.18), violet.opacity(0.12)],
-        startPoint: .topLeading,
-        endPoint: .bottomTrailing
-    )
+    func body(content: Content) -> some View {
+        Group {
+            if reduceTransparency || contrast == .increased {
+                content.background(Color(nsColor: .controlBackgroundColor), in: shape)
+            } else if #available(macOS 26.0, *) {
+                content.foregroundStyle(scheme == .dark ? Color.white : Color.black)
+                    .glassEffect(.regular, in: shape)
+            } else {
+                content.background(.regularMaterial, in: shape)
+            }
+        }
+        .overlay {
+            if contrast == .increased {
+                shape.strokeBorder(.primary.opacity(0.6), lineWidth: 1)
+                    .allowsHitTesting(false)
+            }
+        }
+    }
 }
 
 /// A compact vector rendition of the Wallmotion App Icon mark

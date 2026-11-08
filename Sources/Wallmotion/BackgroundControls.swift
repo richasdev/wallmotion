@@ -18,10 +18,11 @@ struct BackgroundControls: View {
         let dirty: Bool
     }
 
-    init(model: LibraryModel, selectedDisplay: String, supportsMediaFit: Bool) {
+    init(model: LibraryModel, selectedDisplay: String, supportsMediaFit: Bool, initialDetails: Bool = false) {
         self.model = model
         self.selectedDisplay = selectedDisplay
         self.supportsMediaFit = supportsMediaFit
+        _showingDetails = State(initialValue: initialDetails)
         _draftVolume = State(initialValue: model.state.settings.audioVolume)
     }
 
@@ -119,8 +120,6 @@ struct BackgroundControls: View {
                 }.padding(.top, 12)
             }.font(.callout)
         }
-        .padding(18)
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 18))
         .disabled(!model.canEdit || selectedDisplay.isEmpty)
         .onChange(of: model.state.settings.audioVolume) { _, value in
             // A newer menu/external preference takes precedence over an older slider draft.
@@ -155,7 +154,12 @@ struct BackgroundControls: View {
             Label(model.state.settings.audioDisplayID == nil ? "Ativar som" : "Desativar som",
                   systemImage: model.state.settings.audioDisplayID == nil ? "speaker.slash" : "speaker.wave.2")
         }
-        .buttonStyle(.bordered)
+        .labelStyle(.titleAndIcon)
+        .buttonStyle(.plain)
+        .padding(.horizontal, 12).padding(.vertical, 8)
+        .background(.primary.opacity(0.08), in: Capsule())
+        .overlay(Capsule().strokeBorder(.primary.opacity(0.18), lineWidth: 1))
+        .contentShape(Capsule())
         .accessibilityHint("Permite som em um único monitor ou silencia todos os fundos. O volume é preservado.")
         .help(model.state.settings.audioDisplayID == nil ? "Permitir som no monitor selecionado" : "Silenciar todos os fundos")
     }

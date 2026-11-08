@@ -103,6 +103,15 @@ struct WallpaperMenu: View {
         }
         Button(model.manualPauseActionTitle) { model.togglePause() }
             .disabled(!model.canEdit)
+        Button(model.state.settings.audioDisplayID == nil ? "Ativar som" : "Desativar som") {
+            if model.state.settings.audioDisplayID != nil {
+                model.setAudioDisplayID(nil)
+            } else if let display = model.displays.first(where: { model.audioWallpaper(on: $0.id) != nil }) {
+                model.setAudioDisplayID(display.id)
+            }
+        }
+        .disabled(!model.canEdit || (model.state.settings.audioDisplayID == nil &&
+                  !model.displays.contains(where: { model.audioWallpaper(on: $0.id) != nil })))
         Menu("Volume geral · \(Int((model.state.settings.audioVolume * 100).rounded()))%") {
             ForEach([0, 25, 50, 75, 100], id: \.self) { percent in
                 Button("\(percent)%") { model.setAudioVolume(Double(percent) / 100) }
