@@ -132,15 +132,7 @@ struct LibraryView: View {
         ScrollView {
         VStack(alignment: .leading, spacing: 20) {
             header
-            DisclosureGroup(isExpanded: $showingSceneControls) {
-                BackgroundControls(model: model, selectedDisplay: selectedDisplay, supportsMediaFit: supportsMediaFit)
-                    .padding(.top, 10)
-            } label: {
-                Label("Ajustar cenário · monitores, enquadramento e som", systemImage: "slider.horizontal.3")
-                    .font(.callout.weight(.medium))
-            }
-            .padding(14)
-            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 14))
+            BackgroundControls(model: model, selectedDisplay: selectedDisplay, supportsMediaFit: supportsMediaFit)
             if let notice = searchDraft.notice {
                 HStack(alignment: .top, spacing: 12) {
                     Label(notice, systemImage: "text.magnifyingglass")
