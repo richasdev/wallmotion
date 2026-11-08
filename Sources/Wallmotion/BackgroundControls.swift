@@ -35,62 +35,113 @@ struct BackgroundControls: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 12) {
             ViewThatFits(in: .horizontal) {
-                HStack(spacing: 16) {
-                    Label("Monitores", systemImage: "display.2")
-                        .font(.callout.weight(.semibold))
-                    Spacer(minLength: 12)
-                    displayModePicker
+                HStack(alignment: .top, spacing: 16) {
+                    displayOrganization.frame(width: 230, alignment: .leading)
+                    framingSettings.frame(minWidth: 300, maxWidth: .infinity, alignment: .leading)
                 }
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Monitores").font(.callout.weight(.semibold))
-                    displayModePicker
+                VStack(alignment: .leading, spacing: 12) {
+                    displayOrganization
+                    framingSettings
                 }
             }
-            if model.state.displayMode != .independent {
-                Text(model.state.displayMode == .spanned
-                     ? "Uma paisagem atravessa todas as telas, incluindo os espaços entre elas."
-                     : "A mesma mídia e o mesmo enquadramento em todas as telas.")
+            Divider()
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) {
+                    soundButton
+                    volumeSlider.frame(width: 180)
+                    Spacer(minLength: 0)
+                    detailsButton
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack { soundButton; Spacer(minLength: 8); detailsButton }
+                    volumeSlider
+                }
+            }
+            Text(audioSummary).font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: scheme))
+                .fixedSize(horizontal: false, vertical: true)
+            if showingDetails { advancedSettings }
+        }
+        .disabled(!model.canEdit || selectedDisplay.isEmpty)
+        .onChange(of: model.state.settings.audioVolume) { _, value in
+            // A newer menu/external preference takes precedence over an older slider draft.
+            isEditingVolume = false
+            volumeDirty = false
+            draftVolume = value
+        }
+        .onChange(of: audioSelection) { _, _ in
+            isEditingVolume = false
+            saveVolume()
+        }
+        .onChange(of: model.canEdit) { _, editable in
+            if !editable {
+                isEditingVolume = false
+                volumeDirty = false
+                draftVolume = model.state.settings.audioVolume
+            }
+        }
+        .task(id: VolumeEdit(value: draftVolume, editing: isEditingVolume, dirty: volumeDirty)) {
+            guard volumeDirty, !isEditingVolume else { return }
+            do { try await Task.sleep(for: .milliseconds(200)) } catch { return }
+            guard !Task.isCancelled else { return }
+            saveVolume()
+        }
+        .onDisappear { saveVolume() }
+    }
+
+    private var displayOrganization: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text("Monitores").font(.callout.weight(.semibold))
+            displayModePicker
+            Text(model.state.displayMode == .independent ? "Um fundo por tela."
+                 : model.state.displayMode == .mirrored ? "Mesma mídia em todas as telas." : "Uma paisagem entre as telas.")
+                .font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: scheme))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var framingSettings: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text("Enquadramento").font(.callout.weight(.semibold))
+            if supportsMediaFit {
+                ViewThatFits(in: .horizontal) {
+                    mediaFitPicker.pickerStyle(.segmented).fixedSize(horizontal: true, vertical: false)
+                    mediaFitPicker.pickerStyle(.menu)
+                }
+                Text(compactFitDescription).font(.caption)
+                    .foregroundStyle(BrandTheme.secondaryInk(for: scheme))
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text(model.activeWallpaperID(on: selectedDisplay) == nil
+                     ? "Aplique uma mídia para ajustar."
+                     : "O provedor controla o enquadramento.")
                     .font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: scheme))
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Divider()
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Enquadramento").font(.callout.weight(.semibold))
-                if supportsMediaFit {
-                    ViewThatFits(in: .horizontal) {
-                        mediaFitPicker.pickerStyle(.segmented).fixedSize(horizontal: true, vertical: false)
-                        mediaFitPicker.pickerStyle(.menu)
-                    }
-                    Text(fitDescription(model.mediaFit(on: selectedDisplay)))
-                        .font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: scheme))
-                        .fixedSize(horizontal: false, vertical: true)
-                } else {
-                    Text(model.activeWallpaperID(on: selectedDisplay) == nil
-                         ? "Aplique uma mídia da coleção para ajustar o enquadramento."
-                         : "O provedor controla o enquadramento deste vídeo web.")
-                        .font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: scheme))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            Divider()
-            VStack(alignment: .leading, spacing: 8) {
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 16) {
-                        soundButton
-                        volumeSlider.frame(width: 220)
-                    }
-                    VStack(alignment: .leading, spacing: 10) {
-                        soundButton
-                        volumeSlider
-                    }
-                }
-                Text(audioSummary).font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: scheme))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            DisclosureGroup("Qualidade e opções de som", isExpanded: $showingDetails) {
-                VStack(alignment: .leading, spacing: 16) {
+        }
+    }
+
+    private var compactFitDescription: String {
+        if model.state.displayMode == .spanned { return "Ajuste aplicado ao conjunto das telas." }
+        return switch model.mediaFit(on: selectedDisplay) {
+        case .fit: "Mídia inteira, sem distorção."
+        case .fill: "Preenche sem distorcer."
+        case .center: "Tamanho original, ao centro."
+        case .stretch: "Ocupa a tela; pode distorcer."
+        }
+    }
+
+    private var detailsButton: some View {
+        Button("Detalhes", systemImage: "slider.horizontal.3") { showingDetails.toggle() }
+            .labelStyle(.titleAndIcon).buttonStyle(.borderless).font(.callout)
+            .accessibilityLabel("Qualidade e opções de som")
+            .accessibilityValue(showingDetails ? "Expandido" : "Recolhido")
+            .help("Escolher monitor do som, qualidade HLS e volume por fundo")
+    }
+
+    private var advancedSettings: some View {
+VStack(alignment: .leading, spacing: 16) {
                     Picker("Somente este monitor emite som", selection: Binding(
                         get: { audioSelection },
                         set: { model.setAudioDisplayID($0.isEmpty ? nil : $0) }
@@ -123,33 +174,6 @@ struct BackgroundControls: View {
                         PhotoQualityDetails(quality: quality)
                     }
                 }.padding(.top, 12)
-            }.font(.callout)
-        }
-        .disabled(!model.canEdit || selectedDisplay.isEmpty)
-        .onChange(of: model.state.settings.audioVolume) { _, value in
-            // A newer menu/external preference takes precedence over an older slider draft.
-            isEditingVolume = false
-            volumeDirty = false
-            draftVolume = value
-        }
-        .onChange(of: audioSelection) { _, _ in
-            isEditingVolume = false
-            saveVolume()
-        }
-        .onChange(of: model.canEdit) { _, editable in
-            if !editable {
-                isEditingVolume = false
-                volumeDirty = false
-                draftVolume = model.state.settings.audioVolume
-            }
-        }
-        .task(id: VolumeEdit(value: draftVolume, editing: isEditingVolume, dirty: volumeDirty)) {
-            guard volumeDirty, !isEditingVolume else { return }
-            do { try await Task.sleep(for: .milliseconds(200)) } catch { return }
-            guard !Task.isCancelled else { return }
-            saveVolume()
-        }
-        .onDisappear { saveVolume() }
     }
 
     private var soundButton: some View {
@@ -236,9 +260,9 @@ struct BackgroundControls: View {
             get: { model.state.displayMode },
             set: { model.setDisplayMode($0, sourceDisplayID: selectedDisplay) }
         )) {
-            Text("Separados").tag(DisplayMode.independent)
+            Text("Por tela").tag(DisplayMode.independent)
             Text("Espelhar").tag(DisplayMode.mirrored)
-            Text("Panorâmico").tag(DisplayMode.spanned)
+            Text("Panorama").tag(DisplayMode.spanned)
         }.labelsHidden().accessibilityLabel("Organização dos monitores")
             .accessibilityHint("No modo separado, cada monitor mantém sua escolha de fundo.")
     }

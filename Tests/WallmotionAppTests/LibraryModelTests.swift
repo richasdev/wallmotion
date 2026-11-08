@@ -812,7 +812,7 @@ final class LibraryModelTests: XCTestCase {
         if environment["WALLMOTION_SNAPSHOT_PANORAMA"] == "1", let display = model.displays.first {
             model.setDisplayMode(.spanned, sourceDisplayID: display.id)
         }
-        let bounds = NSRect(x: 0, y: 0, width: compact ? 820 : 1120, height: compact ? 560 : 760)
+        let bounds = NSRect(x: 0, y: 0, width: compact ? 820 : 880, height: compact ? 560 : 620)
         let appearance: NSAppearance.Name = environment["WALLMOTION_SNAPSHOT_LIGHT"] == "1" ? .aqua : .darkAqua
         let query = LibraryQuery(text: environment["WALLMOTION_SNAPSHOT_SEARCH"] ?? "",
             filter: LibraryMediaFilter(rawValue: environment["WALLMOTION_SNAPSHOT_FILTER"] ?? "") ?? .all,
@@ -865,6 +865,8 @@ final class LibraryModelTests: XCTestCase {
             configuration.captureResolution = .best
             configuration.ignoreShadowsSingleWindow = true
             configuration.colorSpaceName = CGColorSpace.sRGB
+            // Native glass has an initial compositing transition; let that settle.
+            try await Task.sleep(for: .seconds(2))
             let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
             print("compositor_qa window=\(window.frame) backing_scale=\(window.backingScaleFactor) filter_rect=\(filter.contentRect) filter_scale=\(scale) output=\(image.width)x\(image.height)")
             let composed = NSBitmapImageRep(cgImage: image)
