@@ -344,7 +344,7 @@ struct LibraryView: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Desempenho").font(.headline)
             Toggle("Pausar com outros apps visíveis", isOn: Binding(get: { model.state.settings.pauseWhenOtherAppsVisible }, set: { model.setPauseWhenOtherAppsVisible($0) }))
-            Text("Pausa só nas telas com janelas de outros apps. Retoma ao minimizar, fechar ou mover a janela. Em espelho/panorama, a cópia pausada pode revelar o fundo do macOS enquanto a tela livre continua.")
+            Text("Pausa só nas telas com janelas de outros apps. Retoma ao minimizar, fechar ou mover a janela. Utilitários da barra de menus não contam. Em espelho/panorama, a cópia pausada pode revelar o fundo do macOS enquanto a tela livre continua.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Toggle("Pausar em baixo consumo", isOn: Binding(get: { model.state.settings.pauseOnLowPower }, set: { model.setPauseOnLowPower($0) }))
             Toggle("Pausar sob pressão térmica", isOn: Binding(get: { model.state.settings.pauseOnThermalPressure }, set: { model.setPauseOnThermalPressure($0) }))
