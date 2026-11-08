@@ -1,13 +1,14 @@
 # PR review policy
 
-Every change goes through a PR, independent agent review and a non-author merger. Per explicit user override on 2026-10-30, operations are streamlined to a coordinated two-agent structure (`rootCodex` as author, `AGY` as reviewer and merger) to balance velocity with rigorous audit checks. This policy applies to documentation and maintenance as well as code.
+Every change goes through a PR, independent agent review and a non-author merger. The latest explicit user instruction on 2026-11-08 requests multiple Codex agents, one AGY and one Claude Code. This supersedes the earlier two-agent count. This policy applies to documentation and maintenance as well as code.
 
-## Two-agent workflow (User Override)
+## Multi-agent workflow (User Override · 2026-11-08)
 
-1. **rootCodex (Author):** Author of runtime, state, UI and core changes. Works in isolated branches, opens draft PRs, and requests review. The author never merges their own PR.
-2. **AGY (Reviewer & Merger):** Conducts thorough, independent read-only review of the exact HEAD SHA; publishes substantive findings, local verification checks, limitations and explicit APPROVE or REQUEST_CHANGES verdict. Upon approval, verifies mergeability, marks the PR ready, and merges guarded with `--match-head-commit <sha>`. Administrative overrides (`--admin`) are prohibited.
-3. **Exceção de Policy/Docs:** Para PRs de governança/docs de autoria de AGY, o `rootCodex` atua como revisor independente no SHA exato. Somente após a aprovação explícita do rootCodex no SHA exato, AGY executa o merge com `--match-head-commit`.
-4. **Takeover de Emergência (Autorizado pelo Usuário):** Se AGY parar de responder ou sua quota estiver indisponível, o `rootCodex` está expressamente autorizado pelo usuário a assumir o ciclo (criação de issues, revisão e merge). O root audita o PR, HEAD SHA e checagens locais reais sem fingir aprovação independente de contas, executando o merge guardado com `--match-head-commit` e sem `--admin`, limitado ao teto semanal de 60% da quota do Codex.
+1. **Codex implementers (Authors):** Authors of runtime, state, UI, branding and core changes. Works in isolated branches, opens draft PRs, and requests review. The author never merges their own PR.
+2. **Codex and Claude Code (Independent Reviewers):** Review PRs they did not author. Require at least three substantive non-author exact-HEAD reviews when available. Every new commit invalidates all earlier verdicts.
+3. **AGY (Reviewer & Merger):** Conducts thorough, independent read-only review of the exact HEAD SHA; publishes substantive findings, local verification checks, limitations and explicit APPROVE or REQUEST_CHANGES verdict. Upon approval, verifies mergeability, marks the PR ready, and merges guarded with `--match-head-commit <sha>`. Administrative overrides (`--admin`) are prohibited.
+4. **Exceção de Policy/Docs:** Para PRs de governança/docs de autoria de AGY, o `rootCodex` atua como revisor independente no SHA exato. Somente após a aprovação explícita do rootCodex no SHA exato, AGY executa o merge com `--match-head-commit`.
+5. **Takeover de Emergência (Autorizado pelo Usuário):** Se AGY parar de responder ou sua quota estiver indisponível, o `rootCodex` está expressamente autorizado pelo usuário a assumir o ciclo (criação de issues, revisão e merge). O root audita o PR, HEAD SHA e checagens locais reais sem fingir aprovação independente de contas, executando o merge guardado com `--match-head-commit` e sem `--admin`, limitado ao teto semanal de 60% da quota do Codex.
 
 ## Evidence
 
