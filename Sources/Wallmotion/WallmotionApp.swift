@@ -11,6 +11,7 @@ struct WallmotionApp: App {
             ApplicationSettingsContent(session: delegate.session, events: delegate.events, onRetry: delegate.retryStartup)
         }
         .commands {
+            CommandGroup(after: .textEditing) { LibrarySearchCommand() }
             CommandGroup(replacing: .newItem) {
                 ImportMediaCommand(session: delegate.session)
             }
@@ -29,6 +30,7 @@ struct WallmotionApp: App {
                 .frame(minWidth: 820, minHeight: 560)
                 .background(CompactLibraryWindow().frame(width: 0, height: 0).allowsHitTesting(false))
         }
+        .windowStyle(.hiddenTitleBar)
         .defaultSize(LibraryWindowStartup.contentSize)
         .windowResizability(.contentMinSize)
     }

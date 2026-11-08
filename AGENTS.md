@@ -32,4 +32,4 @@ Per the latest explicit user instruction (2026-11-08), multiple Codex agents, on
 
 All agents currently share the same GitHub account. Pareceres de agentes não são aprovações de contas GitHub independentes; não as represente como tal nem afirme que a proteção de branch do GitHub garante independência de contas. Ver docs/REVIEW-POLICY.md.
 
-GitHub Actions is blocked by account billing (issue #11). Record actual local checks and this remote limitation explicitly; never claim remote CI passed.
+GitHub Actions and the macOS checks workflow were disabled at the user’s explicit request on 2026-11-08. Do not trigger, rerun, dispatch or re-enable Actions without a new explicit user instruction. Use local validation only and record actual commands/results; never claim remote CI passed. Issue #11 records the earlier billing limitation. Existing branch protections still apply and must not be bypassed.

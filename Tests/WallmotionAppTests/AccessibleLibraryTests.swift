@@ -30,7 +30,7 @@ final class AccessibleLibraryTests: XCTestCase {
     }
 
     func testEnabledScenarioCaptionInkHasContrastOnNativeGlassAndOpaqueFallback() throws {
-        for (scheme, backgrounds) in [(ColorScheme.light, [0xEEEEEE, 0xFFFFFF]), (.dark, [0x323232, 0x1E1E1E])] {
+        for (scheme, backgrounds) in [(ColorScheme.light, [0xE9E9E9, 0xE1E1E1, 0xFFFFFF]), (.dark, [0x4A4A4A, 0x505050, 0x1E1E1E])] {
             let foreground = try luminance(NSColor(BrandTheme.secondaryInk(for: scheme)))
             for hex in backgrounds {
                 let surface = NSColor(srgbRed: CGFloat((hex >> 16) & 255) / 255,
@@ -40,6 +40,18 @@ final class AccessibleLibraryTests: XCTestCase {
                 let ratio = (max(foreground, background) + 0.05) / (min(foreground, background) + 0.05)
                 XCTAssertGreaterThanOrEqual(ratio, 4.5, "Enabled captions must remain legible on the compositor-measured shelf and opaque fallback")
             }
+        }
+    }
+
+    func testSelectedTextContrastOnCompositorMeasuredTintedGlass() throws {
+        for (scheme, hex) in [(ColorScheme.light, 0xECD8D2), (.dark, 0x604F4C)] {
+            let foreground = try luminance(NSColor(BrandTheme.selection(for: scheme)))
+            let surface = NSColor(srgbRed: CGFloat((hex >> 16) & 255) / 255,
+                                  green: CGFloat((hex >> 8) & 255) / 255,
+                                  blue: CGFloat(hex & 255) / 255, alpha: 1)
+            let background = try luminance(surface)
+            let ratio = (max(foreground, background) + 0.05) / (min(foreground, background) + 0.05)
+            XCTAssertGreaterThanOrEqual(ratio, 4.5, "Selected monitor and framing labels must remain readable on tinted glass")
         }
     }
 
@@ -79,7 +91,7 @@ final class AccessibleLibraryTests: XCTestCase {
         XCTAssertTrue(elements.contains { $0.accessibilityValue() as? String == "Fundo aplicado" })
         let rename = try XCTUnwrap(elements.first { $0.accessibilityLabel() == "Renomear Aurora de teste" })
         let remove = try XCTUnwrap(elements.first { $0.accessibilityLabel() == "Remover Aurora de teste da biblioteca" })
-        let apply = try XCTUnwrap(elements.first { ($0.accessibilityLabel() ?? "").contains("Aplicado") && $0.accessibilityRole() == .button })
+        let apply = try XCTUnwrap(elements.first { ($0.accessibilityLabel() ?? "").contains("Reaplicar") && $0.accessibilityRole() == .button })
         XCTAssertTrue(rename.accessibilityPerformPress());XCTAssertTrue(renamed)
         XCTAssertTrue(remove.accessibilityPerformPress());XCTAssertTrue(removed)
         XCTAssertTrue(apply.accessibilityPerformPress());XCTAssertTrue(applied)

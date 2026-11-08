@@ -335,6 +335,14 @@ final class LibraryModel {
         submitAssignment(.mode(mode, sourceDisplayID), scope: .mode)
     }
 
+    /// Explicitly leave a shared scene before editing one display. The selected
+    /// display is an action target, not a new source to copy over saved choices.
+    /// The existing admission path restores every independent assignment/fit.
+    func useIndependentDisplays(on displayID: String) {
+        guard canEdit, displays.contains(where: { $0.id == displayID }) else { return }
+        setDisplayMode(.independent, sourceDisplayID: displayID)
+    }
+
     func isPreparingWallpaper(on displayID: String) -> Bool {
         pendingAssignments.keys.contains(.display(displayID)) ||
             pendingAssignments.keys.contains(.shared) || pendingAssignments.keys.contains(.mode)
@@ -446,6 +454,24 @@ final class LibraryModel {
         if update(next) { engine.setAudioPreferences(state: state) }
     }
 
+    /// A monitor-local sound control. Enabling transfers the single audio owner;
+    /// disabling this monitor must never mute another monitor's active source.
+    /// The global menu toggle intentionally retains its separate mute-all action.
+    @discardableResult func setAudioEnabled(_ enabled: Bool, on displayID: String) -> Bool {
+        guard canEdit, displays.contains(where: { $0.id == displayID }) else { return false }
+        if enabled {
+            guard audioWallpaper(on: displayID) != nil else { return false }
+            if state.settings.audioDisplayID == displayID { return true }
+        } else if state.settings.audioDisplayID != displayID {
+            return true
+        }
+        var next = state
+        next.settings.audioDisplayID = enabled ? displayID : nil
+        guard update(next) else { return false }
+        engine.setAudioPreferences(state: state)
+        return true
+    }
+
     func setHLSResolution(_ value: HLSResolution) {
         guard value != state.settings.hlsResolution else { return }
         var next = state
@@ -507,6 +533,7 @@ final class LibraryModel {
     }
 
     func clear(displayID: String) {
+        guard canEdit, displays.contains(where: { $0.id == displayID }) else { return }
         cancelPendingAssignment(.mode)
         if state.displayMode.isShared { cancelPendingAssignments() }
         else { cancelPendingAssignment(.display(displayID)) }

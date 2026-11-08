@@ -4,6 +4,8 @@ import WallmotionCore
 
 struct LibraryView: View {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var contrast
     @Bindable var model: LibraryModel
     @State private var selectedDisplay = ""
     @State private var searchDraft = LibrarySearchDraft()
@@ -15,6 +17,8 @@ struct LibraryView: View {
     @State private var pendingRemoval: Wallpaper?
     @State private var isDropTargeted = false
     @State private var dropMessage = ""
+    @State private var showingPerformance = false
+    @FocusState private var searchFocused: Bool
     private let initialSceneControls: Bool
 
     init(model: LibraryModel, initialQuery: LibraryQuery = .init(), initialRename: Wallpaper? = nil, initialSceneControls: Bool = false) {
@@ -36,6 +40,11 @@ struct LibraryView: View {
             guard next.replace(with: value) else { return }
             searchDraft = next
         })
+    }
+
+    private var findInLibrary: (@MainActor () -> Void)? {
+        guard model.canEdit, !model.state.wallpapers.isEmpty else { return nil }
+        return { searchFocused = true }
     }
 
     private var renameTargetExists: Bool {
@@ -63,23 +72,19 @@ struct LibraryView: View {
     }
 
     var body: some View {
-        NavigationSplitView {
-            sidebar
-                .navigationSplitViewColumnWidth(min: 170, ideal: 180, max: 220)
-        } detail: {
+        HStack(spacing: 12) {
+            sidebar.frame(width: 132)
             detail
-            .toolbar {
-                ToolbarItemGroup {
-                    Button { pendingURLDraft = MediaURLDraft() } label: { Label("Adicionar URL", systemImage: "link.badge.plus") }
-                        .disabled(!model.canEdit || model.isImporting)
-                        .help("Adicionar um link de vídeo à biblioteca")
-                    Button { model.chooseFiles() } label: { Label("Importar", systemImage: "plus") }
-                        .disabled(!model.canEdit || model.isImporting)
-                        .help("Importar fotos, GIFs e vídeos · ⌘O")
-                }
-            }
-            .searchable(text: searchBinding, prompt: "Buscar na biblioteca")
+                .modifier(ScenarioSurface())
         }
+        .padding(12)
+        .ignoresSafeArea(.container, edges: .top)
+        .background {
+            if reduceTransparency || contrast == .increased { Color(nsColor: .windowBackgroundColor) }
+            else { StudioWindowBackdrop() }
+        }
+        .tint(BrandTheme.selection(for: colorScheme))
+        .focusedSceneValue(\.librarySearchAction, findInLibrary)
         .onAppear { selectAvailableDisplay() }
         .onChange(of: model.displays) { _, _ in selectAvailableDisplay() }
         .onChange(of: renameTargetExists, initial: true) { _, exists in
@@ -131,13 +136,21 @@ struct LibraryView: View {
     private var detail: some View {
         ScrollView {
         VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 12) {
-                header
-                BackgroundControls(model: model, selectedDisplay: selectedDisplay,
-                                   supportsMediaFit: supportsMediaFit, initialDetails: initialSceneControls)
+            studioTitle
+            displayStrip
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 18) {
+                    header.frame(width: 240)
+                    BackgroundControls(model: model, selectedDisplay: selectedDisplay,
+                                       supportsMediaFit: supportsMediaFit, initialDetails: initialSceneControls)
+                        .frame(minWidth: 300, maxWidth: .infinity)
+                }
+                VStack(alignment: .leading, spacing: 14) {
+                    header
+                    BackgroundControls(model: model, selectedDisplay: selectedDisplay,
+                                       supportsMediaFit: supportsMediaFit, initialDetails: initialSceneControls)
+                }
             }
-            .padding(16)
-            .modifier(ScenarioSurface())
             if let notice = searchDraft.notice {
                 HStack(alignment: .top, spacing: 12) {
                     Label(notice, systemImage: "text.magnifyingglass")
@@ -156,9 +169,9 @@ struct LibraryView: View {
             libraryContent
             if model.isImporting { ProgressView("Copiando mídia para a biblioteca…").controlSize(.small) }
         }
-        .padding(20)
+        .padding(18)
         }
-        .background(Color(nsColor: .windowBackgroundColor))
+        .scrollIndicators(.hidden)
         .overlay {
             RoundedRectangle(cornerRadius: 12)
                 .stroke(isDropTargeted ? Color.accentColor : .clear, lineWidth: 3)
@@ -194,7 +207,7 @@ struct LibraryView: View {
                 Text("Solte uma foto, GIF ou vídeo. Transforme um link em atmosfera.")
                     .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 HStack {
-                    Button("Importar mídia…", systemImage: "plus") { model.chooseFiles() }.buttonStyle(.borderedProminent)
+                    Button("Importar mídia…", systemImage: "plus") { model.chooseFiles() }.buttonStyle(.borderedProminent).tint(BrandTheme.action).foregroundStyle(BrandTheme.graphite)
                     Button("Adicionar link", systemImage: "link") { pendingURLDraft = MediaURLDraft() }.buttonStyle(.bordered)
                 }.disabled(model.isImporting)
             }
@@ -209,7 +222,7 @@ struct LibraryView: View {
                 Button("Limpar filtros", action: clearQuery)
             }
         } else {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 230), spacing: 16)], spacing: 16) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 12)], spacing: 12) {
                 ForEach(items) { item in card(for: item) }
             }.padding(.bottom)
         }
@@ -218,10 +231,13 @@ struct LibraryView: View {
     private var catalogControls: some View {
         VStack(alignment: .leading, spacing: 10) {
         HStack(alignment: .firstTextBaseline) {
-            Text("Sua coleção").font(.title3.weight(.semibold)).accessibilityAddTraits(.isHeader)
+            Text("Sua coleção").font(.headline).accessibilityAddTraits(.isHeader)
             Spacer(minLength: 8)
+            TextField("Buscar", text: searchBinding)
+                .textFieldStyle(.roundedBorder).frame(maxWidth: 160)
+                .accessibilityLabel("Buscar na biblioteca").focused($searchFocused)
             Text("\(filteredItems.count) de \(model.state.wallpapers.count) mídias")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: colorScheme))
                 .accessibilityLabel("\(filteredItems.count) de \(model.state.wallpapers.count) mídias exibidas")
             if mediaFilter != .all || !searchDraft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Button("Limpar filtros", systemImage: "xmark.circle", action: clearQuery)
@@ -278,88 +294,140 @@ struct LibraryView: View {
     private var sidebar: some View {
         GeometryReader { viewport in
             ScrollView {
-                sidebarContent
-                    .frame(maxWidth: .infinity, minHeight: max(0, viewport.size.height - 36), alignment: .topLeading)
-                    .padding(14)
+                VStack(alignment: .leading, spacing: 18) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        BrandLogoView(size: 36)
+                        Text("Wallmotion").font(.system(size: 15, weight: .semibold))
+                    }.padding(.top, 24).padding(.bottom, 8)
+                    Label("Estúdio", systemImage: "square.grid.2x2.fill")
+                        .font(.callout.weight(.medium)).frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(10).background(.white.opacity(0.14), in: RoundedRectangle(cornerRadius: 11))
+                        .accessibilityAddTraits(.isSelected)
+                    ForEach(Array(model.displays.enumerated()), id: \.element.id) { index, display in
+                        Button { selectedDisplay = display.id } label: {
+                            VStack(alignment: .leading, spacing: 5) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "display")
+                                    Text("Tela \(index + 1)")
+                                    Spacer(minLength: 0)
+                                    if selectedDisplay == display.id { Circle().fill(BrandTheme.cyan).frame(width: 6, height: 6) }
+                                }.font(.callout.weight(.medium))
+                                Text(display.name).font(.caption).lineLimit(2).foregroundStyle(.white.opacity(0.82))
+                            }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 6).contentShape(Rectangle())
+                        }.buttonStyle(.plain).help(display.name)
+                            .accessibilityLabel("Monitor \(index + 1), \(display.name)")
+                            .accessibilityValue(displayAccessibilityValue(display))
+                            .accessibilityAddTraits(selectedDisplay == display.id ? .isSelected : [])
+                    }
+                    Spacer(minLength: 12)
+                    VStack(alignment: .leading, spacing: 10) {
+                        Image(systemName: hasAppliedWallpaper ? "waveform.path" : "display").font(.title2).foregroundStyle(BrandTheme.cyan)
+                        Text(hasAppliedWallpaper ? model.playbackDescription : "Pronto para ganhar vida.")
+                            .font(.caption.weight(.medium)).fixedSize(horizontal: false, vertical: true)
+                        Button { model.togglePause() } label: {
+                            Label(model.state.settings.isManuallyPaused ? "Retomar tudo" : "Pausar tudo", systemImage: model.state.settings.isManuallyPaused ? "play.fill" : "pause.fill")
+                                .font(.caption.weight(.semibold)).foregroundStyle(BrandTheme.graphite).frame(maxWidth: .infinity).padding(.vertical, 7)
+                                .background(BrandTheme.action, in: Capsule())
+                        }.buttonStyle(.plain).disabled(!model.canEdit).help("Pausar ou retomar todos os monitores")
+                    }.padding(10).background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 13))
+                    Button { showingPerformance.toggle() } label: {
+                        Label("Desempenho", systemImage: "leaf").font(.caption)
+                    }.buttonStyle(.plain).popover(isPresented: $showingPerformance) {
+                        performanceControls.padding(20).frame(width: 300)
+                            .foregroundStyle(.primary).environment(\.colorScheme, colorScheme)
+                    }
+                }
+                .frame(maxWidth: .infinity, minHeight: max(0, viewport.size.height - 28), alignment: .topLeading)
+                .padding(14)
+            }.scrollIndicators(.hidden)
+        }
+        .foregroundStyle(.white)
+        .background(BrandTheme.graphite.opacity(0.96), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .environment(\.colorScheme, .dark)
+    }
+
+    private var performanceControls: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Desempenho").font(.headline)
+            Toggle("Pausar em baixo consumo", isOn: Binding(get: { model.state.settings.pauseOnLowPower }, set: { model.setPauseOnLowPower($0) }))
+            Toggle("Pausar sob pressão térmica", isOn: Binding(get: { model.state.settings.pauseOnThermalPressure }, set: { model.setPauseOnThermalPressure($0) }))
+            Toggle("Liberar fundos com memória crítica", isOn: Binding(get: { model.state.settings.pauseOnMemoryPressure }, set: { model.setPauseOnMemoryPressure($0) }))
+            Text("As pausas de proteção valem para todos os monitores.").font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: colorScheme))
+        }.disabled(!model.canEdit)
+    }
+
+    private var studioTitle: some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Sua tela, mais viva.").font(.system(size: 27, weight: .semibold, design: .rounded)).tracking(-0.7)
+                    .accessibilityAddTraits(.isHeader)
+                Text("Seu espaço. Seu movimento.").font(.callout).foregroundStyle(BrandTheme.secondaryInk(for: colorScheme))
             }
+            Spacer(minLength: 8)
+            HStack(spacing: 8) {
+                Button { model.chooseFiles() } label: {
+                    Label("Importar", systemImage: "plus")
+                        .labelStyle(.titleAndIcon).font(.callout.weight(.semibold))
+                        .foregroundStyle(BrandTheme.graphite)
+                        .padding(.horizontal, 12).padding(.vertical, 8)
+                        .background(BrandTheme.action, in: Capsule())
+                }.buttonStyle(.plain).help("Importar fotos, GIFs e vídeos · ⌘O")
+                Button { pendingURLDraft = MediaURLDraft() } label: {
+                    Image(systemName: "link").font(.callout.weight(.medium))
+                        .foregroundStyle(BrandTheme.selection(for: colorScheme))
+                        .frame(width: 32, height: 32)
+                        .background(BrandTheme.action.opacity(0.14), in: Circle())
+                }.buttonStyle(.plain).accessibilityLabel("Adicionar link de vídeo").help("Adicionar URL de vídeo")
+            }.disabled(!model.canEdit || model.isImporting)
         }
     }
 
-    private var sidebarContent: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            HStack(spacing: 10) {
-                BrandLogoView(size: 28)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Wallmotion").font(.system(size: 18, weight: .semibold))
+    private var displayStrip: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Monitores").font(.callout.weight(.semibold))
+                Spacer(minLength: 8)
+                Picker("Organização dos monitores", selection: Binding(get: { model.state.displayMode }, set: { model.setDisplayMode($0, sourceDisplayID: selectedDisplay) })) {
+                    Text("Separados").tag(DisplayMode.independent)
+                    Text("Espelhar").tag(DisplayMode.mirrored)
+                    Text("Panorama").tag(DisplayMode.spanned)
+                }.pickerStyle(.menu).labelsHidden().fixedSize().disabled(!model.canEdit || selectedDisplay.isEmpty)
+            }
+            ScrollView(.horizontal) {
+                HStack(spacing: 8) {
+                    ForEach(Array(model.displays.enumerated()), id: \.element.id) { index, display in
+                        Button { selectedDisplay = display.id } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "display").font(.title3)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text("\(index + 1) · \(display.name)").font(.caption.weight(.semibold)).lineLimit(1)
+                                    Text(appliedWallpaper(on: display.id)?.title ?? "Fundo do sistema")
+                                        .font(.caption2).lineLimit(1)
+                                }
+                                if model.state.settings.audioDisplayID == display.id { Image(systemName: "speaker.wave.2.fill").font(.caption) }
+                            }.frame(width: 165, alignment: .leading).padding(10)
+                                .foregroundStyle(selectedDisplay == display.id ? BrandTheme.selection(for: colorScheme) : .primary)
+                                .background(selectedDisplay == display.id ? BrandTheme.action.opacity(0.12) : Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 12))
+                                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(selectedDisplay == display.id ? BrandTheme.selection(for: colorScheme) : .clear, lineWidth: 1.5))
+                                .contentShape(Rectangle())
+                        }.buttonStyle(.plain).help(display.name)
+                            .accessibilityLabel("Monitor \(index + 1), \(display.name)")
+                            .accessibilityValue(displayAccessibilityValue(display))
+                            .accessibilityAddTraits(selectedDisplay == display.id ? .isSelected : [])
+                    }
                 }
-            }.padding(.top, 12).padding(.bottom, 4)
-            Text("Monitores").font(.callout.weight(.semibold)).foregroundStyle(.secondary)
-                .accessibilityAddTraits(.isHeader)
+            }.scrollIndicators(.hidden)
             if model.displays.isEmpty {
-                Label("Nenhum monitor disponível", systemImage: "display.trianglebadge.exclamationmark")
-                    .font(.callout).foregroundStyle(.secondary)
-            }
-            ForEach(Array(model.displays.enumerated()), id: \.element.id) { index, display in
-                Button { selectedDisplay = display.id } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: "display").font(.title3)
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("\(index + 1) · \(display.name)").font(.callout.weight(.medium)).lineLimit(1).help(display.name)
-                            Text(appliedWallpaper(on: display.id)?.title ?? "Fundo do sistema")
-                                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                            if let state = model.remotePlaybackStates[display.id] {
-                                Text(state.description).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
-                            }
-                        }
-                        Spacer(minLength: 0)
-                        if selectedDisplay == display.id {
-                            Image(systemName: "checkmark.circle.fill").foregroundStyle(BrandTheme.selection(for: colorScheme))
-                        }
-                    }
-                    .padding(10)
-                    .background(selectedDisplay == display.id ? Color.primary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 10))
-                    .contentShape(Rectangle())
+                Label("Nenhum monitor disponível", systemImage: "display.trianglebadge.exclamationmark").font(.callout)
+            } else if model.state.displayMode.isShared {
+                HStack {
+                    Text(model.state.displayMode == .spanned ? "Panorama: os ajustes afetam todas as telas." : "Espelhado: os ajustes afetam todas as telas.")
+                        .font(.caption).fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 8)
+                    Button("Controlar separadamente") { model.useIndependentDisplays(on: selectedDisplay) }
+                        .font(.caption.weight(.semibold)).disabled(!model.canEdit)
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Monitor \(index + 1), \(display.name)")
-                .accessibilityValue(displayAccessibilityValue(display))
-                .accessibilityAddTraits(selectedDisplay == display.id ? .isSelected : [])
             }
-            Spacer()
-            VStack(alignment: .leading, spacing: 12) {
-                if model.isPreparingWallpaper(on: selectedDisplay) {
-                    HStack(spacing: 8) {
-                        ProgressView().controlSize(.small)
-                        Text("Verificando fundo…").font(.callout.weight(.medium))
-                    }
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel("Verificando o fundo para este monitor. A seleção atual será mantida até concluir.")
-                }
-                Label(hasAppliedWallpaper ? model.playbackDescription : "Nenhum fundo aplicado", systemImage: hasAppliedWallpaper ? (model.isPaused ? "pause.circle.fill" : "play.circle.fill") : "display")
-                    .font(.callout.weight(.medium))
-                    .foregroundStyle(!hasAppliedWallpaper || model.isPaused ? Color.secondary : Color.accentColor)
-                Button { model.togglePause() } label: {
-                    Label(model.manualPauseActionTitle, systemImage: model.state.settings.isManuallyPaused ? "play.fill" : "pause.fill")
-                        .frame(maxWidth: .infinity)
-                }.disabled(!model.canEdit).help("Controlar a reprodução em todos os monitores")
-            }
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
-            DisclosureGroup("Desempenho") {
-                VStack(alignment: .leading, spacing: 12) {
-            Toggle("Pausar em baixo consumo", isOn: Binding(get: { model.state.settings.pauseOnLowPower }, set: { model.setPauseOnLowPower($0) }))
-                .font(.caption).disabled(!model.canEdit)
-            Toggle("Pausar sob pressão térmica", isOn: Binding(get: { model.state.settings.pauseOnThermalPressure }, set: { model.setPauseOnThermalPressure($0) }))
-                .font(.caption).disabled(!model.canEdit)
-                .help("Pausa quando o macOS indica pressão térmica alta e retoma apenas no estado nominal. Vídeos web reiniciam ao retomar.")
-            Toggle("Liberar fundos com memória crítica", isOn: Binding(get: { model.state.settings.pauseOnMemoryPressure }, set: { model.setPauseOnMemoryPressure($0) }))
-                .font(.caption).disabled(!model.canEdit)
-                .help("Sob aviso, novas mídias aguardam. Em pressão crítica, libera os fundos e retoma ao normal, respeitando outras pausas. Vídeos reiniciam.")
-                }.padding(.top, 8)
-            }.font(.caption)
-            Text("Arquivos originais preservados")
-                .font(.caption2).foregroundStyle(.secondary)
         }
     }
 
@@ -371,33 +439,26 @@ struct LibraryView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 16) {
-                    scenarioThumbnail
-                    monitorContext
-                    Spacer(minLength: 8)
-                    scenarioActions
+        VStack(alignment: .leading, spacing: 8) {
+            StudioWallpaperPreview(item: appliedWallpaper(on: selectedDisplay),
+                localURL: appliedWallpaper(on: selectedDisplay).flatMap { model.localMediaURL(for: $0) })
+                .frame(height: 130)
+            HStack(alignment: .top, spacing: 8) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(appliedWallpaper(on: selectedDisplay)?.title ?? "Fundo do sistema")
+                        .font(.callout.weight(.semibold)).lineLimit(1)
+                    Text(model.state.displayMode.isShared ? "Todas as telas" : targetDisplayName)
+                        .font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: colorScheme)).lineLimit(1)
                 }
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(spacing: 12) { scenarioThumbnail; monitorContext }
-                    scenarioActions
-                }
+                Spacer(minLength: 0)
+                scenarioActions
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            if model.isPreparingWallpaper(on: selectedDisplay) {
+                ProgressView("Verificando fundo…").controlSize(.small)
+            }
             if let error = model.playbackErrors[selectedDisplay] {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange)
-                        Text(error).foregroundStyle(.primary).fixedSize(horizontal: false, vertical: true)
-                    }.accessibilityElement(children: .combine)
-                    ViewThatFits(in: .horizontal) {
-                        HStack { playbackErrorActions }
-                        VStack(alignment: .leading, spacing: 8) { playbackErrorActions }
-                    }
-                }
-                .font(.callout).padding(12)
-                .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                Label(error, systemImage: "exclamationmark.triangle").font(.caption).fixedSize(horizontal: false, vertical: true)
+                playbackErrorActions
             }
         }
     }
@@ -407,33 +468,6 @@ struct LibraryView: View {
         if let item = appliedWallpaper(on: selectedDisplay), case .web(let embed) = item.source {
             Button("Abrir vídeo no navegador") { NSWorkspace.shared.open(embed.pageURL) }
                 .help("Conferir disponibilidade no site do provedor")
-        }
-    }
-
-    @ViewBuilder private var scenarioThumbnail: some View {
-        if let item = appliedWallpaper(on: selectedDisplay) {
-            MediaThumbnail(item: item, localURL: model.localMediaURL(for: item), compact: true)
-                .frame(width: 72, height: 48)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
-                .accessibilityHidden(true)
-        } else {
-            Image(systemName: "display")
-                .font(.system(size: 28, weight: .light)).foregroundStyle(.secondary)
-                .frame(width: 72, height: 48)
-                .background(.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
-                .accessibilityHidden(true)
-        }
-    }
-
-    private var monitorContext: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(appliedWallpaper(on: selectedDisplay)?.title ?? "Cenário do macOS")
-                .font(.title3.weight(.semibold)).lineLimit(2)
-                .accessibilityAddTraits(.isHeader)
-            Text(model.state.displayMode.isShared
-                 ? (model.state.displayMode == .spanned ? "Panorama · todas as telas" : "Mesmo fundo · todas as telas")
-                 : targetDisplayName)
-                .font(.callout).foregroundStyle(BrandTheme.secondaryInk(for: colorScheme)).lineLimit(2)
         }
     }
 

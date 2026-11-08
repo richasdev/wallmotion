@@ -72,6 +72,11 @@ final class LibraryWindowStartup {
         guard !started, let window else { return }
         started = true
         window.isRestorable = false
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.isMovableByWindowBackground = true
         guard isFullScreen(window) else {
             applySize(window)
             return

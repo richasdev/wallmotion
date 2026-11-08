@@ -5,7 +5,7 @@ import WallmotionCore
 @MainActor
 struct BackgroundControls: View {
     @Environment(\.colorScheme) private var scheme
-    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.dynamicTypeSize) private var typeSize
     let model: LibraryModel
     let selectedDisplay: String
     let supportsMediaFit: Bool
@@ -35,32 +35,19 @@ struct BackgroundControls: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
+            framingSettings
             ViewThatFits(in: .horizontal) {
-                HStack(alignment: .top, spacing: 16) {
-                    displayOrganization.frame(width: 230, alignment: .leading)
-                    framingSettings.frame(minWidth: 300, maxWidth: .infinity, alignment: .leading)
-                }
-                VStack(alignment: .leading, spacing: 12) {
-                    displayOrganization
-                    framingSettings
-                }
-            }
-            Divider()
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 12) {
-                    soundButton
-                    volumeSlider.frame(width: 180)
-                    Spacer(minLength: 0)
-                    detailsButton
-                }
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack { soundButton; Spacer(minLength: 8); detailsButton }
-                    volumeSlider
-                }
+                HStack(spacing: 10) { soundButton; volumeSlider.frame(minWidth: 80, maxWidth: .infinity) }
+                VStack(alignment: .leading, spacing: 8) { soundButton; volumeSlider }
             }
             Text(audioSummary).font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: scheme))
                 .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                audioMonitorMenu
+                Spacer(minLength: 8)
+                detailsButton
+            }
             if showingDetails { advancedSettings }
         }
         .disabled(!model.canEdit || selectedDisplay.isEmpty)
@@ -90,36 +77,68 @@ struct BackgroundControls: View {
         .onDisappear { saveVolume() }
     }
 
-    private var displayOrganization: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text("Monitores").font(.callout.weight(.semibold))
-            displayModePicker
-            Text(model.state.displayMode == .independent ? "Um fundo por tela."
-                 : model.state.displayMode == .mirrored ? "Mesma mídia em todas as telas." : "Uma paisagem entre as telas.")
-                .font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: scheme))
-                .fixedSize(horizontal: false, vertical: true)
+    private var framingSettings: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Enquadramento").font(.callout.weight(.semibold))
+                Spacer(minLength: 8)
+                if model.state.displayMode.isShared { Text("Todas as telas").font(.caption) }
+            }
+            if supportsMediaFit {
+                if typeSize.isAccessibilitySize {
+                    Picker("Enquadramento", selection: Binding(get: { model.mediaFit(on: selectedDisplay) }, set: { model.setMediaFit($0, on: selectedDisplay) })) {
+                        ForEach(MediaFit.allCases, id: \.self) { fit in Text(fitTitle(fit)).tag(fit) }
+                    }.pickerStyle(.menu)
+                } else {
+                HStack(spacing: 6) {
+                    ForEach(MediaFit.allCases, id: \.self) { fit in
+                        Button { model.setMediaFit(fit, on: selectedDisplay) } label: {
+                            VStack(spacing: 4) {
+                                Image(systemName: fitSymbol(fit)).font(.system(size: 17, weight: .regular)).frame(height: 20)
+                                Text(fitTitle(fit)).font(.caption2.weight(.medium)).lineLimit(1)
+                            }
+                            .frame(maxWidth: .infinity).padding(.vertical, 7)
+                            .foregroundStyle(model.mediaFit(on: selectedDisplay) == fit ? BrandTheme.selection(for: scheme) : .primary)
+                            .background(model.mediaFit(on: selectedDisplay) == fit ? BrandTheme.action.opacity(0.13) : Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 11))
+                            .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(model.mediaFit(on: selectedDisplay) == fit ? BrandTheme.selection(for: scheme) : .clear, lineWidth: 1.5))
+                            .contentShape(Rectangle())
+                        }.buttonStyle(.plain).help(fitDescription(fit))
+                            .accessibilityLabel("Enquadramento: \(fitTitle(fit))")
+                            .accessibilityHint(fitDescription(fit))
+                            .accessibilityAddTraits(model.mediaFit(on: selectedDisplay) == fit ? .isSelected : [])
+                    }
+                }
+                }
+                Text(compactFitDescription).font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: scheme))
+            } else {
+                Text(model.activeWallpaperID(on: selectedDisplay) == nil ? "Aplique uma mídia da coleção abaixo." : "O provedor controla o enquadramento.")
+                    .font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: scheme)).frame(minHeight: 56, alignment: .leading)
+            }
         }
     }
 
-    private var framingSettings: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text("Enquadramento").font(.callout.weight(.semibold))
-            if supportsMediaFit {
-                ViewThatFits(in: .horizontal) {
-                    mediaFitPicker.pickerStyle(.segmented).fixedSize(horizontal: true, vertical: false)
-                    mediaFitPicker.pickerStyle(.menu)
-                }
-                Text(compactFitDescription).font(.caption)
-                    .foregroundStyle(BrandTheme.secondaryInk(for: scheme))
-                    .fixedSize(horizontal: false, vertical: true)
-            } else {
-                Text(model.activeWallpaperID(on: selectedDisplay) == nil
-                     ? "Aplique uma mídia para ajustar."
-                     : "O provedor controla o enquadramento.")
-                    .font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: scheme))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+    private func fitSymbol(_ fit: MediaFit) -> String {
+        switch fit {
+        case .fit: "arrow.down.right.and.arrow.up.left"
+        case .fill: "arrow.up.left.and.arrow.down.right"
+        case .center: "scope"
+        case .stretch: "arrow.left.and.right"
         }
+    }
+
+    private var audioMonitorMenu: some View {
+        Menu {
+            Button("Silenciar todos os fundos", systemImage: "speaker.slash") { model.setAudioDisplayID(nil) }
+            ForEach(Array(model.displays.enumerated()), id: \.element.id) { index, display in
+                Button {
+                    model.setAudioEnabled(true, on: display.id)
+                } label: {
+                    Label("\(index + 1) · \(display.name)", systemImage: model.state.settings.audioDisplayID == display.id ? "checkmark" : "display")
+                }.disabled(model.audioWallpaper(on: display.id) == nil)
+            }
+        } label: {
+            Label("Saída de som", systemImage: "display.speaker").font(.caption)
+        }.menuStyle(.borderlessButton).fixedSize().tint(BrandTheme.selection(for: scheme)).foregroundStyle(BrandTheme.selection(for: scheme)).help("Escolher o único monitor que pode emitir som")
     }
 
     private var compactFitDescription: String {
@@ -134,8 +153,8 @@ struct BackgroundControls: View {
 
     private var detailsButton: some View {
         Button("Detalhes", systemImage: "slider.horizontal.3") { showingDetails.toggle() }
-            .labelStyle(.titleAndIcon).buttonStyle(.borderless).font(.callout)
-            .accessibilityLabel("Qualidade e opções de som")
+            .labelStyle(.titleAndIcon).buttonStyle(.borderless).font(.caption).foregroundStyle(BrandTheme.selection(for: scheme))
+            .accessibilityLabel("Detalhes: qualidade e opções de som")
             .accessibilityValue(showingDetails ? "Expandido" : "Recolhido")
             .help("Escolher monitor do som, qualidade HLS e volume por fundo")
     }
@@ -177,21 +196,19 @@ struct BackgroundControls: View {
     }
 
     private var soundButton: some View {
-        Button {
-            model.toggleAudioPermission(preferredDisplayID: selectedDisplay)
+        let enabled = model.state.settings.audioDisplayID == selectedDisplay
+        return Button {
+            model.setAudioEnabled(!enabled, on: selectedDisplay)
         } label: {
-            Label(model.state.settings.audioDisplayID == nil ? "Ativar som" : "Desativar som",
-                  systemImage: model.state.settings.audioDisplayID == nil ? "speaker.slash" : "speaker.wave.2")
-                .labelStyle(.titleAndIcon)
-                .padding(.horizontal, 12).padding(.vertical, 8)
-                .background(.primary.opacity(0.08), in: Capsule())
-                .overlay(Capsule().strokeBorder(.primary.opacity(contrast == .increased ? 0.7 : 0.25), lineWidth: 1))
+            Label(enabled ? "Silenciar" : "Ativar som aqui", systemImage: enabled ? "speaker.wave.2.fill" : "speaker.slash")
+                .font(.caption.weight(.semibold)).padding(.horizontal, 10).padding(.vertical, 7)
+                .foregroundStyle(enabled ? BrandTheme.graphite : Color.primary)
+                .background(enabled ? BrandTheme.action : Color.primary.opacity(0.06), in: Capsule())
                 .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .disabled(model.state.settings.audioDisplayID == nil && model.audioWallpaper(on: selectedDisplay) == nil)
-        .accessibilityHint("Permite som em um único monitor ou silencia todos os fundos. O volume é preservado.")
-        .help(model.state.settings.audioDisplayID == nil ? "Permitir som no monitor selecionado" : "Silenciar todos os fundos")
+        }.buttonStyle(.plain)
+            .disabled(!enabled && model.audioWallpaper(on: selectedDisplay) == nil)
+            .accessibilityHint("O som é exclusivo de um monitor. Ativar aqui transfere o som para a tela selecionada e preserva o volume.")
+            .help(enabled ? "Silenciar o monitor selecionado" : "Transferir a saída de som para o monitor selecionado")
     }
 
     private var volumeSlider: some View {
@@ -212,7 +229,7 @@ struct BackgroundControls: View {
     private var audioSummary: String {
         guard let owner = model.state.settings.audioDisplayID else {
             return model.audioWallpaper(on: selectedDisplay) == nil
-                ? "Som desativado. Aplique um vídeo para ativar; fotos e GIFs são silenciosos."
+                ? "Fotos e GIFs são silenciosos."
                 : "Som desativado em todos os monitores."
         }
         guard let display = model.displays.first(where: { $0.id == owner }) else {
@@ -233,38 +250,6 @@ struct BackgroundControls: View {
         volumeDirty = false
         model.setAudioVolume(draftVolume)
         draftVolume = model.state.settings.audioVolume
-    }
-
-    private var mediaFitPicker: some View {
-        Picker("Enquadramento", selection: Binding(
-            get: { model.mediaFit(on: selectedDisplay) },
-            set: { model.setMediaFit($0, on: selectedDisplay) }
-        )) {
-            ForEach(MediaFit.allCases, id: \.self) { fit in
-                Text(fitTitle(fit)).tag(fit)
-            }
-        }.labelsHidden().accessibilityLabel("Enquadramento do fundo")
-            .accessibilityValue(fitTitle(model.mediaFit(on: selectedDisplay)))
-            .accessibilityHint(Text(fitDescription(model.mediaFit(on: selectedDisplay))))
-    }
-
-    private var displayModePicker: some View {
-        ViewThatFits(in: .horizontal) {
-            displayModeOptions.pickerStyle(.segmented).fixedSize(horizontal: true, vertical: false)
-            displayModeOptions.pickerStyle(.menu)
-        }.frame(maxWidth: 380)
-    }
-
-    private var displayModeOptions: some View {
-        Picker("Organização dos monitores", selection: Binding(
-            get: { model.state.displayMode },
-            set: { model.setDisplayMode($0, sourceDisplayID: selectedDisplay) }
-        )) {
-            Text("Por tela").tag(DisplayMode.independent)
-            Text("Espelhar").tag(DisplayMode.mirrored)
-            Text("Panorama").tag(DisplayMode.spanned)
-        }.labelsHidden().accessibilityLabel("Organização dos monitores")
-            .accessibilityHint("No modo separado, cada monitor mantém sua escolha de fundo.")
     }
 
     private var audioHelp: String {
