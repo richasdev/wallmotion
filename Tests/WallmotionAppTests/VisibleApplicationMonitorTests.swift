@@ -31,6 +31,11 @@ private final class SerialWindowSnapshot: @unchecked Sendable {
 }
 
 @MainActor final class VisibleApplicationMonitorTests: XCTestCase {
+    @MainActor private final class RegularOwners {
+        var pids: Set<Int32> = [12]
+        var reads = 0
+        func snapshot() -> Set<Int32> { reads += 1; return pids }
+    }
     private func waitUntil(_ condition: @MainActor () -> Bool) async throws {
         let deadline = ContinuousClock.now + .seconds(3)
         while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
@@ -51,6 +56,7 @@ private final class SerialWindowSnapshot: @unchecked Sendable {
         let snapshot = VisibleWindowSnapshot([VisibleApplicationWindow(ownerPID: 12, layer: 0, alpha: 1, bounds: CGRect(x: -900, y: 20, width: 200, height: 100))])
         let center = NotificationCenter()
         let monitor = VisibleApplicationMonitor(readWindows: { snapshot.read() },
+            regularApplicationPIDs: { [12] },
             displayBounds: { ["left": CGRect(x: -1000, y: 0, width: 1000, height: 800), "right": CGRect(x: 0, y: 0, width: 1000, height: 800)] }, center: center, ownPID: 1)
         var results: [Set<String>] = []
         monitor.refresh(); monitor.poll()
@@ -78,7 +84,7 @@ private final class SerialWindowSnapshot: @unchecked Sendable {
     }
     func testEmptyAssignmentsNeverStartTimerAndDeallocationHasNoRetainCycle() {
         let snapshot = VisibleWindowSnapshot([])
-        var monitor: VisibleApplicationMonitor? = VisibleApplicationMonitor(readWindows: { snapshot.read() }, displayBounds: { [:] }, center: NotificationCenter())
+        var monitor: VisibleApplicationMonitor? = VisibleApplicationMonitor(readWindows: { snapshot.read() }, regularApplicationPIDs: { [12] }, displayBounds: { [:] }, center: NotificationCenter())
         monitor?.start(displayIDs: []) { _ in XCTFail("No assigned display") }
         XCTAssertFalse(monitor?.isRunning ?? true); XCTAssertEqual(snapshot.count, 0)
         monitor?.start(displayIDs: ["one"]) { _ in }
@@ -88,9 +94,41 @@ private final class SerialWindowSnapshot: @unchecked Sendable {
         weakMonitor = nil
     }
 
+    func testRegularOwnerSnapshotRejectsHelperOverlaysAndChangesPerQueryWithoutReadingWindowsWhenEmpty() async throws {
+        let overlay = CGRect(x: -1000, y: 0, width: 2560, height: 1080)
+        // Accessory, prohibited and unknown owners are absent from the injected
+        // regular-app snapshot, regardless of layer zero or alpha one.
+        let helpers = [13, 14, 15].map { VisibleApplicationWindow(ownerPID: Int32($0), layer: 0, alpha: 1, bounds: overlay) }
+        let snapshot = VisibleWindowSnapshot(helpers), owners = RegularOwners()
+        let monitor = VisibleApplicationMonitor(readWindows: { snapshot.read() }, regularApplicationPIDs: { owners.snapshot() },
+            displayBounds: { ["left": CGRect(x: -1000, y: 0, width: 1000, height: 800)] }, center: NotificationCenter(), ownPID: 1)
+        defer { monitor.stop() }
+        var results: [Set<String>] = []
+        monitor.start(displayIDs: ["left"]) { results.append($0) }
+        try await waitUntil { results.count == 1 }
+        XCTAssertEqual(results.last, [])
+        snapshot.set([VisibleApplicationWindow(ownerPID: 12, layer: 0, alpha: 1, bounds: overlay)])
+        monitor.poll()
+        try await waitUntil { results.last == ["left"] }
+        XCTAssertEqual(snapshot.count, 2)
+        // The same window metadata cannot keep the display paused after its
+        // owner is terminated, unknown or changes to a non-regular policy.
+        owners.pids = []
+        monitor.poll()
+        try await waitUntil { results.count == 3 }
+        XCTAssertEqual(results.last, [])
+        XCTAssertEqual(snapshot.count, 2, "An empty owner snapshot must avoid WindowServer entirely")
+        owners.pids = [12]
+        monitor.poll()
+        try await waitUntil { results.count == 4 }
+        XCTAssertEqual(results.last, ["left"])
+        XCTAssertEqual(owners.reads, 4, "Take exactly one owner snapshot per query")
+        XCTAssertEqual(snapshot.count, 3)
+    }
+
     func testRestartSerializesSlowQueryAndRejectsItsOldGenerationAndCoalescesWorkspaceBursts() async throws {
         let snapshot = SerialWindowSnapshot(), center = NotificationCenter()
-        let monitor = VisibleApplicationMonitor(readWindows: { snapshot.read() }, displayBounds: {
+        let monitor = VisibleApplicationMonitor(readWindows: { snapshot.read() }, regularApplicationPIDs: { [12] }, displayBounds: {
             ["left": CGRect(x: -1000, y: 0, width: 1000, height: 800), "right": CGRect(x: 0, y: 0, width: 1000, height: 800)]
         }, center: center, ownPID: 1)
         defer { snapshot.releaseFirst.signal(); monitor.stop() }

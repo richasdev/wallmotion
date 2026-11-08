@@ -10,6 +10,16 @@ protocol VisibleApplicationMonitoring: AnyObject {
 }
 
 enum VisibleApplicationWindowReader {
+    @MainActor static func regularApplicationPIDs() -> Set<Int32> {
+        // Window alpha does not describe transparent pixels in an overlay.
+        // Exclude accessory/prohibited/unknown owners instead of inspecting
+        // content, titles or names. Menu-bar-only apps intentionally do not pause.
+        Set(NSWorkspace.shared.runningApplications.compactMap { application in
+            guard !application.isTerminated, application.activationPolicy == .regular else { return nil }
+            return application.processIdentifier
+        })
+    }
+
     static func read() -> [VisibleApplicationWindow]? {
         guard let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return nil }
         return info.compactMap(parse)
@@ -44,6 +54,7 @@ enum VisibleApplicationWindowReader {
 final class VisibleApplicationMonitor: VisibleApplicationMonitoring {
     private let worker: VisibleWindowQueryWorker
     private let displayBounds: @MainActor () -> [String: CGRect]
+    private let regularApplicationPIDs: @MainActor () -> Set<Int32>
     private let center: NotificationCenter
     private let ownPID: Int32
     private var displayIDs = Set<String>()
@@ -56,9 +67,11 @@ final class VisibleApplicationMonitor: VisibleApplicationMonitoring {
     var isRunning: Bool { events.timer != nil }
 
     init(readWindows: @escaping @Sendable () -> [VisibleApplicationWindow]? = VisibleApplicationWindowReader.read,
+         regularApplicationPIDs: @escaping @MainActor () -> Set<Int32> = VisibleApplicationWindowReader.regularApplicationPIDs,
          displayBounds: @escaping @MainActor () -> [String: CGRect] = VisibleApplicationWindowReader.displayBounds,
          center: NotificationCenter = NSWorkspace.shared.notificationCenter, ownPID: Int32 = ProcessInfo.processInfo.processIdentifier) {
         worker = VisibleWindowQueryWorker(readWindows: readWindows)
+        self.regularApplicationPIDs = regularApplicationPIDs
         self.displayBounds = displayBounds; self.center = center; self.ownPID = ownPID
         events = VisibleMonitorEvents(center: center)
     }
@@ -103,9 +116,10 @@ final class VisibleApplicationMonitor: VisibleApplicationMonitoring {
     func poll() {
         guard isRunning, query == nil else { return }
         let bounds = displayBounds().filter { displayIDs.contains($0.key) }
+        let regularApplicationPIDs = regularApplicationPIDs()
         let generation = generation, worker = worker, ownPID = ownPID
         query = Task(priority: .utility) { @MainActor [weak self] in
-            let result = await worker.occupiedDisplays(bounds: bounds, ownPID: ownPID)
+            let result = await worker.occupiedDisplays(bounds: bounds, ownPID: ownPID, regularApplicationPIDs: regularApplicationPIDs)
             guard let self, !Task.isCancelled, self.generation == generation, self.isRunning else { return }
             self.query = nil
             guard self.lastResult != result else { return }
@@ -132,9 +146,10 @@ final class VisibleApplicationMonitor: VisibleApplicationMonitoring {
 private actor VisibleWindowQueryWorker {
     let readWindows: @Sendable () -> [VisibleApplicationWindow]?
     init(readWindows: @escaping @Sendable () -> [VisibleApplicationWindow]?) { self.readWindows = readWindows }
-    func occupiedDisplays(bounds: [String: CGRect], ownPID: Int32) -> Set<String> {
-        guard !Task.isCancelled else { return [] }
-        return VisibleApplicationWindow.occupiedDisplays(windows: readWindows(), displayBounds: bounds, ownPID: ownPID)
+    func occupiedDisplays(bounds: [String: CGRect], ownPID: Int32, regularApplicationPIDs: Set<Int32>) -> Set<String> {
+        guard !Task.isCancelled, !regularApplicationPIDs.isEmpty else { return [] }
+        return VisibleApplicationWindow.occupiedDisplays(windows: readWindows(), displayBounds: bounds, ownPID: ownPID,
+            regularApplicationPIDs: regularApplicationPIDs)
     }
 }
 

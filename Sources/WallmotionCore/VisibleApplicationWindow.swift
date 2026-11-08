@@ -13,11 +13,13 @@ public struct VisibleApplicationWindow: Sendable {
         self.bounds = bounds; self.isOnscreen = isOnscreen
     }
 
-    public static func occupiedDisplays(windows: [Self]?, displayBounds: [String: CGRect], ownPID: Int32) -> Set<String> {
+    public static func occupiedDisplays(windows: [Self]?, displayBounds: [String: CGRect], ownPID: Int32,
+                                        regularApplicationPIDs: Set<Int32>) -> Set<String> {
         // A failed metadata query removes only this optional pause reason.
         guard let windows else { return [] }
         var occupied = Set<String>()
         for window in windows where window.isOnscreen && window.ownerPID > 0 && window.ownerPID != ownPID &&
+            regularApplicationPIDs.contains(window.ownerPID) &&
             window.layer == 0 && window.alpha.isFinite && window.alpha > 0 && valid(window.bounds) {
             for (id, frame) in displayBounds where !occupied.contains(id) && valid(frame) {
                 let intersection = frame.intersection(window.bounds)
