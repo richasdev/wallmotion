@@ -41,8 +41,10 @@ struct BackgroundControls: View {
                 HStack(spacing: 10) { soundButton; volumeSlider.frame(minWidth: 80, maxWidth: .infinity) }
                 VStack(alignment: .leading, spacing: 8) { soundButton; volumeSlider }
             }
-            Text(audioSummary).font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: scheme))
-                .fixedSize(horizontal: false, vertical: true)
+            if let summary = audioSummary {
+                Text(summary).font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: scheme))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             HStack {
                 audioMonitorMenu
                 Spacer(minLength: 8)
@@ -109,9 +111,8 @@ struct BackgroundControls: View {
                     }
                 }.modifier(StudioControlGlass())
                 }
-                Text(compactFitDescription).font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: scheme))
             } else {
-                Text(model.activeWallpaperID(on: selectedDisplay) == nil ? "Aplique uma mídia da coleção abaixo." : "O provedor controla o enquadramento.")
+                Text(model.activeWallpaperID(on: selectedDisplay) == nil ? "Selecione um fundo." : "Enquadramento definido pelo site.")
                     .font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: scheme)).frame(minHeight: 56, alignment: .leading)
             }
         }
@@ -141,16 +142,6 @@ struct BackgroundControls: View {
         }.menuStyle(.borderlessButton).fixedSize().tint(BrandTheme.selection(for: scheme)).foregroundStyle(BrandTheme.selection(for: scheme)).help("Escolher o único monitor que pode emitir som")
     }
 
-    private var compactFitDescription: String {
-        if model.state.displayMode == .spanned { return "Ajuste aplicado ao conjunto das telas." }
-        return switch model.mediaFit(on: selectedDisplay) {
-        case .fit: "Mídia inteira, sem distorção."
-        case .fill: "Preenche sem distorcer."
-        case .center: "Tamanho original, ao centro."
-        case .stretch: "Ocupa a tela; pode distorcer."
-        }
-    }
-
     private var detailsButton: some View {
         Button("Detalhes", systemImage: "slider.horizontal.3") { showingDetails.toggle() }
             .labelStyle(.titleAndIcon).buttonStyle(.borderless).font(.caption).foregroundStyle(BrandTheme.selection(for: scheme))
@@ -170,8 +161,7 @@ struct BackgroundControls: View {
                     Text("\(index + 1) · \(display.name)").tag(display.id)
                 }
             }
-            Text(audioHelp).font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: scheme))
-                .fixedSize(horizontal: false, vertical: true)
+            .help(audioHelp)
             if let owner = model.state.settings.audioDisplayID,
                model.displays.contains(where: { $0.id == owner }),
                let item = model.audioWallpaper(on: owner) {
@@ -186,9 +176,7 @@ struct BackgroundControls: View {
                 Text("Full HD · 1920 × 1080").tag(HLSResolution.fullHD1080)
                 Text("4K · 3840 × 2160").tag(HLSResolution.uhd2160)
             }
-            Text("Preferência para links HLS. O servidor e o macOS definem a resolução disponível; arquivos locais e vídeos web mantêm suas próprias regras.")
-                .font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: scheme))
-                .fixedSize(horizontal: false, vertical: true)
+            .help("Qualidade de links HLS; depende do servidor e do macOS. Não altera arquivos locais ou vídeos web.")
             if let quality = model.photoQuality(on: selectedDisplay) {
                 PhotoQualityDetails(quality: quality)
             }
@@ -200,7 +188,7 @@ struct BackgroundControls: View {
         return Button {
             model.setAudioEnabled(!enabled, on: selectedDisplay)
         } label: {
-            Label(enabled ? "Silenciar" : "Ativar som aqui", systemImage: enabled ? "speaker.wave.2.fill" : "speaker.slash")
+            Label(enabled ? "Silenciar" : "Ativar som", systemImage: enabled ? "speaker.wave.2.fill" : "speaker.slash")
                 .font(.caption.weight(.semibold)).padding(.horizontal, 10).padding(.vertical, 7)
                 .foregroundStyle(enabled ? BrandTheme.graphite : Color.primary)
                 .background(enabled ? BrandTheme.action : Color.primary.opacity(0.06), in: Capsule())
@@ -208,7 +196,7 @@ struct BackgroundControls: View {
         }.buttonStyle(.plain)
             .disabled(!enabled && model.audioWallpaper(on: selectedDisplay) == nil)
             .accessibilityHint("O som é exclusivo de um monitor. Ativar aqui transfere o som para a tela selecionada e preserva o volume.")
-            .help(enabled ? "Silenciar o monitor selecionado" : "Transferir a saída de som para o monitor selecionado")
+            .help(!enabled && model.audioWallpaper(on: selectedDisplay) == nil ? "Este fundo não tem áudio." : (enabled ? "Silenciar o monitor selecionado" : "Transferir a saída de som para o monitor selecionado"))
     }
 
     private var volumeSlider: some View {
@@ -226,24 +214,18 @@ struct BackgroundControls: View {
         }.disabled(audioSelection.isEmpty)
     }
 
-    private var audioSummary: String {
-        guard let owner = model.state.settings.audioDisplayID else {
-            return model.audioWallpaper(on: selectedDisplay) == nil
-                ? "Fotos e GIFs são silenciosos."
-                : "Som desativado em todos os monitores."
-        }
+    private var audioSummary: String? {
+        guard let owner = model.state.settings.audioDisplayID else { return nil }
         guard let display = model.displays.first(where: { $0.id == owner }) else {
-            return "Monitor de som desconectado. Nenhum fundo emite som."
+            return "Monitor de som desconectado."
         }
-        guard let item = model.audioWallpaper(on: owner) else {
-            return "Som permitido em \(display.name). Fotos e GIFs são silenciosos."
-        }
+        guard let item = model.audioWallpaper(on: owner) else { return nil }
         if model.state.settings.audioVolume == 0 || model.state.audioGain(for: item.id) == 0 {
             return "Volume em zero · \(display.name)."
         }
-        if model.isPaused { return "Reprodução pausada · som permitido em \(display.name)." }
-        if model.isPausedForVisibleApp(on: owner) { return "Som pausado · outro app em \(display.name)." }
-        return "Som permitido em \(display.name). Vídeos web podem exigir interação."
+        if model.isPaused { return "Som pausado." }
+        if model.isPausedForVisibleApp(on: owner) { return "Som pausado por outro app · \(display.name)." }
+        return owner == selectedDisplay ? nil : "Som em \(display.name)."
     }
 
     private func saveVolume() {
@@ -330,7 +312,7 @@ struct SourceAudioControls: View {
                 Text("\(Int((draft * 100).rounded()))%")
                     .font(.caption.monospacedDigit()).frame(minWidth: 34, alignment: .trailing)
             }
-            Text("Ajuste salvo para este item em qualquer monitor. Saída com o volume geral: \(Int((draft * model.state.settings.audioVolume * 100).rounded()))%.")
+            Text("Saída: \(Int((draft * model.state.settings.audioVolume * 100).rounded()))%.")
                 .font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: scheme)).fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: 420)

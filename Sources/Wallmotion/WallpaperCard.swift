@@ -38,7 +38,6 @@ struct WallpaperCard: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text(item.title).font(.headline).lineLimit(1).help(item.title)
                 HStack {
-                    Text(kindLabel).font(.caption.weight(.semibold)).foregroundStyle(BrandTheme.secondaryInk(for: colorScheme))
                     if case .web(let embed) = item.source { Text(embed.provider == .youtube ? "YouTube" : "Vimeo").font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: colorScheme)) }
                     if case .remote = item.source { Label("URL", systemImage: "link").font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: colorScheme)) }
                     Spacer()

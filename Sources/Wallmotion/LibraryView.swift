@@ -197,8 +197,8 @@ struct LibraryView: View {
             VStack(spacing: 14) {
                 Image(systemName: "sparkles.rectangle.stack.fill")
                     .font(.system(size: 34, weight: .light)).foregroundStyle(Color.accentColor)
-                Text("Sua próxima paisagem começa aqui.").font(.title2.weight(.semibold))
-                Text("Solte uma foto, GIF ou vídeo. Transforme um link em atmosfera.")
+                Text("Biblioteca vazia").font(.title2.weight(.semibold))
+                Text("Arraste fotos, GIFs ou vídeos.")
                     .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 HStack {
                     Button("Importar mídia…", systemImage: "plus") { model.chooseFiles() }.buttonStyle(.borderedProminent).tint(BrandTheme.action).foregroundStyle(BrandTheme.graphite)
@@ -225,7 +225,7 @@ struct LibraryView: View {
     private var catalogControls: some View {
         VStack(alignment: .leading, spacing: 10) {
         HStack(alignment: .firstTextBaseline) {
-            Text("Sua coleção").font(.headline).accessibilityAddTraits(.isHeader)
+            Text("Biblioteca").font(.headline).accessibilityAddTraits(.isHeader)
             Spacer(minLength: 8)
             TextField("Buscar", text: searchBinding)
                 .textFieldStyle(.roundedBorder).frame(maxWidth: 160)
@@ -316,7 +316,7 @@ struct LibraryView: View {
                     Spacer(minLength: 12)
                     VStack(alignment: .leading, spacing: 10) {
                         Image(systemName: hasAppliedWallpaper ? "waveform.path" : "display").font(.title2).foregroundStyle(BrandTheme.cyan)
-                        Text(hasAppliedWallpaper ? model.playbackDescription(on: selectedDisplay) : "Pronto para ganhar vida.")
+                        Text(hasAppliedWallpaper ? model.playbackDescription(on: selectedDisplay) : "Nenhum fundo aplicado")
                             .font(.caption.weight(.medium)).fixedSize(horizontal: false, vertical: true)
                         Button { model.togglePause() } label: {
                             Label(model.state.settings.isManuallyPaused ? "Retomar tudo" : "Pausar tudo", systemImage: model.state.settings.isManuallyPaused ? "play.fill" : "pause.fill")
@@ -344,22 +344,25 @@ struct LibraryView: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Desempenho").font(.headline)
             Toggle("Pausar com outros apps visíveis", isOn: Binding(get: { model.state.settings.pauseWhenOtherAppsVisible }, set: { model.setPauseWhenOtherAppsVisible($0) }))
-            Text("Pausa só nas telas com janelas de outros apps. Retoma ao minimizar, fechar ou mover a janela. Utilitários da barra de menus não contam. Em espelho/panorama, a cópia pausada pode revelar o fundo do macOS enquanto a tela livre continua.")
+                .help("Pausa por monitor e retoma ao minimizar, fechar ou mover a janela. Utilitários da barra de menus não contam. Em espelho ou panorama, a tela pausada pode mostrar o fundo do macOS.")
+                .accessibilityHint("Pausa por monitor. Utilitários da barra de menus não contam. Em espelho ou panorama, a tela pausada pode mostrar o fundo do macOS.")
+            Text("Por monitor; ignora utilitários da barra de menus.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            if model.state.displayMode.isShared {
+                Text("A tela pausada pode mostrar o fundo do macOS.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
             Toggle("Pausar em baixo consumo", isOn: Binding(get: { model.state.settings.pauseOnLowPower }, set: { model.setPauseOnLowPower($0) }))
             Toggle("Pausar sob pressão térmica", isOn: Binding(get: { model.state.settings.pauseOnThermalPressure }, set: { model.setPauseOnThermalPressure($0) }))
             Toggle("Liberar fundos com memória crítica", isOn: Binding(get: { model.state.settings.pauseOnMemoryPressure }, set: { model.setPauseOnMemoryPressure($0) }))
-            Text("As pausas de proteção valem para todos os monitores.").font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: colorScheme))
+            Text("Proteções em todas as telas.").font(.caption).foregroundStyle(BrandTheme.secondaryInk(for: colorScheme))
         }.disabled(!model.canEdit)
     }
 
     private var studioTitle: some View {
         HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Sua tela, mais viva.").font(.system(size: 27, weight: .semibold, design: .rounded)).tracking(-0.7)
-                    .accessibilityAddTraits(.isHeader)
-                Text("Seu espaço. Seu movimento.").font(.callout).foregroundStyle(BrandTheme.secondaryInk(for: colorScheme))
-            }
+            Text("Papel de parede").font(.system(size: 23, weight: .semibold, design: .rounded)).tracking(-0.5)
+                .accessibilityAddTraits(.isHeader)
             Spacer(minLength: 8)
             HStack(spacing: 8) {
                 Button { model.chooseFiles() } label: {
@@ -422,7 +425,7 @@ struct LibraryView: View {
                 Label("Nenhum monitor disponível", systemImage: "display.trianglebadge.exclamationmark").font(.callout)
             } else if model.state.displayMode.isShared {
                 HStack {
-                    Text(model.state.displayMode == .spanned ? "Panorama: os ajustes afetam todas as telas." : "Espelhado: os ajustes afetam todas as telas.")
+                    Text("Ajustes em todas as telas.")
                         .font(.caption).fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 8)
                     Button("Controlar separadamente") { model.useIndependentDisplays(on: selectedDisplay) }
