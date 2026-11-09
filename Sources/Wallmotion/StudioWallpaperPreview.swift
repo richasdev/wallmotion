@@ -16,17 +16,11 @@ struct StudioWallpaperPreview: View {
             } else {
                 VStack(spacing: 10) {
                     Image(systemName: "display").font(.system(size: 32, weight: .light)).foregroundStyle(BrandTheme.cyan)
-                    Text("Escolha seu próximo fundo").font(.caption).foregroundStyle(.white)
+                    Text("Selecione um fundo").font(.caption).foregroundStyle(.white)
                 }.padding(16)
             }
         }
-        .overlay(alignment: .bottomLeading) {
-            if item != nil {
-                Text("Miniatura da mídia").font(.caption2.weight(.medium))
-                    .foregroundStyle(.white).padding(.horizontal, 7).padding(.vertical, 4)
-                    .background(.black.opacity(0.7), in: Capsule()).padding(10)
-            }
-        }
+        .help("Miniatura; o enquadramento é aplicado no desktop.")
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(item.map { "Miniatura de \($0.title). O enquadramento é aplicado no desktop." } ?? "Nenhum fundo aplicado")
     }
